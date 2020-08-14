@@ -29,9 +29,9 @@
 
 /* Functions prototype in this source file
  *******************************/
-static void palert2ew_config ( char * );
-static void palert2ew_lookup ( void );
-static void palert2ew_status ( unsigned char, short, char * );
+static void palert2ew_config( char * );
+static void palert2ew_lookup( void );
+static void palert2ew_status( unsigned char, short, char * );
 static void palert2ew_end( void );                /* Free all the local memory & close socket */
 
 static thr_ret MessageReceiverF ( void * );  /* Read messages from the socket of forward server */
@@ -71,7 +71,8 @@ static char     ServerIP[INET6_ADDRSTRLEN];
 static char     ServerPort[8];
 static uint64_t MaxStationNum;
 static DBINFO   DBInfo;
-static char     StationTable[MAX_TABLE_LEGTH];
+static char     SQLStationTable[MAX_TABLE_LEGTH];
+static char     SQLChannelTable[MAX_TABLE_LEGTH];
 
 /* Things to look up in the earthworm.h tables with getutil.c functions
  **********************************************************************/
@@ -91,6 +92,7 @@ static uint8_t TypePalertRaw = 0;
 #define  ERR_QUEUE         3   /* error queueing message for sending      */
 //static char Text[150];         /* string for log/error messages          */
 
+static volatile void   *_Root  = NULL;
 static volatile _Bool   Finish = 0;
 static volatile uint8_t UpdateStatus = 0;
 
@@ -129,62 +131,52 @@ int main ( int argc, char **argv )
 	const uint8_t number[2] = { 0, 1 };
 
 
-/* Check command line arguments
- ******************************/
+/* Check command line arguments */
 	if ( argc != 2 ) {
-		fprintf( stderr, "Usage: palert2ew <configfile>\n" );
-		exit( 0 );
+		fprintf(stderr, "Usage: palert2ew <configfile>\n");
+		exit(0);
 	}
-
 	Finish = 1;
 	UpdateStatus = 0;
 
-/* Initialize name of log-file & open it
- ***************************************/
-	logit_init( argv[1], 0, 256, 1 );
-
-/* Read the configuration file(s)
- ********************************/
+/* Initialize name of log-file & open it */
+	logit_init(argv[1], 0, 256, 1);
+/* Read the configuration file(s) */
 	palert2ew_config( argv[1] );
-	logit( "" , "%s: Read command file <%s>\n", argv[0], argv[1] );
+	logit("" , "%s: Read command file <%s>\n", argv[0], argv[1]);
+/* Read the station list from remote database */
+	palert2ew_list_db_fetch( &_Root, SQLStationTable, SQLChannelTable, &DBInfo );
+	palert2ew_list_root_switch( &_Root );
+	if ( !palert2ew_list_total_station() ) {
+		fprintf(stderr, "There is not any station in the list after fetching, exiting!\n");
+		exit(-1);
+	}
 
-/* Look up important info from earthworm.h tables
- ************************************************/
+/* Look up important info from earthworm.h tables */
 	palert2ew_lookup();
-
-/* Reinitialize logit to desired logging level
- **********************************************/
-	logit_init( argv[1], 0, 256, LogSwitch );
-
+/* Reinitialize logit to desired logging level */
+	logit_init(argv[1], 0, 256, LogSwitch);
 	lockfile = ew_lockfile_path(argv[1]);
 	if ( (lockfile_fd = ew_lockfile(lockfile) ) == -1 ) {
-		fprintf(stderr, "one  instance of %s is already running, exiting\n", argv[0]);
-		exit (-1);
+		fprintf(stderr, "One instance of %s is already running, exiting!\n", argv[0]);
+		exit(-1);
 	}
-/*
-	fprintf(stderr, "DEBUG: for %s, fd=%d for %s, LOCKED\n", argv[0], lockfile_fd, lockfile);
-*/
-
 /* Get process ID for heartbeat messages */
 	MyPid = getpid();
-	if( MyPid == -1 ) {
-		logit("e","palert2ew: Cannot get pid. Exiting.\n");
-		exit (-1);
+	if ( MyPid == -1 ) {
+		logit("e","palert2ew: Cannot get pid. Exiting!\n");
+		exit(-1);
 	}
 
-/* Build the message
- *******************/
-	for ( i = 0; i < 2; i++ ) {
-		Putlogo[i].instid = InstId;
-		Putlogo[i].mod    = MyModId;
-	}
+/* Build the message */
+	Putlogo[WAVE_MSG_LOGO].instid = InstId;
+	Putlogo[WAVE_MSG_LOGO].mod    = MyModId;
+	Putlogo[WAVE_MSG_LOGO].type   = TypeTracebuf2;
+	Putlogo[RAW_MSG_LOGO].instid  = InstId;
+	Putlogo[RAW_MSG_LOGO].mod     = MyModId;
+	Putlogo[RAW_MSG_LOGO].type    = TypePalertRaw;
 
-/* Message which is sent to share ring */
-	Putlogo[WAVE_MSG_LOGO].type = TypeTracebuf2;
-	Putlogo[RAW_MSG_LOGO].type  = TypePalertRaw;
-
-/* Attach to Output shared memory ring
- *******************************************/
+/* Attach to Output shared memory ring */
 	for ( i=0; i<2; i++ ) {
 		if ( RingKey[i] == -1 ) {
 			Region[i].key = RingKey[i];
@@ -195,80 +187,42 @@ int main ( int argc, char **argv )
 					&RingName[i][0], RingKey[i] );
 		}
 	}
-
 /* Initialize the message queue */
 	MsgQueueInit((unsigned long)QueueSize, &Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO]);
 
-/* Force a heartbeat to be issued in first pass thru main loop
- *************************************************************/
-	timeLastBeat = time(&timeNow) - HeartBeatInterval - 1;
-
+/* Force a heartbeat to be issued in first pass thru main loop */
+	timeLastBeat  = time(&timeNow) - HeartBeatInterval - 1;
 	timeLastCheck = timeNow;
-
 /* Initialize the timezone shift */
 	timeLocal = localtime(&timeNow);
 	TimeShift = -timeLocal->tm_gmtoff;
-
 /* Initialize Palert stations list */
 	palert2ew_list_fetch( StationTable, &DBInfo );
 
 /*----------------------- setup done; start main loop -------------------------*/
 	while(1)
 	{
-	/* Send palert2ew's heartbeat
-	***************************/
+	/* Send palert2ew's heartbeat */
 		if  ( time(&timeNow) - timeLastBeat >= (int64_t)HeartBeatInterval ) {
 			timeLastBeat = timeNow;
 			palert2ew_status( TypeHeartBeat, 0, "" );
 		}
-
 	/* Start the message receiving thread if it isn't already running. */
-		if ( ServerSwitch == 0 ) {
-			if ( MessageReceiverFStatus != THREAD_ALIVE ) {
-				if ( StartThread( MessageReceiverF, (uint32_t)THREAD_STACK, &tid[0] ) == -1 ) {
-					logit( "e",
-							"palert2ew: Error starting MessageReceiverF thread; exiting!\n" );
-					palert2ew_end();
-					exit(-1);
-				}
-				MessageReceiverFStatus = THREAD_ALIVE;
-			}
-		}
-		else {
-			for ( i = 0; i < 2; i++ ) {
-				if ( MessageReceiverPStatus[i] != THREAD_ALIVE ) {
-					if ( StartThreadWithArg( MessageReceiverP, (void *)&number[i], (uint32_t)THREAD_STACK, &tid[i] ) == -1 ) {
-						logit( "e",
-								"palert2ew: Error starting MessageReceiverP %d thread; exiting!\n", i );
-						palert2ew_end();
-						exit(-1);
-					}
-					MessageReceiverPStatus[i] = THREAD_ALIVE;
-				}
-			}
-			if  ( timeNow - timeLastCheck >= 60 ) {
-				timeLastCheck = timeNow;
-				CheckPalertConn();
-			}
-		}
+		if ( ServerSwitch == 0 )
+			check_thread_client();
+		else
+			check_thread_server();
 
-	/* Process all new messages
-	**************************/
+	/* Process all new messages */
 		count = 0;
-
-		do
-		{
-		/* See if a termination has been requested
-		*****************************************/
+		do {
+		/* See if a termination has been requested */
 			if ( tport_getflag( &Region[0] ) == TERMINATE ||
 				tport_getflag( &Region[0] ) == MyPid ) {
 			/* write a termination msg to log file */
 				logit( "t", "palert2ew: Termination requested; exiting!\n" );
 				fflush( stdout );
 			/* should check the return of these if we really care */
-			/*
-				fprintf(stderr, "DEBUG: %s, fd=%d for %s\n", argv[0], lockfile_fd, lockfile);
-			*/
 				Finish = 0;
 				sleep_ew(500);
 			/* detach from shared memory */
@@ -278,9 +232,10 @@ int main ( int argc, char **argv )
 				exit( 0 );
 			}
 
-			if ( (res = MsgDequeue(&packet, &msg_size)) < 0 ) break;
-
-			count++;
+			if ( (res = MsgDequeue(&packet, &msg_size)) < 0 )
+				break;
+			else
+				count++;
 
 		/* Process the message */
 			if ( palertp->pah.packet_type[0] & 0x01 ) {
@@ -298,7 +253,6 @@ int main ( int argc, char **argv )
 					}
 				}
 			}
-			/* logit( "", "%s", res ); */   /*debug*/
 		} while ( count < MaxStationNum );  /* end of message-processing-loop */
 		sleep_ew( 50 );  /* no more messages; wait for new ones to arrive */
 	}
@@ -319,53 +273,48 @@ static void palert2ew_config( char *configfile )
 	char  init[16];     /* init flags, one byte for each required command */
 	char *com;
 	char *str;
+	int   ncommand;     /* # of required commands you expect to process   */
+	int   nmiss;        /* number of required commands that were missed   */
+	int   nfiles;
+	int   success;
+	int   i;
 
-	uint32_t ncommand;     /* # of required commands you expect to process   */
-	uint32_t nmiss;        /* number of required commands that were missed   */
-	uint32_t nfiles;
-	uint32_t success;
-	uint32_t i;
+/* Set to zero one init flag for each required command */
+	ncommand = 14;
+	for( i = 0; i < ncommand; i++ ) {
+		if ( i < 9 )
+			init[i] = 0;
+		else
+			init[i] = 1;
+	}
 
-/* Set to zero one init flag for each required command
- *****************************************************/
-   ncommand = 15;
-   for( i=0; i<ncommand; i++ )  init[i] = 0;
+/* Open the main configuration file */
+	nfiles = k_open( configfile );
+	if ( nfiles == 0 ) {
+		logit("e","palert2ew: Error opening command file <%s>; exiting!\n", configfile);
+		exit(-1);
+	}
 
-/* Open the main configuration file
- **********************************/
-   nfiles = k_open( configfile );
-   if ( nfiles == 0 ) {
-		logit( "e",
-				"palert2ew: Error opening command file <%s>; exiting!\n",
-				 configfile );
-		exit( -1 );
-   }
-
-/* Process all command files
- ***************************/
-   while(nfiles > 0)   /* While there are command files open */
-   {
-		while(k_rd())        /* Read next line from active file  */
+/* Process all command files */
+	while ( nfiles > 0 )   /* While there are command files open */
+	{
+		while ( k_rd() )        /* Read next line from active file  */
 		{
 			com = k_str();         /* Get the first token from line */
-
 		/* Ignore blank lines & comments
 		 *******************************/
-			if( !com )           continue;
-			if( com[0] == '#' )  continue;
-
+			if ( !com )          continue;
+			if ( com[0] == '#' ) continue;
 		/* Open a nested configuration file
 		 **********************************/
-			if( com[0] == '@' ) {
-			   success = nfiles+1;
-			   nfiles  = k_open(&com[1]);
-			   if ( nfiles != success ) {
-				  logit( "e",
-						  "palert2ew: Error opening command file <%s>; exiting!\n",
-						   &com[1] );
-				  exit( -1 );
-			   }
-			   continue;
+			if ( com[0] == '@' ) {
+				success = nfiles + 1;
+				nfiles  = k_open(&com[1]);
+				if ( nfiles != success ) {
+					logit("e", "palert2ew: Error opening command file <%s>; exiting!\n", &com[1]);
+					exit(-1);
+				}
+				continue;
 			}
 
 		/* Process anything else as a command
@@ -411,7 +360,8 @@ static void palert2ew_config( char *configfile )
 			else if( k_its("ServerSwitch") ) {
 				if ( (ServerSwitch = k_int()) >= 1 ) {
 					ServerSwitch = 1;
-					for ( i=7; i<9; i++ ) init[i] = 1;
+					for ( i = 7; i < 9; i++ )
+						init[i] = 1;
 				}
 				else ServerSwitch = 0;
 				init[6] = 1;
@@ -419,51 +369,84 @@ static void palert2ew_config( char *configfile )
 		/* 7 */
 			else if( k_its("ServerIP") ) {
 				str = k_str();
-				if(str) strcpy( ServerIP, str );
+				if ( str ) strcpy( ServerIP, str );
 				init[7] = 1;
 			}
 		/* 8 */
 			else if( k_its("ServerPort") ) {
 				str = k_str();
-				if(str) strcpy( ServerPort, str );
+				if ( str ) strcpy( ServerPort, str );
 				init[8] = 1;
 			}
-		/* 9 */
 			else if( k_its("SQLHost") ) {
 				str = k_str();
 				if ( str ) strcpy(DBInfo.host, str);
+				for ( i = 9; i < 14; i++ )
+					init[i] = 0;
+			}
+		/* 9 */
+			else if( k_its("SQLPort") ) {
+				DBInfo.port = k_long();
 				init[9] = 1;
 			}
 		/* 10 */
-			else if( k_its("SQLPort") ) {
-				DBInfo.port = k_long();
-				init[10] = 1;
-			}
-		/* 11 */
 			else if( k_its("SQLUser") ) {
 				str = k_str();
 				if ( str ) strcpy(DBInfo.user, str);
-				init[11] = 1;
+				init[10] = 1;
 			}
-		/* 12 */
+		/* 11 */
 			else if( k_its("SQLPassword") ) {
 				str = k_str();
 				if ( str ) strcpy(DBInfo.password, str);
-				init[12] = 1;
+				init[11] = 1;
 			}
-		/* 13 */
+		/* 12 */
 			else if( k_its("SQLDatabase") ) {
 				str = k_str();
 				if ( str ) strcpy(DBInfo.database, str);
+				init[12] = 1;
+			}
+		/* 13 */
+			else if ( k_its("SQLStationTable") ) {
+				str = k_str();
+				if ( str ) strcpy(SQLStationTable, str);
 				init[13] = 1;
 			}
-		/* 14 */
-			else if ( k_its("StationTable") ) {
+			else if ( k_its("SQLChannelTable") ) {
 				str = k_str();
-				if ( str ) strcpy(StationTable, str);
-				init[14] = 1;
+				if ( str ) strcpy(SQLChannelTable, str);
 			}
+			else if ( k_its("Palert") ) {
+				int serial = k_int();
+			/* */
+				char sta[TRACE2_STA_LEN];
+				str = k_str();
+				if ( str ) strcpy(sta, str);
+			/* */
+				char net[TRACE2_NET_LEN];
+				str = k_str();
+				if ( str ) strcpy(net, str);
+			/* */
+				char loc[TRACE2_LOC_LEN];
+				str = k_str();
+				if ( str ) strcpy(loc, str);
 
+				int   nchannel = k_int();
+				char *chan[nchannel] = { NULL };
+
+				if ( nchannel ) {
+					for ( i = 0; i < nchannel; i++ ) {
+						str = k_str();
+						chan[i] = malloc(TRACE2_CHAN_LEN);
+						strcpy(chan[i], str);
+					}
+				}
+				palert2ew_list_station_add( &_Root, serial, sta, net, loc, nchannel, chan );
+			/* */
+				for ( i = 0; i < nchannel; i++ )
+					free(chan[i]);
+			}
 		 /* Unknown command
 		  *****************/
 			else {
@@ -499,12 +482,11 @@ static void palert2ew_config( char *configfile )
 		if ( !init[6] )  logit( "e", "<ServerSwitch> "      );
 		if ( !init[7] )  logit( "e", "<ServerIP> "          );
 		if ( !init[8] )  logit( "e", "<ServerPort> "        );
-		if ( !init[9] )  logit( "e", "<SQLHost> "           );
-		if ( !init[10] ) logit( "e", "<SQLPort> "           );
-		if ( !init[11] ) logit( "e", "<SQLUser> "           );
-		if ( !init[12] ) logit( "e", "<SQLPassword> "       );
-		if ( !init[13] ) logit( "e", "<SQLDatabase> "       );
-		if ( !init[14] ) logit( "e", "<StationTable> "      );
+		if ( !init[9] )  logit( "e", "<SQLPort> "           );
+		if ( !init[10] ) logit( "e", "<SQLUser> "           );
+		if ( !init[11] ) logit( "e", "<SQLPassword> "       );
+		if ( !init[12] ) logit( "e", "<SQLDatabase> "       );
+		if ( !init[13] ) logit( "e", "<SQLStationTable> "   );
 
 		logit( "e", "command(s) in <%s>; exiting!\n", configfile );
 		exit( -1 );
@@ -632,6 +614,48 @@ static void palert2ew_end( void )
 	return;
 }
 
+/*
+ *
+ */
+static void check_thread_client( void )
+{
+	if ( MessageReceiverFStatus != THREAD_ALIVE ) {
+		if ( StartThread( MessageReceiverF, (uint32_t)THREAD_STACK, &tid[0] ) == -1 ) {
+			logit("e", "palert2ew: Error starting MessageReceiverF thread; exiting!\n");
+			palert2ew_end();
+			exit(-1);
+		}
+		MessageReceiverFStatus = THREAD_ALIVE;
+	}
+
+	return;
+}
+
+/*
+ *
+ */
+static void check_thread_server( void )
+{
+	int i;
+
+	for ( i = 0; i < 2; i++ ) {
+		if ( MessageReceiverPStatus[i] != THREAD_ALIVE ) {
+			if ( StartThreadWithArg( MessageReceiverP, (void *)&number[i], (uint32_t)THREAD_STACK, &tid[i] ) == -1 ) {
+				logit("e", "palert2ew: Error starting MessageReceiverP %d thread; exiting!\n", i);
+				palert2ew_end();
+				exit(-1);
+			}
+			MessageReceiverPStatus[i] = THREAD_ALIVE;
+		}
+	}
+	if ( timeNow - timeLastCheck >= 60 ) {
+		timeLastCheck = timeNow;
+		CheckPalertConn();
+	}
+
+	return;
+}
+
 /******************************************************************************
  * MessageReceiverF() Receive the messages from the socket of forward server  *
  *                    and send it to the MessageStacker.                      *
@@ -721,6 +745,24 @@ MessageReceiverP ( void *arg )
 	if ( Finish ) MessageReceiverPStatus[countindex] = THREAD_ERR; /* file a complaint to the main thread */
 	KillSelfThread(); /* main thread will restart us */
 
+	return NULL;
+}
+
+/*
+ * update_list_thread() -
+ */
+static thr_ret update_list_thread( void *dummy )
+{
+	logit("o", "palert2ew: Start to updating the list of Palerts.\n");
+
+	if ( palert2ew_list_db_fetch( &_Root, SQLStationTable, SQLChannelTable, &DBInfo ) <= 0 )
+		logit("e", "palert2ew: Fetching list from remote database error!\n");
+
+/* Just wait for 30 seconds */
+	sleep_ew(30000);
+/* Tell other threads that update is finshed */
+	UpdateStatus = 0;
+	KillSelfThread(); /* Just exit this thread */
 	return NULL;
 }
 

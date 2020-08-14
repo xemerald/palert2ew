@@ -85,7 +85,7 @@ char *palert_get_chan_code( const PALERTMODE1_CHANNEL chan_seq )
 #define X(a, b, c) b,
 	static char *chan_code[] = {
 		PALERTMODE1_CHAN_TABLE
-	}
+	};
 #undef X
 
 	return chan_code[chan_seq];
@@ -99,7 +99,7 @@ double palert_get_chan_unit( const PALERTMODE1_CHANNEL chan_seq )
 #define X(a, b, c) c,
 	double chan_unit[] = {
 		PALERTMODE1_CHAN_TABLE
-	}
+	};
 #undef X
 
 	return chan_unit[chan_seq];
@@ -114,12 +114,12 @@ char *palert_get_trigmode_str( const PALERTMODE1_HEADER *pah )
 #define X(a, b, c) b,
 	static char *trigmode_str[] = {
 		PALERT_TRIGMODE_TABLE
-	}
+	};
 #undef X
 #define X(a, b, c) c,
 	uint8_t trigmode_bit[] = {
 		PALERT_TRIGMODE_TABLE
-	}
+	};
 #undef X
 	int i;
 /* */

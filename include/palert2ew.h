@@ -4,7 +4,7 @@
 #pragma once
 
 /* */
-#define PALERT2EW_INFO_FROM_SQL     2
+#define PALERT2EW_INFO_FROM_SQL     4
 #define PALERT2EW_DEF_CHAN_PER_STA  3
 
 #define DATA_BUFFER_LENGTH  12000
@@ -38,7 +38,7 @@ typedef struct {
 /* Station info related struct */
 typedef struct {
 	uint16_t serial;
-	uint16_t nchannels;
+	uint16_t nchannel;
 	char     sta[TRACE2_STA_LEN];
 	char     net[TRACE2_NET_LEN];
 	char     loc[TRACE2_LOC_LEN];
