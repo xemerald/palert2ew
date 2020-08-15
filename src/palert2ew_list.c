@@ -148,7 +148,7 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 /* Connect to database */
 	printf("palert2ew: Querying the station information from MySQL server %s...\n", dbinfo->host);
 	sql_res = stalist_sta_query_sql(
-		dbinfo, table_sta, PALERT2EW_INFO_FROM_SQL,
+		dbinfo, table_sta, PA2EW_INFO_FROM_SQL,
 		COL_STA_SERIAL, COL_STA_STATION, COL_STA_NETWORK, COL_STA_LOCATION
 	);
 	if ( sql_res == NULL )
@@ -269,7 +269,7 @@ static _CHAINFO *enrich_chainfo_default( _STAINFO *stainfo )
 	};
 #undef X
 
-	return enrich_chainfo_raw( stainfo, PALERT2EW_DEF_CHAN_PER_STA, chan );
+	return enrich_chainfo_raw( stainfo, PA2EW_DEF_CHAN_PER_STA, chan );
 }
 
 /*

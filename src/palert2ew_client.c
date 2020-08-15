@@ -4,105 +4,99 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+/* Network related header include */
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
 /* Earthworm environment header include */
 #include <earthworm.h>
 /* Local header include */
+#include <palert2ew.h>
 #include <palert2ew_list.h>
-#include <palert2ew_socket.h>
 #include <palert2ew_msg_queue.h>
 
 #define FORWARD_PACKET_HEADER_LENGTH  4
+#define RECONNECT_INTERVAL            15000
 
+/* */
+static int reconstruct_connect_sock( const char *, const char * );
+static int construct_connect_sock( const char *, const char * );
+
+/* */
 static volatile int  ClientSocket = -1;
 static const char   *_ServerIP    = NULL;
 static const char   *_ServerPort  = NULL;
-static uint8_t      *Buffer       = NULL;
-static uint8_t       SyncErrCnt   = 0;
 
-
-/********************************************************************
- *  PalertClientInit( ) -- Initialize the dependent Palert client.  *
- *  Arguments:                                                      *
- *    serverIP   = String of IP address of Palert server.           *
- *    serverPort = String of the port to connect.                   *
- *  Returns:                                                        *
- *     0 = Normal, success.                                         *
- ********************************************************************/
-int PalertClientInit( const char *serverIP, const char *serverPort )
+/*
+ * pa2ew_client_init() - Initialize the dependent Palert client.
+ */
+int pa2ew_client_init( const char *ip, const char *port )
 {
 /* Setup constants */
-	SyncErrCnt  = 0;
-	_ServerIP   = serverIP;
-	_ServerPort = serverPort;
-
+	_ServerIP   = ip;
+	_ServerPort = port;
 /* Construct the accept socket */
-	if ( (ClientSocket = ConstructSocket(_ServerIP, _ServerPort)) == -1 ) {
-		return -1;
-	}
+	ClientSocket = construct_connect_sock( ip, port );
 
-/* Allocate read-in buffer */
-	Buffer = calloc(1, sizeof(PREPACKET));
-
-	return 0;
+	return ClientSocket;
 }
 
-/******************************************************************************
- * ReadServerData() Receive the messages from the socket of forward server  *
- *                    and send it to the MessageStacker.                      *
- ******************************************************************************/
-int ReadServerData( void )
+/*
+ * pa2ew_client_end() - End process of Palert client.
+ */
+void pa2ew_client_end( void )
 {
-	int ret;
+	close(ClientSocket);
 
-	int32_t byteRec = 0;
-	int32_t dataReq = FORWARD_PACKET_HEADER_LENGTH;
-	int32_t dataRead = 0;
-	uint16_t serial;
+	return;
+}
 
-	PREPACKET *readptr = (PREPACKET *)Buffer;
-	_STAINFO  *staptr = NULL;
+/*
+ * pa2ew_client_stream() - Receive the messages from the socket of forward server
+ *                         and send it to the MessageStacker.
+ */
+int pa2ew_client_stream( void )
+{
+	static uint8_t buffer[PREPACKET_LENGTH] = { 0 };
+	static uint8_t sync_errors              = 0;
 
-	memset(Buffer, 0, PREPACKET_LENGTH);
+	int        ret       = 0;
+	int        data_read = 0;
+	int        data_req  = FORWARD_PACKET_HEADER_LENGTH;
+	PREPACKET *readptr   = (PREPACKET *)buffer;
 
-	do
-	{
-		if ( (byteRec = recv(ClientSocket, Buffer + dataRead, dataReq, 0)) <= 0 ) {
+	memset(buffer, 0, PREPACKET_LENGTH);
+	do {
+		if ( (ret = recv(ClientSocket, buffer + data_read, data_req, 0)) <= 0 ) {
 			if ( errno == EINTR ) {
 				sleep_ew(100);
 				continue;
 			}
-			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT )
+			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ) {
 				logit("e", "palert2ew: Connection to Palert server is timeout, reconnect!\n");
-			else if ( byteRec == 0 )
+			}
+			else if ( ret == 0 ) {
 				logit("e", "palert2ew: Connection to Palert server is closed, reconnect!\n");
-
-			if ( ReConstructSocket(_ServerIP, _ServerPort, (int *)&ClientSocket) < 0 ) {
-				return -3;
 			}
 
-			dataRead = 0;
-			dataReq = FORWARD_PACKET_HEADER_LENGTH;
+			if ( ReConstructSocket(_ServerIP, _ServerPort, (int *)&ClientSocket) < 0 )
+				return -3;
 
+			data_read = 0;
+			data_req  = FORWARD_PACKET_HEADER_LENGTH;
 			continue;
 		}
-
-		dataRead += byteRec;
-
-		if ( dataRead >= FORWARD_PACKET_HEADER_LENGTH )
-			dataReq = readptr->len + FORWARD_PACKET_HEADER_LENGTH - dataRead;
-
-		/*	printf("ByteRec:%d!\n", byteRec);
-			printf("DataReq:%d!\n", dataReq);
-			printf("DataRead:%d!\n", dataRead);
-			printf("Length:%d!\n", readptr->len);	*/	/* Debug */
-
-	} while ( dataReq );
+	/* */
+		if ( (data_read += ret) >= FORWARD_PACKET_HEADER_LENGTH )
+			data_req = readptr->len + FORWARD_PACKET_HEADER_LENGTH - data_read;
+	} while ( data_req );
 
 /* Find which one palert */
-	serial = readptr->serial;
-
-	staptr = palert2ew_list_find( serial );
-
+	uint16_t  serial = readptr->serial;
+	_STAINFO *staptr = palert2ew_list_find( serial );
 	if ( staptr == NULL ) {
 	/* Serial should always larger than 0, if so send the update request */
 		if ( serial > 0 ) {
@@ -114,10 +108,10 @@ int ReadServerData( void )
 		}
 	}
 	else {
-		if ( (ret = MsgEnqueue( readptr, staptr )) ) {
+		if ( ret = MsgEnqueue( readptr, staptr ) ) {
 			if ( ret == -1 ) {
-				if ( ++SyncErrCnt >= 10 ) {
-					SyncErrCnt = 0;
+				if ( ++sync_errors >= 10 ) {
+					sync_errors = 0;
 					logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
 					if ( ReConstructSocket(_ServerIP, _ServerPort, (int *)&ClientSocket) < 0 ) {
 						return -3;
@@ -129,24 +123,90 @@ int ReadServerData( void )
 				return -2;
 			}
 		}
-		else SyncErrCnt = 0;
+		else sync_errors = 0;
 	}
 
 	return 0;
 }
 
-
-/*********************************************************
- *  EndPalertClient( ) -- End process of Palert client.  *
- *  Arguments:                                           *
- *    None.                                              *
- *  Returns:                                             *
- *    None.                                              *
- *********************************************************/
-void PalertClientEnd( void )
+/*
+ * ReConstructSocket() - Reconstruct the socket connect to the Palert server.
+ */
+static int reconstruct_connect_sock( const char *ip, const char *port )
 {
-	close(ClientSocket);
-	free(Buffer);
+	int count = 0;
 
-	return;
+/* */
+	if ( ClientSocket != -1 )
+		close(ClientSocket);
+/* Do until we success getting socket or exceed 100 times */
+	while ( (ClientSocket = construct_connect_sock( ip, port )) == -1 ) {
+	/* Try 100 times */
+		if ( ++count > 100 ) {
+			logit("e", "palert2ew: Reconstruct socket failed; exiting!\n");
+			return -1;
+		}
+	/* Waiting for a while */
+		sleep_ew(RECONNECT_INTERVAL);
+	}
+	logit("t", "palert2ew: Reconstruct socket success!\n");
+
+	return ClientSocket;
+}
+
+/*
+ *  construct_connect_sock() - Construct the socket connect to the Palert server.
+ */
+static int construct_connect_sock( const char *ip, const char *port )
+{
+	int result   = -1;
+	int sock_opt = 1;
+
+	struct addrinfo  hints;
+	struct addrinfo *servinfo, *p;
+	struct timeval   timeout;          /* Socket connect timeout */
+
+/* Initialize the address info structure */
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family   = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+/* Get IP & port information */
+	if ( getaddrinfo(ip, port, &hints, &servinfo) ) {
+		logit("e", "palert2ew: Get connection address info error!\n");
+		return -1;
+	}
+
+/* Setup socket */
+	for ( p = servinfo; p != NULL; p = p->ai_next) {
+		if ( (result = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1 ) {
+			logit("e", "palert2ew: Construct Palert connection socket error!\n");
+			return -1;
+		}
+	/* Set connection timeout to 15 seconds */
+		timeout.tv_sec  = 15;
+		timeout.tv_usec = 0;
+	/* Setup characteristics of socket */
+		setsockopt(result, IPPROTO_TCP, TCP_QUICKACK, &sock_opt, sizeof(sock_opt));
+		setsockopt(result, SOL_SOCKET, SO_REUSEADDR, &sock_opt, sizeof(sock_opt));
+		setsockopt(result, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
+	/* Connect to the Palert server if we are using dependent client mode */
+		if ( connect(result, p->ai_addr, p->ai_addrlen) < 0 ) {
+			logit("e", "palert2ew: Connect to Palert server error!\n");
+			continue;
+		}
+
+		break;
+	}
+	freeaddrinfo(servinfo);
+
+	if ( p != NULL ) {
+		logit("o", "palert2ew: Connection to Palert server %s success!\n", ip);
+	}
+	else {
+		logit("e", "palert2ew: Construct Palert connection socket failed!\n");
+		close(result);
+		result = -1;
+	}
+
+	return result;
 }

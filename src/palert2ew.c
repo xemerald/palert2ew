@@ -26,7 +26,6 @@
 #include <palert2ew_server.h>
 #include <palert2ew_msg_queue.h>
 
-
 /* Functions prototype in this source file
  *******************************/
 static void palert2ew_config( char * );
@@ -34,29 +33,35 @@ static void palert2ew_lookup( void );
 static void palert2ew_status( unsigned char, short, char * );
 static void palert2ew_end( void );                /* Free all the local memory & close socket */
 
-static thr_ret MessageReceiverF ( void * );  /* Read messages from the socket of forward server */
-static thr_ret MessageReceiverP ( void * );  /* Read messages from the socket of Palerts */
-static thr_ret UpdatePalertList ( void * );
+static void    check_reciever_client( void );
+static void    check_reciever_server( void );
+static thr_ret reciever_client_thread( void * );  /* Read messages from the socket of forward server */
+static thr_ret reciever_server_thread( void * );  /* Read messages from the socket of Palerts */
+static thr_ret update_list_thread( void * );
 
-static TRACE2_HEADER *enrich_tracebuf_header_pmode1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
-static int32_t       *copydata_to_traceubf_pmode1( TracePacket *, const PalertPacket *, const PALERTMODE1_CHANNEL );
+static TRACE2_HEADER *enrich_trh2_pmode1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
+static int32_t       *copydata_tracebuf_pmode1( TracePacket *, const PalertPacket *, const PALERTMODE1_CHANNEL );
 
 /* Ring messages things */
 #define WAVE_MSG_LOGO  0
 #define RAW_MSG_LOGO   1
 
-static  SHM_INFO  Region[2];      /* shared memory region to use for i/o    */
-
-MSG_LOGO  Putlogo[2];             /* array for requesting module, type, instid */
-pid_t     MyPid;                  /* for restarts by startstop               */
+static SHM_INFO Region[2];      /* shared memory region to use for i/o    */
+static MSG_LOGO Putlogo[2];     /* array for requesting module, type, instid */
+static pid_t    MyPid;          /* for restarts by startstop               */
 
 /* Thread things */
 #define THREAD_STACK 8388608         /* 8388608 Byte = 8192 Kilobyte = 8 Megabyte */
 #define THREAD_OFF    0              /* Thread has not been started      */
 #define THREAD_ALIVE  1              /* Thread alive and well            */
 #define THREAD_ERR   -1              /* Thread encountered error quit    */
-static volatile int8_t MessageReceiverFStatus = THREAD_OFF;
-static volatile int8_t MessageReceiverPStatus[2] = { THREAD_OFF, THREAD_OFF };
+static volatile uint8_t ReceiverThreadsNum = 0;
+static volatile int8_t *MessageReceiverStatus = NULL;
+#if defined( _V710 )
+static ew_thread_t     *ReceiverThreadID = NULL;       /* Thread moving messages from transport to queue */
+#else
+static unsigned        *ReceiverThreadID = NULL;       /* Thread moving messages from transport to queue */
+#endif
 
 /* Things to read or derive from configuration file
  **************************************************/
@@ -94,42 +99,27 @@ static uint8_t TypePalertRaw = 0;
 
 static volatile void   *_Root  = NULL;
 static volatile _Bool   Finish = 0;
-static volatile uint8_t UpdateStatus = 0;
+static volatile uint8_t UpdateFlag = 0;
 
-static int64_t TimeShift = 0;            /* Time difference between UTC & local timezone */
+static int64_t LocalTimeShift = 0;            /* Time difference between UTC & local timezone */
 
 /*
  *
  */
 int main ( int argc, char **argv )
 {
-	int  res;
-
-	uint32_t i = 0;
-	uint32_t count = 0;
-	int64_t  msg_size = 0;
-
+	int        i;
 	time_t     timeNow;          /* current time                  */
 	time_t     timeLastBeat;     /* time last heartbeat was sent  */
-	time_t     timeLastCheck;    /* time last palert connection checking */
 	struct tm *timeLocal;
-
-	char   *lockfile;
-	int32_t lockfile_fd;
+	char      *lockfile;
+	int32_t    lockfile_fd;
 
 	PACKET        packet  = { 0 };
 	PalertPacket *palertp = (PalertPacket *)packet.data;
-	_STAINFO     *staptr;
-	_CHAINFO     *chaptr;
-	TracePacket   tracebuffer;  /* message which is sent to share ring    */
+	TracePacket   tracebuf;  /* message which is sent to share ring    */
 
-#if defined( _V710 )
-	ew_thread_t   tid[3];       /* Thread moving messages from transport to queue */
-#else
-	unsigned      tid[3];       /* Thread moving messages from transport to queue */
-#endif
-	const uint8_t number[2] = { 0, 1 };
-
+	void (*check_reciever_func)( void ) = NULL;
 
 /* Check command line arguments */
 	if ( argc != 2 ) {
@@ -137,7 +127,7 @@ int main ( int argc, char **argv )
 		exit(0);
 	}
 	Finish = 1;
-	UpdateStatus = 0;
+	UpdateFlag = 0;
 
 /* Initialize name of log-file & open it */
 	logit_init(argv[1], 0, 256, 1);
@@ -159,13 +149,34 @@ int main ( int argc, char **argv )
 	lockfile = ew_lockfile_path(argv[1]);
 	if ( (lockfile_fd = ew_lockfile(lockfile) ) == -1 ) {
 		fprintf(stderr, "One instance of %s is already running, exiting!\n", argv[0]);
+		palert2ew_list_end();
 		exit(-1);
 	}
 /* Get process ID for heartbeat messages */
 	MyPid = getpid();
 	if ( MyPid == -1 ) {
 		logit("e","palert2ew: Cannot get pid. Exiting!\n");
+		palert2ew_list_end();
 		exit(-1);
+	}
+
+/* Initialize the connection process either server or client */
+	if ( ServerSwitch == 0 ) {
+		ReceiverThreadsNum = 1;
+		if ( pa2ew_client_init( ServerIP, ServerPort ) < 0 ) {
+			logit("e","palert2ew: Cannot initialize the connection client process. Exiting!\n");
+			palert2ew_list_end();
+			exit(-1);
+		}
+		check_reciever_func = check_thread_client;
+	}
+	else {
+		if ( (ReceiverThreadsNum = pa2ew_server_init( MaxStationNum )) < 1 ) {
+			logit("e","palert2ew: Cannot initialize the connection server process. Exiting!\n");
+			palert2ew_list_end();
+			exit(-1);
+		}
+		check_reciever_func = check_thread_server;
 	}
 
 /* Build the message */
@@ -177,51 +188,51 @@ int main ( int argc, char **argv )
 	Putlogo[RAW_MSG_LOGO].type    = TypePalertRaw;
 
 /* Attach to Output shared memory ring */
-	for ( i=0; i<2; i++ ) {
+	for ( i = 0; i < 2; i++ ) {
 		if ( RingKey[i] == -1 ) {
 			Region[i].key = RingKey[i];
 		}
 		else {
-			tport_attach( &Region[i], RingKey[i] );
-			logit( "", "palert2ew: Attached to public memory region %s: %ld\n",
-					&RingName[i][0], RingKey[i] );
+			tport_attach(&Region[i], RingKey[i]);
+			logit("", "palert2ew: Attached to public memory region %s: %ld\n", &RingName[i][0], RingKey[i]);
 		}
 	}
 /* Initialize the message queue */
 	MsgQueueInit((unsigned long)QueueSize, &Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO]);
 
-/* Force a heartbeat to be issued in first pass thru main loop */
-	timeLastBeat  = time(&timeNow) - HeartBeatInterval - 1;
-	timeLastCheck = timeNow;
-/* Initialize the timezone shift */
-	timeLocal = localtime(&timeNow);
-	TimeShift = -timeLocal->tm_gmtoff;
-/* Initialize Palert stations list */
-	palert2ew_list_fetch( StationTable, &DBInfo );
+/* Initialize the threads' parameters */
+	MessageReceiverStatus = calloc(ReceiverThreadsNum, sizeof(int8_t));
+#if defined( _V710 )
+	ReceiverThreadID      = calloc(ReceiverThreadsNum, sizeof(ew_thread_t));
+#else
+	ReceiverThreadID      = calloc(ReceiverThreadsNum, sizeof(unsigned));
+#endif
 
+/* Force a heartbeat to be issued in first pass thru main loop */
+	timeLastBeat = time(&timeNow) - HeartBeatInterval - 1;
+/* Initialize the timezone shift */
+	//timeLocal = localtime(&timeNow);
+	LocalTimeShift = -(localtime(&timeNow)->tm_gmtoff);
 /*----------------------- setup done; start main loop -------------------------*/
-	while(1)
-	{
+	while ( 1 ) {
 	/* Send palert2ew's heartbeat */
 		if  ( time(&timeNow) - timeLastBeat >= (int64_t)HeartBeatInterval ) {
 			timeLastBeat = timeNow;
 			palert2ew_status( TypeHeartBeat, 0, "" );
 		}
-	/* Start the message receiving thread if it isn't already running. */
-		if ( ServerSwitch == 0 )
-			check_thread_client();
-		else
-			check_thread_server();
+	/* Start the message recieving thread if it isn't already running. */
+		check_reciever_func();
 
 	/* Process all new messages */
-		count = 0;
+		int    count    = 0;
+		size_t msg_size = 0;
 		do {
 		/* See if a termination has been requested */
 			if ( tport_getflag( &Region[0] ) == TERMINATE ||
 				tport_getflag( &Region[0] ) == MyPid ) {
 			/* write a termination msg to log file */
-				logit( "t", "palert2ew: Termination requested; exiting!\n" );
-				fflush( stdout );
+				logit("t", "palert2ew: Termination requested; exiting!\n");
+				fflush(stdout);
 			/* should check the return of these if we really care */
 				Finish = 0;
 				sleep_ew(500);
@@ -229,26 +240,26 @@ int main ( int argc, char **argv )
 				palert2ew_end();
 				ew_unlockfile(lockfile_fd);
 				ew_unlink_lockfile(lockfile);
-				exit( 0 );
+				exit(0);
 			}
 
-			if ( (res = MsgDequeue(&packet, &msg_size)) < 0 )
+			if ( MsgDequeue(&packet, &msg_size) < 0 )
 				break;
 			else
 				count++;
 
 		/* Process the message */
 			if ( palertp->pah.packet_type[0] & 0x01 ) {
+				_STAINFO *staptr = (_STAINFO *)packet.sptr;
+				_CHAINFO *chaptr = (_CHAINFO *)staptr->chaptr;
 			/* Common part */
-				staptr = (_STAINFO *)packet.sptr;
-				enrich_tracebuf_header_pmode1( &tracebuffer.trh2, staptr, &palertp->pah );
-				msg_size = ((tracebuffer.trh2.nsamp) << 2) + sizeof(TRACE2_HEADER);
+				enrich_trh2_pmode1( &tracebuf.trh2, staptr, &palertp->pah );
+				msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
 			/* Each channel part */
-				chaptr = (_CHAINFO *)staptr->chaptr;
 				for ( i = 0; i < staptr->nchannels; i++, chaptr++ ) {
-					strcpy(tracebuffer->trh2.chan, chaptr->chan);
-					copydata_to_traceubf_pmode1( &tracebuffer, palertp, chaptr->seq );
-					if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuffer.msg) != PUT_OK ) {
+					strcpy(tracebuf->trh2.chan, chaptr->chan);
+					copydata_tracebuf_pmode1( &tracebuf, palertp, chaptr->seq );
+					if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
 						logit("e", "palert2ew: Error putting message in region %ld\n", Region[WAVE_MSG_LOGO].key);
 					}
 				}
@@ -610,6 +621,13 @@ static void palert2ew_end( void )
 
 	MsgQueueEnd();
 	palert2ew_list_end();
+	if ( ServerSwitch == 0 )
+		pa2ew_client_end();
+	else
+		pa2ew_server_end();
+
+	free(ReceiverThreadID);
+	free(MessageReceiverStatus);
 
 	return;
 }
@@ -617,15 +635,15 @@ static void palert2ew_end( void )
 /*
  *
  */
-static void check_thread_client( void )
+static void check_reciever_client( void )
 {
-	if ( MessageReceiverFStatus != THREAD_ALIVE ) {
-		if ( StartThread( MessageReceiverF, (uint32_t)THREAD_STACK, &tid[0] ) == -1 ) {
-			logit("e", "palert2ew: Error starting MessageReceiverF thread; exiting!\n");
+	if ( MessageReceiverStatus[0] != THREAD_ALIVE ) {
+		if ( StartThread(reciever_client_thread, (uint32_t)THREAD_STACK, ReceiverThreadID) == -1 ) {
+			logit("e", "palert2ew: Error starting reciever_client thread; exiting!\n");
 			palert2ew_end();
 			exit(-1);
 		}
-		MessageReceiverFStatus = THREAD_ALIVE;
+		MessageReceiverStatus[0] = THREAD_ALIVE;
 	}
 
 	return;
@@ -634,54 +652,61 @@ static void check_thread_client( void )
 /*
  *
  */
-static void check_thread_server( void )
+static void check_reciever_server( void )
 {
-	int i;
+	static uint8_t *number     = NULL;
+	static time_t   time_check = time(NULL);
 
-	for ( i = 0; i < 2; i++ ) {
-		if ( MessageReceiverPStatus[i] != THREAD_ALIVE ) {
-			if ( StartThreadWithArg( MessageReceiverP, (void *)&number[i], (uint32_t)THREAD_STACK, &tid[i] ) == -1 ) {
-				logit("e", "palert2ew: Error starting MessageReceiverP %d thread; exiting!\n", i);
+	int          i;
+	const time_t time_now = time(NULL);
+
+/* */
+	if ( number == NULL ) {
+		number = calloc(ReceiverThreadsNum, sizeof(uint8_t));
+		for ( i = 0; i < ReceiverThreadsNum; i++ )
+			number[i] = i;
+	}
+/* */
+	pa2ew_server_palert_accept( 1000 );
+/* */
+	for ( i = 0; i < ReceiverThreadsNum; i++ ) {
+		if ( MessageReceiverStatus[i] != THREAD_ALIVE ) {
+			if ( StartThreadWithArg(
+					reciever_server_thread, &number[i], (uint32_t)THREAD_STACK, (ReceiverThreadID + i)
+				) == -1
+			) {
+				logit("e", "palert2ew: Error starting reciever_server thread(%d); exiting!\n", i);
 				palert2ew_end();
 				exit(-1);
 			}
-			MessageReceiverPStatus[i] = THREAD_ALIVE;
+			MessageReceiverStatus[i] = THREAD_ALIVE;
 		}
 	}
-	if ( timeNow - timeLastCheck >= 60 ) {
-		timeLastCheck = timeNow;
-		CheckPalertConn();
+/* */
+	if ( (time_now - time_check) >= 60 ) {
+		time_check = time_now;
+		pa2ew_server_conn_check();
 	}
 
 	return;
 }
 
-/******************************************************************************
- * MessageReceiverF() Receive the messages from the socket of forward server  *
- *                    and send it to the MessageStacker.                      *
- ******************************************************************************/
-static thr_ret
-MessageReceiverF ( void *dummy )
+/*
+ * reciever_client_thread() - Receive the messages from the socket of forward server
+ *                            and send it to the MessageStacker.
+ */
+static thr_ret reciever_client_thread( void *dummy )
 {
 	int ret;
 
-/* Initialize the connection */
-	if ( PalertClientInit( ServerIP, ServerPort ) < 0 ) {
-		logit("e", "palert2ew: Cannot initialize the connection!\n");
-		MessageReceiverFStatus = THREAD_ERR; /* file a complaint to the main thread */
-		KillSelfThread(); /* main thread will restart us */
-		return NULL;
-	}
-
-/* Tell the main thread we're ok
- ********************************/
-	MessageReceiverFStatus = THREAD_ALIVE;
-
-	do
-	{
-		if ( (ret = ReadServerData()) != 0 ) {
+/* Tell the main thread we're ok */
+	MessageReceiverStatus[0] = THREAD_ALIVE;
+/* Main service loop */
+	do {
+		if ( (ret = pa2ew_client_stream()) != 0 ) {
 			if ( ret == -1 ) {
-				if ( UpdateStatus == 0 ) UpdateStatus = 1;
+				if ( UpdateFlag == 0 )
+					UpdateFlag = 1;
 			}
 			else if ( ret == -2 ) {
 				sleep_ew(50);
@@ -693,57 +718,36 @@ MessageReceiverF ( void *dummy )
 		}
 	} while ( Finish );
 
-/* we're quitting
- *****************/
-	PalertClientEnd();
-	if ( Finish ) MessageReceiverFStatus = THREAD_ERR; /* file a complaint to the main thread */
+/* we're quitting */
+	if ( Finish )
+		MessageReceiverStatus[0] = THREAD_ERR; /* file a complaint to the main thread */
 	KillSelfThread(); /* main thread will restart us */
 
 	return NULL;
 }
 
-/******************************************************************************
- * MessageReceiverP() Receive the messages from the socket of all the Palerts *
- *                    and send it to the MessageStacker.                      *
- ******************************************************************************/
-static thr_ret
-MessageReceiverP ( void *arg )
+/*
+ * reciever_server_thread() - Receive the messages from the socket of all the Palerts
+ *                            and send it to the MessageStacker.
+ */
+static thr_ret reciever_server_thread( void *arg )
 {
-	int ret;
+	int           ret;
 	const uint8_t countindex = *((uint8_t *)arg);
 
-/* Initialize the connection */
-	if ( countindex ) {
-		if ( PalertServerInit( MaxStationNum ) < 0 ) {
-			MessageReceiverPStatus[countindex] = THREAD_ERR; /* file a complaint to the main thread */
-			KillSelfThread(); /* main thread will restart us */
-			return NULL;
-		}
-	}
-	else {
-	/* Test if initialization is ready */
-		while( GetAcceptSocket() < 0 ) sleep_ew(100);
-	}
-
-/* Tell the main thread we're ok
- ********************************/
-	MessageReceiverPStatus[countindex] = THREAD_ALIVE;
-
-	do
-	{
-		if ( (ret = ReadPalertsData(countindex, 1000)) != 0 ) {
-			if ( ret == -1 ) {
-				if ( UpdateStatus == 0 ) UpdateStatus = 1;
-			}
-		}
+/* Tell the main thread we're ok */
+	MessageReceiverStatus[countindex] = THREAD_ALIVE;
+/* Main service loop */
+	do {
+		if ( (ret = pa2ew_server_stream(countindex, 1000)) != 0 )
+			if ( ret == -1 )
+				if ( UpdateFlag == 0 )
+					UpdateFlag = 1;
 	} while ( Finish );
-
-/* we're quitting
- *****************/
-	if ( countindex ) PalertServerEnd();
-
-	if ( Finish ) MessageReceiverPStatus[countindex] = THREAD_ERR; /* file a complaint to the main thread */
-	KillSelfThread(); /* main thread will restart us */
+/* file a complaint to the main thread */
+	if ( Finish )
+		MessageReceiverStatus[countindex] = THREAD_ERR;
+	KillSelfThread();
 
 	return NULL;
 }
@@ -761,22 +765,22 @@ static thr_ret update_list_thread( void *dummy )
 /* Just wait for 30 seconds */
 	sleep_ew(30000);
 /* Tell other threads that update is finshed */
-	UpdateStatus = 0;
+	UpdateFlag = 0;
 	KillSelfThread(); /* Just exit this thread */
 	return NULL;
 }
 
 /*
- * enrich_tracebuf_header_pmode1() -
+ * enrich_trh2_pmode1() -
  */
-static TRACE2_HEADER *enrich_tracebuf_header_pmode1(
+static TRACE2_HEADER *enrich_trh2_pmode1(
 	TRACE2_HEADER *trh2, const _STAINFO *staptr, const PALERTMODE1_HEADER *pah
 ) {
 /* */
 	trh2->pinno     = 0;
 	trh2->nsamp     = PALERTMODE1_SAMPLE_NUMBER;
 	trh2->samprate  = (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah );
-	trh2->starttime = palert_get_systime( pah, TimeShift );
+	trh2->starttime = palert_get_systime( pah, LocalTimeShift );
 	trh2->endtime   = trh2->starttime + (trh2->nsamp - 1) * 1.0 / trh2->samprate;
 /* */
 	strcpy(trh2->sta, staptr->sta);
@@ -801,10 +805,10 @@ static TRACE2_HEADER *enrich_tracebuf_header_pmode1(
 }
 
 /*
- * copydata_to_traceubf_pmode1() -
+ * copydata_tracebuf_pmode1() -
  */
-static int32_t *copydata_to_traceubf_pmode1(
-	TracePacket *tracebuffer, const PalertPacket *palertp, const PALERTMODE1_CHANNEL chan_seq
+static int32_t *copydata_tracebuf_pmode1(
+	TracePacket *tracebuf, const PalertPacket *palertp, const PALERTMODE1_CHANNEL chan_seq
 ) {
-	return palert_get_data( palertp, chan_seq, (int32_t *)((&tracebuffer->trh2) + 1) );
+	return palert_get_data( palertp, chan_seq, (int32_t *)((&tracebuf->trh2) + 1) );
 }

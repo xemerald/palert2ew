@@ -4,9 +4,9 @@
 #pragma once
 
 /* */
-#define PALERT2EW_INFO_FROM_SQL     4
-#define PALERT2EW_DEF_CHAN_PER_STA  3
-
+#define PA2EW_INFO_FROM_SQL     4
+#define PA2EW_DEF_CHAN_PER_STA  3
+/* */
 #define DATA_BUFFER_LENGTH  12000
 #define PREPACKET_LENGTH    DATA_BUFFER_LENGTH + 4
 

@@ -15,72 +15,46 @@
 
 /* Define global variables */
 static pthread_mutex_t QueueMutex;
+static QUEUE           MsgQueue;    /* from queue.h, queue.c; sets up linked */
+static const SHM_INFO *RawRegion = NULL;  /* shared memory region to use for raw i/o    */
+static const MSG_LOGO *RawLogo   = NULL;
 
-static QUEUE     MsgQueue;          /* from queue.h, queue.c; sets up linked */
-static SHM_INFO *RawRegion = NULL;  /* shared memory region to use for raw i/o    */
-static MSG_LOGO *RawLogo   = NULL;
-
-
-/*********************************************************************
- *  MsgQueueInit( ) -- Initialization function of message queue and  *
- *                     mutex.                                        *
- *  Arguments:                                                       *
- *    queueSize = Size of queue.                                     *
- *    rawRegion =                                                    *
- *    rawLogo   = Input logo for packet.                             *
- *  Returns:                                                         *
- *     0 = Normal.                                                   *
- *********************************************************************/
-int MsgQueueInit( const unsigned long queueSize, SHM_INFO *rawRegion, MSG_LOGO *rawLogo )
+/*
+ * pa2ew_msgqueue_init() - Initialization function of message queue and mutex.
+ */
+int pa2ew_msgqueue_init( const unsigned long queue_size, const SHM_INFO *region, const MSG_LOGO *logo )
 {
 /* Create a Mutex to control access to queue */
 	CreateSpecificMutex(&QueueMutex);
-
 /* Initialize the message queue */
-	initqueue( &MsgQueue, queueSize, (unsigned long)sizeof(PACKET) + 1 );
-
+	initqueue( &MsgQueue, queue_size, (unsigned long)sizeof(PACKET) + 1 );
 /* Fill in the raw region & logo */
-	RawRegion = rawRegion;
-	RawLogo   = rawLogo;
+	RawRegion = region;
+	RawLogo   = logo;
 
 	return 0;
 }
 
-/********************************************************************
- *  MsgDequeue( ) -- Pop-out received message from main queue.      *
- *  Arguments:                                                      *
- *    packetOut = Pointer to output buffer.                         *
- *    msgSize   = Pointer of packet length.                         *
- *  Returns:                                                        *
- *     0 = Normal, data pop-out success.                            *
- *    <0 = Normal, there is no data inside main queue.              *
- ********************************************************************/
-int MsgDequeue( PACKET *packetOut, long *msgSize )
+/*
+ * pa2ew_msgqueue_dequeue() - Pop-out received message from main queue.
+ */
+int pa2ew_msgqueue_dequeue( PACKET *packet, size_t *size )
 {
 	int      ret;
-	MSG_LOGO tmplogo;
+	MSG_LOGO dummy;
 
 	RequestSpecificMutex(&QueueMutex);
-	ret = dequeue(&MsgQueue, (char *)packetOut, msgSize, &tmplogo);
+	ret = dequeue(&MsgQueue, (char *)packet, size, &dummy);
 	ReleaseSpecificMutex(&QueueMutex);
 
 	return ret;
 }
 
-/************************************************************************
- *  MsgEnqueue( ) -- Stack received message into queue of station       *
- *                   or main queue.                                     *
- *  Arguments:                                                          *
- *    packetIn = Pointer to received packet from Palert or server.      *
- *    staPtr   = Pointer to the station which sent this packet.         *
- *  Returns:                                                            *
- *     0 = Normal, all data have been stacked into queue.               *
- *    -1 = Error, connection sync. error.                               *
- *    -2 = Error, queue cannot allocate memory, lost message.           *
- *    -3 = Error, should not happen now.                                *
- *    -4 = Error, main queue is lapped.                                 *
- ************************************************************************/
-int MsgEnqueue( PREPACKET *packetIn, _STAINFO *staPtr )
+/*
+ * pa2ew_msgqueue_enqueue() - Stack received message into queue of station
+ *                            or main queue.
+ */
+int pa2ew_msgqueue_enqueue( PREPACKET *packetIn, _STAINFO *staPtr )
 {
 	int ret = 0;
 

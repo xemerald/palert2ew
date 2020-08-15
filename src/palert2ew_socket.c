@@ -20,16 +20,10 @@
 #define RECONNECT_INTERVAL 15000
 
 
-/****************************************************************
-*  ConstructSocket( ) -- Construct Palert or Client connection  *
-*                        socket.                                *
-*  Arguments:                                                   *
-*    ip   = String of IP address of server.                     *
-*    port = String of connecting or listening port.             *
-*  Returns:                                                     *
-*    >0 = Normal, refer to the socket number.                   *
-*    -1 = Error, construct socket error.                        *
-*****************************************************************/
+/*
+ *  ConstructSocket() - Construct Palert or Client connection
+ *                        socket.
+ */
 int ConstructSocket( const char *ip, const char *port )
 {
 	int sd;
