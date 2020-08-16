@@ -30,9 +30,10 @@ typedef struct {
 
 /* */
 typedef struct {
-	uint16_t NtpErrCnt;
-	uint16_t PacketRear;
-	uint16_t PacketReq;
+	uint8_t  header_ready;
+	uint8_t  ntp_errors;
+	uint16_t packet_rear;
+	uint16_t packet_req;
 } PACKETPARAM;
 
 /* Station info related struct */
@@ -43,7 +44,7 @@ typedef struct {
 	char     net[TRACE2_NET_LEN];
 	char     loc[TRACE2_LOC_LEN];
 	void    *chaptr;
-
+/* */
 	PACKET      packet;
 	PACKETPARAM param;
 } _STAINFO;

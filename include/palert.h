@@ -255,7 +255,6 @@ typedef enum {
 		X(PALERT_TRIGMODE_PD,      "Pd",      0x02) \
 		X(PALERT_TRIGMODE_PGA,     "PGA",     0x04) \
 		X(PALERT_TRIGMODE_STA_LTA, "STA/LTA", 0x08) \
-/* Should always be last... */
 		X(PALERT_TRIGMODE_COUNT,   "NULL",    0xFF)
 
 #define PALERT_TRIGMODE_STR_LENGTH  24

@@ -7,6 +7,8 @@
 /* Header needed for PACKET, PREPACKET & _STAINFO */
 #include <palert2ew.h>
 
+#define PA2EW_NTP_SYNC_ERR_LIMIT  30
+
 /* Function prototype */
 int MsgQueueInit( const unsigned long, SHM_INFO *, MSG_LOGO * );     /* Initialization function of message queue and mutex */
 int MsgEnqueue( PREPACKET *, _STAINFO * );       /* Stack received message into queue of station or main queue */

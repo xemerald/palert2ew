@@ -19,6 +19,8 @@ static QUEUE           MsgQueue;    /* from queue.h, queue.c; sets up linked */
 static const SHM_INFO *RawRegion = NULL;  /* shared memory region to use for raw i/o    */
 static const MSG_LOGO *RawLogo   = NULL;
 
+static int filter_ntp_sync_pah1( const PALERTMODE1_HEADER *pah, _STAINFO *stainfo );
+
 /*
  * pa2ew_msgqueue_init() - Initialization function of message queue and mutex.
  */
@@ -33,6 +35,17 @@ int pa2ew_msgqueue_init( const unsigned long queue_size, const SHM_INFO *region,
 	RawLogo   = logo;
 
 	return 0;
+}
+
+/*
+ * pa2ew_msgqueue_end() - End process of message queue.
+ */
+void pa2ew_msgqueue_end( void )
+{
+	freequeue(&MsgQueue);
+	CloseSpecificMutex(&QueueMutex);
+
+	return;
 }
 
 /*
@@ -51,140 +64,240 @@ int pa2ew_msgqueue_dequeue( PACKET *packet, size_t *size )
 }
 
 /*
- * pa2ew_msgqueue_enqueue() - Stack received message into queue of station
- *                            or main queue.
+ * pa2ew_msgqueue_enqueue() - Put the compelete packet into the main queue.
  */
-int pa2ew_msgqueue_enqueue( PREPACKET *packetIn, _STAINFO *staPtr )
+int pa2ew_msgqueue_enqueue( PACKET *packet, size_t size )
 {
 	int ret = 0;
 
-	uint32_t dataRead = packetIn->len;
-	uint32_t dataEnPacket = 0;
+/* put it into the main queue */
+	RequestSpecificMutex(&QueueMutex);
+	ret = enqueue(&MsgQueue, (char *)packet, size, (MSG_LOGO){ 0 });
+	ReleaseSpecificMutex(&QueueMutex);
 
-	PACKET             *packetOut   = &staPtr->packet;
-	PACKETPARAM        *packetParam = &staPtr->param;
-	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)packetOut->data;
-
-/* Process retrieved msg */
-	do
-/* The following is dayi's code */
-	{
-	/* If there is no data inside queue of station,
-	   require total header length, 200 bytes. */
-		if ( packetParam->PacketRear == 0 ) {
-			packetParam->PacketReq = PALERTHEADER_LENGTH;
-		}
-
-	/* Reach the required data length */
-		if ( dataRead >= packetParam->PacketReq ) {
-			memcpy(&packetOut->data[packetParam->PacketRear], &packetIn->data[dataEnPacket], packetParam->PacketReq);
-
-			dataRead -= packetParam->PacketReq;
-			dataEnPacket += packetParam->PacketReq;
-			packetParam->PacketRear += packetParam->PacketReq;
-
-		/* Reach the wave data rear, send to the main queue */
-			if ( packetParam->PacketRear == PALERTPACKET_LENGTH ) {
-			/* Flush the queue of station */
-				packetParam->PacketRear = 0;
-
-			/* Put the raw data to the raw ring */
-				if ( RawRegion->key > 0 ) {
-					if ( tport_putmsg( RawRegion, RawLogo, PALERTPACKET_LENGTH, (char *)packetOut->data ) != PUT_OK ) {
-						logit( "e", "palert2ew: Error putting message in region %ld\n", RawRegion->key );
-					}
-				}
-
-			/* Check NTP SYNC. */
-				if ( PALERTMODE1_HEADER_CHECK_NTP( pah ) ) {
-					if ( packetParam->NtpErrCnt >= 30 ) {
-						logit("o", "palert2ew: Station %s NTP resync, now back online.\n", staPtr->sta_c);
-					}
-					packetParam->NtpErrCnt = 0;
-				}
-				else {
-					if ( packetParam->NtpErrCnt >= 25 ) {
-						if ( packetParam->NtpErrCnt <= 30 ) {
-							if ( packetParam->NtpErrCnt == 30 ) {
-								logit("e", "palert2ew: Station %s NTP sync error, drop the packet.\n", staPtr->sta_c);
-							}
-							else printf("palert2ew: Station %s NTP sync error, please check it!\n", staPtr->sta_c);
-						}
-						else continue;
-					}
-					packetParam->NtpErrCnt++;
-				}
-
-			/* put it into the main queue */
-				RequestSpecificMutex(&QueueMutex);
-				ret = enqueue(&MsgQueue, (char *)packetOut, sizeof(PACKET), (MSG_LOGO){ 0 });
-				ReleaseSpecificMutex(&QueueMutex);
-
-				if ( ret != 0 ) {
-					if ( ret == -2 ) {
-					/* Currently, eneueue() in mem_circ_queue.c never returns this error. */
-						ret = -3;
-					}
-					else if ( ret == -1 ) {
-					/* Queue cannot allocate memory, lost message. */
-						ret = -2;
-					}
-					else if ( ret == -3 ) {
-					/* Queue is lapped too often to be logged to screen.
-					 * Log circular queue laps to logfile.
-					 * Maybe queue laps should not be logged at all.
-					 */
-						ret = -4;
-					}
-				}
-			}
-			else {
-			/* Check connection sync. */
-				if ( PALERTMODE1_HEADER_CHECK_SYNC( pah ) ) {
-				/* 1200 bytes message */
-					if ( PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTPACKET_LENGTH ) {
-						packetParam->PacketReq = PALERTPACKET_LENGTH - PALERTHEADER_LENGTH;
-					}
-				/* 200 bytes message */
-					else if ( PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTHEADER_LENGTH ) {
-						packetParam->PacketRear = 0;
-					}
-				/* TCP connection sync error */
-					else {
-						packetParam->PacketRear = 0;
-						return -1;
-					}
-				}
-			/* TCP connection sync error */
-				else {
-					packetParam->PacketRear = 0;
-					return -1;
-				}
-			}
-		}
-		else {
-			memcpy(&packetOut->data[packetParam->PacketRear], &packetIn->data[dataEnPacket], dataRead);
-			packetParam->PacketReq -= dataRead;
-			packetParam->PacketRear += dataRead;
-			dataRead = 0;
-		}
-	} while ( dataRead > 0 );
+	if ( ret != 0 ) {
+		if ( ret == -1 )
+			logit("e", "palert2ew: Main queue cannot allocate memory, lost message!\n");
+		else if ( ret == -2 )
+			logit("e", "palert2ew: Unknown error happened to main queue!\n");
+		else if ( ret == -3 )
+			logit("e", "palert2ew: Main queue has lapped, please check it!\n");
+	}
 
 	return ret;
 }
 
-/************************************************
- *  MsgQueueEnd( ) -- End process of message    *
- *                    queue.                    *
- *  Arguments:                                  *
- *    None.                                     *
- *  Returns:                                    *
- *    None.                                     *
- ************************************************/
-void MsgQueueEnd( void )
+/*
+ * pa2ew_msgqueue_prequeue() - Stack received message into queue of station.
+ */
+int pa2ew_msgqueue_prequeue( _STAINFO *stainfo, const PREPACKET *pre_packet )
 {
-	freequeue(&MsgQueue);
-	CloseSpecificMutex(&QueueMutex);
+	int ret = 0;
 
-	return;
+	size_t data_en   = 0;
+
+
+	PACKET             *out_packet = &stainfo->packet;
+	PACKETPARAM        *param      = &stainfo->param;
+	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)out_packet->data;
+	//PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)pre_packet->data;
+
+	size_t         data_remain = pre_packet->len;
+	const uint8_t *src         = pre_packet->data;
+	uint8_t       *dest        = out_packet->data;
+	pah = (PALERTMODE1_HEADER *)pre_packet->data;
+
+	while ( data_remain >= PALERTHEADER_LENGTH ) {
+		if ( (ret = validate_serial_pah1( pah, stainfo->serial )) > 0 ) {
+			if ( ret == PALERTPACKET_LENGTH ) {
+				param->packet_rear = 0;
+				memcpy(&out_packet->data[param->packet_rear], &pre_packet->data[data_en], PALERTHEADER_LENGTH);
+				data_en            += PALERTHEADER_LENGTH;
+				param->packet_rear += PALERTHEADER_LENGTH;
+				param->header_ready = 1;
+			}
+			else {
+			/* Palceholder */
+			}
+		}
+		else {
+			if ( (ret = param->packet_rear % PALERTHEADER_LENGTH) ) {
+				ret = PALERTHEADER_LENGTH - ret;
+				memcpy(&out_packet->data[param->packet_rear], &pre_packet->data[data_en], ret);
+				data_en            += ret;
+				(uint8_t *)pah     += ret;
+				data_remain        -= ret;
+				param->packet_rear += ret;
+				PALERTMODE1_HEADER *tmppah = (PALERTMODE1_HEADER *)&out_packet->data[param->packet_rear - PALERTHEADER_LENGTH];
+				if ( (ret = validate_serial_pah1( tmppah, stainfo->serial )) > 0 ) {
+					if ( ret == PALERTPACKET_LENGTH ) {
+						if ( param->packet_rear > PALERTHEADER_LENGTH ) {
+							memmove();
+							param->packet_rear = PALERTHEADER_LENGTH;
+						}
+						param->header_ready = 1;
+					}
+					else {
+						param->packet_rear -= PALERTHEADER_LENGTH;
+					}
+				}
+				else if ( !param->header_ready ) {
+					param->packet_rear = 0;
+				}
+				continue;
+			}
+			else if ( !param->header_ready && param->packet_rear ) {
+				PALERTMODE1_HEADER *tmppah = (PALERTMODE1_HEADER *)&out_packet->data;
+				if ( (ret = validate_serial_pah1( tmppah, stainfo->serial )) > 0 ) {
+					if ( ret == PALERTPACKET_LENGTH )
+						param->header_ready = 1;
+					else
+						param->packet_rear = 0;
+				}
+				else {
+					param->packet_rear = 0;
+				}
+			}
+
+			if ( param->header_ready ) {
+				memcpy(&out_packet->data[param->packet_rear], &pre_packet->data[data_en], PALERTHEADER_LENGTH);
+				data_en            += PALERTHEADER_LENGTH;
+				param->packet_rear += PALERTHEADER_LENGTH;
+				if ( param->packet_rear == PALERTPACKET_LENGTH ) {
+				/* Flush the queue of station */
+					param->packet_rear  = 0;
+					param->header_ready = 0;
+				/* Put the raw data to the raw ring */
+					if ( RawRegion->key > 0 )
+						if ( tport_putmsg( RawRegion, RawLogo, PALERTPACKET_LENGTH, (char *)out_packet->data ) != PUT_OK )
+							logit( "e", "palert2ew: Error putting message in region %ld\n", RawRegion->key );
+
+				/* put it into the main queue */
+					if ( filter_ntp_sync_pah1( pah, stainfo ) )
+						ret = pa2ew_msgqueue_enqueue( out_packet, sizeof(PACKET) );
+					else
+						continue;
+				}
+			}
+		}
+		pah++;
+		data_remain -= PALERTHEADER_LENGTH;
+	}
+
+	if ( data_remain ) {
+		memcpy(&out_packet->data[param->packet_rear], &pre_packet->data[data_en], data_remain);
+		data_en            += data_remain;
+		param->packet_rear += data_remain;
+	}
+
+/* Process retrieved msg, and the following is origin from dayi's code */
+	do {
+	/* If there is no data inside queue of station, require total header length, 200 bytes */
+		if ( param->packet_rear == 0 )
+			param->packet_req = PALERTHEADER_LENGTH;
+	/* Reach the required data length */
+		if ( data_read >= param->packet_req ) {
+			memcpy(&out_packet->data[param->packet_rear], &pre_packet->data[data_en], param->packet_req);
+			data_read          -= param->packet_req;
+			data_en            += param->packet_req;
+			param->packet_rear += param->packet_req;
+
+		/* Reach the wave data rear, send to the main queue */
+			if ( param->packet_rear == PALERTPACKET_LENGTH ) {
+			/* Flush the queue of station */
+				param->packet_rear = 0;
+
+			/* Put the raw data to the raw ring */
+				if ( RawRegion->key > 0 )
+					if ( tport_putmsg( RawRegion, RawLogo, PALERTPACKET_LENGTH, (char *)out_packet->data ) != PUT_OK )
+						logit( "e", "palert2ew: Error putting message in region %ld\n", RawRegion->key );
+
+			/* put it into the main queue */
+				if ( filter_ntp_sync_pah1( pah, stainfo ) )
+					ret = pa2ew_msgqueue_enqueue( out_packet, sizeof(PACKET) );
+				else
+					continue;
+			}
+			else {
+				if ( (ret = validate_serial_pah1( pah, stainfo->serial )) > 0 ) {
+					if ( ret > PALERTHEADER_LENGTH )
+						param->packet_req = PALERTPACKET_LENGTH - PALERTHEADER_LENGTH;
+					else
+						param->packet_rear = 0;
+				}
+				else {
+					goto tcp_error;
+				}
+			}
+		}
+		else {
+			memcpy(&out_packet->data[param->packet_rear], &pre_packet->data[data_en], data_read);
+			param->packet_req  -= data_read;
+			param->packet_rear += data_read;
+			data_read = 0;
+		}
+	} while ( data_read > 0 );
+
+	return ret;
+tcp_error:
+	param->packet_rear = 0;
+	return 1;
+}
+
+/*
+ *
+ */
+static int validate_serial_pah1( const PALERTMODE1_HEADER *pah, const int serial )
+{
+	if ( PALERTMODE1_HEADER_CHECK_SYNC( pah ) ) {
+		if ( PALERTMODE1_HEADER_GET_SERIAL(pah) == (uint16_t)serial ) {
+			if ( PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTPACKET_LENGTH )
+				return PALERTPACKET_LENGTH;
+			else if ( PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTHEADER_LENGTH )
+				return PALERTHEADER_LENGTH;
+		}
+	}
+
+	return -1;
+}
+
+/*
+ *
+ */
+static int filter_ntp_sync_pah1( const PALERTMODE1_HEADER *pah, _STAINFO *stainfo )
+{
+	uint8_t *ntp_errors = &stainfo->param->ntp_errors;
+
+/* Check NTP SYNC. */
+	if ( PALERTMODE1_HEADER_CHECK_NTP( pah ) ) {
+		if ( *ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT )
+			logit("o", "palert2ew: Station %s NTP resync, now back online.\n", stainfo->sta);
+		*ntp_errors = 0;
+	}
+	else {
+		if ( *ntp_errors >= 25 ) {
+			if ( *ntp_errors < PA2EW_NTP_SYNC_ERR_LIMIT ) {
+				printf("palert2ew: Station %s NTP sync error, please check it!\n", stainfo->sta);
+			}
+			else {
+				if ( *ntp_errors == PA2EW_NTP_SYNC_ERR_LIMIT )
+					logit("e", "palert2ew: Station %s NTP sync error, drop the packet.\n", stainfo->sta);
+				return 0;
+			}
+		}
+		(*ntp_errors)++;
+	}
+
+	return 1;
+}
+
+/*
+ *
+ */
+static size_t enbuffer_station( _STAINFO *stainfo, const void *input, const size_t size )
+{
+	memcpy(&stainfo->packet->data[stainfo->param->packet_rear], input, size);
+	stainfo->param->packet_rear += size;
+
+	return size;
 }

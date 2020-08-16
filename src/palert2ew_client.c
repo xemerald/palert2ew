@@ -22,7 +22,7 @@
 #define RECONNECT_INTERVAL            15000
 
 /* */
-static int reconstruct_connect_sock( const char *, const char * );
+static int reconstruct_connect_sock( void );
 static int construct_connect_sock( const char *, const char * );
 
 /* */
@@ -82,7 +82,7 @@ int pa2ew_client_stream( void )
 				logit("e", "palert2ew: Connection to Palert server is closed, reconnect!\n");
 			}
 
-			if ( ReConstructSocket(_ServerIP, _ServerPort, (int *)&ClientSocket) < 0 )
+			if ( reconstruct_connect_sock() < 0 )
 				return -3;
 
 			data_read = 0;
@@ -113,9 +113,8 @@ int pa2ew_client_stream( void )
 				if ( ++sync_errors >= 10 ) {
 					sync_errors = 0;
 					logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
-					if ( ReConstructSocket(_ServerIP, _ServerPort, (int *)&ClientSocket) < 0 ) {
+					if ( reconstruct_connect_sock() < 0 )
 						return -3;
-					}
 				}
 			}
 			else if ( ret == -4 ) {
@@ -130,9 +129,9 @@ int pa2ew_client_stream( void )
 }
 
 /*
- * ReConstructSocket() - Reconstruct the socket connect to the Palert server.
+ * reconstruct_connect_sock() - Reconstruct the socket connect to the Palert server.
  */
-static int reconstruct_connect_sock( const char *ip, const char *port )
+static int reconstruct_connect_sock( void )
 {
 	int count = 0;
 
@@ -140,7 +139,7 @@ static int reconstruct_connect_sock( const char *ip, const char *port )
 	if ( ClientSocket != -1 )
 		close(ClientSocket);
 /* Do until we success getting socket or exceed 100 times */
-	while ( (ClientSocket = construct_connect_sock( ip, port )) == -1 ) {
+	while ( (ClientSocket = construct_connect_sock( _ServerIP, _ServerPort )) == -1 ) {
 	/* Try 100 times */
 		if ( ++count > 100 ) {
 			logit("e", "palert2ew: Reconstruct socket failed; exiting!\n");
