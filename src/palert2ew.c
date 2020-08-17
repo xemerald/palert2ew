@@ -660,8 +660,8 @@ static void check_reciever_server( const int wait_msec )
 	static uint8_t *number     = NULL;
 	static time_t   time_check = 0;
 
-	int          i;
-	const time_t time_now = time(NULL);
+	int    i;
+	time_t time_now;
 
 /* */
 	if ( number == NULL ) {
@@ -676,7 +676,7 @@ static void check_reciever_server( const int wait_msec )
 	for ( i = 0; i < ReceiverThreadsNum; i++ ) {
 		if ( MessageReceiverStatus[i] != THREAD_ALIVE ) {
 			if ( StartThreadWithArg(
-					reciever_server_thread, &number[i], (uint32_t)THREAD_STACK, (ReceiverThreadID + i)
+					reciever_server_thread, number + i, (uint32_t)THREAD_STACK, ReceiverThreadID + i
 				) == -1
 			) {
 				logit("e", "palert2ew: Error starting reciever_server thread(%d); exiting!\n", i);
@@ -687,7 +687,7 @@ static void check_reciever_server( const int wait_msec )
 		}
 	}
 /* */
-	if ( (time_now - time_check) >= 60 ) {
+	if ( (time(&time_now) - time_check) >= 60 ) {
 		time_check = time_now;
 		pa2ew_server_conn_check();
 	}

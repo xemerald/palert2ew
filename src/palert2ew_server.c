@@ -119,8 +119,9 @@ void pa2ew_server_end( void )
  */
 int pa2ew_server_stream( const int countindex, const int msec )
 {
-	int   i, nready;
-	_Bool need_update = 0;
+	int    i, nready;
+	time_t time_now;
+	_Bool  need_update = 0;
 /* */
 	int                 readepoll = PalertThreadSets[countindex].epoll_fd;
 	PREPACKET          *readptr   = (PREPACKET *)PalertThreadSets[countindex].buffer;
@@ -128,14 +129,14 @@ int pa2ew_server_stream( const int countindex, const int msec )
 
 /* Wait the epoll for msec minisec */
 	if ( (nready = epoll_wait(readepoll, readevts, PA2EW_MAX_PALERTS_PER_THREAD, msec)) ) {
-		time_t timenow = time(NULL);
+		time(&time_now);
 	/* There is some incoming data from socket */
 		for ( i = 0; i < nready; i++ ) {
 			if ( readevts[i].events & EPOLLIN || readevts[i].events & EPOLLRDHUP || readevts[i].events & EPOLLERR ) {
 				int          ret  = 0;
 				CONNDESCRIP *conn = (CONNDESCRIP *)readevts[i].data.ptr;
 			/* */
-				conn->last_act = timenow;
+				conn->last_act = time_now;
 				if ( (ret = recv(conn->sock, readptr->data, DATA_BUFFER_LENGTH, 0)) <= 0 ) {
 					printf(
 						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
@@ -215,14 +216,14 @@ int pa2ew_server_stream( const int countindex, const int msec )
 int pa2ew_server_conn_check( void )
 {
 	int          i, result = 0;
-	time_t       timenow = time(NULL);
+	time_t       time_now;
 	CONNDESCRIP *conn    = NULL;
 
 /* */
 	for ( i = 0; i < MaxStationNum; i++ ) {
 		conn = PalertConns + i;
 		if ( conn->sock != -1 ) {
-			if ( (timenow - conn->last_act) >= 120 ) {
+			if ( (time(&time_now) - conn->last_act) >= 120 ) {
 				logit("t", "palert2ew: Connection: %s idle over two minutes, close connection!\n", conn->ip);
 				close_palert_connect( conn, i % ThreadsNumber );
 			}
