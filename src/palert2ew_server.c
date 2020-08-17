@@ -174,7 +174,7 @@ int pa2ew_server_stream( const int countindex, const int msec )
 						else {
 						/* Find which Palert */
 							uint16_t  serial = PALERTMODE1_HEADER_GET_SERIAL( pah );
-							_STAINFO *staptr = palert2ew_list_find( serial );
+							_STAINFO *staptr = pa2ew_list_find( serial );
 							if ( staptr == NULL ) {
 							/* Not found in Palert table */
 								printf(

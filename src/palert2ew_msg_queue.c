@@ -92,7 +92,7 @@ int pa2ew_msgqueue_enqueue( PACKET *packet, size_t size )
 			(STAINFO)->param.packet_rear = 0; \
 		})
 
-#define GET_REST_BYTE_OF_200BLOCK_IN_STA(STAINFO) \
+#define GET_FRAG_BYTES_OF_200BLOCK_IN_STA(STAINFO) \
 		((STAINFO)->param.packet_rear % PALERTMODE1_HEADER_LENGTH)
 
 #define ENBUFFER_IN_STA(STAINFO, INPUT, SIZE) \
@@ -106,8 +106,8 @@ int pa2ew_msgqueue_enqueue( PACKET *packet, size_t size )
 			int                 _ret_in_MACRO   = 0; \
 			PACKETPARAM        *_param_in_MACRO = &(STAINFO)->param; \
 			PALERTMODE1_HEADER *_pah_in_MACRO   = \
-				(PALERTMODE1_HEADER *)((STAINFO)->packet.data + (_param_in_MACRO->packet_rear - PALERTMODE1_HEADER_LENGTH)); \
-			if ( (_ret_in_MACRO = validate_serial_pah1( _pah_in_MACRO, (STAINFO)->serial )) > 0 ) { \
+				(PALERTMODE1_HEADER *)((STAINFO)->packet.data + _param_in_MACRO->packet_rear); \
+			if ( (_ret_in_MACRO = validate_serial_pah1( --_pah_in_MACRO, (STAINFO)->serial )) > 0 ) { \
 				if ( _ret_in_MACRO == PALERTMODE1_PACKET_LENGTH ) { \
 					if ( _param_in_MACRO->packet_rear > PALERTMODE1_HEADER_LENGTH ) { \
 						memmove((STAINFO)->packet.data, _pah_in_MACRO, PALERTMODE1_HEADER_LENGTH); \
@@ -151,10 +151,10 @@ int pa2ew_msgqueue_prequeue( _STAINFO *stainfo, const PREPACKET *pre_packet )
 		else {
 			if ( stainfo->param.packet_rear ) {
 			/* */
-				data_in = PALERTMODE1_HEADER_LENGTH - GET_REST_BYTE_OF_200BLOCK_IN_STA( stainfo );
+				data_in -= GET_FRAG_BYTES_OF_200BLOCK_IN_STA( stainfo );
 				ENBUFFER_IN_STA( stainfo, src, data_in );
 			/* */
-				if ( data_in != PALERTMODE1_HEADER_LENGTH && !GET_REST_BYTE_OF_200BLOCK_IN_STA( stainfo ) )
+				if ( data_in != PALERTMODE1_HEADER_LENGTH && !GET_FRAG_BYTES_OF_200BLOCK_IN_STA( stainfo ) )
 					VALIDATE_LATEST_200BLOCK_IN_STA( stainfo );
 			/* */
 				if ( stainfo->param.header_ready ) {
@@ -179,7 +179,7 @@ int pa2ew_msgqueue_prequeue( _STAINFO *stainfo, const PREPACKET *pre_packet )
 		ENBUFFER_IN_STA( stainfo, src, data_remain );
 		src        += data_remain;
 		data_remain = 0;
-		if ( !GET_REST_BYTE_OF_200BLOCK_IN_STA( stainfo ) )
+		if ( !GET_FRAG_BYTES_OF_200BLOCK_IN_STA( stainfo ) )
 			VALIDATE_LATEST_200BLOCK_IN_STA( stainfo );
 	}
 

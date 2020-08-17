@@ -27,17 +27,17 @@ static volatile void *Root          = NULL;       /* Root of serial binary tree 
 static volatile int   TotalStations = 0;
 
 /*
- * palert2ew_list_db_fetch() -
+ * pa2ew_list_db_fetch() -
  */
-int palert2ew_list_db_fetch( void **root, const char *table_sta, const char *table_chan, const DBINFO *dbinfo )
+int pa2ew_list_db_fetch( void **root, const char *table_sta, const char *table_chan, const DBINFO *dbinfo )
 {
 	return fetch_list_sql( root, table_sta, table_chan, dbinfo );
 }
 
 /*
- * palert2ew_list_serial_find() -
+ * pa2ew_list_serial_find() -
  */
-_STAINFO *palert2ew_list_find( const int serial )
+_STAINFO *pa2ew_list_find( const int serial )
 {
 	_STAINFO *result = NULL;
 	_STAINFO  key;
@@ -55,9 +55,9 @@ _STAINFO *palert2ew_list_find( const int serial )
 }
 
 /*
- * palert2ew_list_end() -
+ * pa2ew_list_end() -
  */
-void palert2ew_list_end( void )
+void pa2ew_list_end( void )
 {
 	tdestroy((void *)Root, free_stainfo);
 
@@ -65,29 +65,29 @@ void palert2ew_list_end( void )
 }
 
 /*
- * palert2ew_list_walk() -
+ * pa2ew_list_walk() -
  */
-void palert2ew_list_walk( void (*action)(const void *, const VISIT, const int) )
+void pa2ew_list_walk( void (*action)(const void *, const VISIT, const int) )
 {
 	twalk((void *)Root, action);
 	return;
 }
 
 /*
- * palert2ew_list_total_station() -
+ * pa2ew_list_total_station() -
  */
-int palert2ew_list_total_station( void )
+int pa2ew_list_total_station( void )
 {
 	TotalStations = 0;
-	palert2ew_list_walk( cal_total_stations );
+	pa2ew_list_walk( cal_total_stations );
 
 	return TotalStations;
 }
 
 /*
- * palert2ew_list_station_add() -
+ * pa2ew_list_station_add() -
  */
-_STAINFO *palert2ew_list_station_add(
+_STAINFO *pa2ew_list_station_add(
 	void **root, const int serial, const char *sta, const char *net, const char *loc, const int nchannel, const char *chan[]
 ) {
 	_STAINFO *result = (_STAINFO *)calloc(1, sizeof(_STAINFO));
@@ -120,9 +120,9 @@ _STAINFO *palert2ew_list_station_add(
 }
 
 /*
- * palert2ew_list_root_switch() -
+ * pa2ew_list_root_switch() -
  */
-void *palert2ew_list_root_switch( void **root )
+void *pa2ew_list_root_switch( void **root )
 {
 	void *_root = (void *)Root;
 

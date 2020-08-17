@@ -96,7 +96,7 @@ int pa2ew_client_stream( void )
 
 /* Find which one palert */
 	uint16_t  serial = readptr->serial;
-	_STAINFO *staptr = palert2ew_list_find( serial );
+	_STAINFO *staptr = pa2ew_list_find( serial );
 	if ( staptr == NULL ) {
 	/* Serial should always larger than 0, if so send the update request */
 		if ( serial > 0 ) {

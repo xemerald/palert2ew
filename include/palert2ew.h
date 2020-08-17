@@ -12,7 +12,7 @@
 #define PA2EW_MAX_PALERTS_PER_THREAD  512
 /* */
 #define DATA_BUFFER_LENGTH  12000
-#define PREPACKET_LENGTH    DATA_BUFFER_LENGTH + 4
+#define PREPACKET_LENGTH    (DATA_BUFFER_LENGTH + 4)
 
 /* */
 #include <trace_buf.h>

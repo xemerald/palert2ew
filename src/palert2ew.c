@@ -99,6 +99,8 @@ static volatile uint8_t UpdateFlag = 0;
 
 static int64_t LocalTimeShift = 0;            /* Time difference between UTC & local timezone */
 
+#define COPYDATA_TRACEBUF_PM1(TBUF, PM1, SEQ) \
+		(palert_get_data( (PM1), (SEQ), (int32_t *)((&(TBUF)->trh2) + 1) ))
 /*
  *
  */
@@ -130,9 +132,9 @@ int main ( int argc, char **argv )
 	palert2ew_config( argv[1] );
 	logit("" , "%s: Read command file <%s>\n", argv[0], argv[1]);
 /* Read the station list from remote database */
-	palert2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo );
-	palert2ew_list_root_switch( (void **)&_Root );
-	if ( !palert2ew_list_total_station() ) {
+	pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo );
+	pa2ew_list_root_switch( (void **)&_Root );
+	if ( !pa2ew_list_total_station() ) {
 		fprintf(stderr, "There is not any station in the list after fetching, exiting!\n");
 		exit(-1);
 	}
@@ -144,14 +146,14 @@ int main ( int argc, char **argv )
 	lockfile = ew_lockfile_path(argv[1]);
 	if ( (lockfile_fd = ew_lockfile(lockfile) ) == -1 ) {
 		fprintf(stderr, "One instance of %s is already running, exiting!\n", argv[0]);
-		palert2ew_list_end();
+		pa2ew_list_end();
 		exit(-1);
 	}
 /* Get process ID for heartbeat messages */
 	MyPid = getpid();
 	if ( MyPid == -1 ) {
 		logit("e","palert2ew: Cannot get pid. Exiting!\n");
-		palert2ew_list_end();
+		pa2ew_list_end();
 		exit(-1);
 	}
 
@@ -160,7 +162,7 @@ int main ( int argc, char **argv )
 		ReceiverThreadsNum = 1;
 		if ( pa2ew_client_init( ServerIP, ServerPort ) < 0 ) {
 			logit("e","palert2ew: Cannot initialize the connection client process. Exiting!\n");
-			palert2ew_list_end();
+			pa2ew_list_end();
 			exit(-1);
 		}
 		check_reciever_func = check_reciever_client;
@@ -168,7 +170,7 @@ int main ( int argc, char **argv )
 	else {
 		if ( (ReceiverThreadsNum = pa2ew_server_init( MaxStationNum )) < 1 ) {
 			logit("e","palert2ew: Cannot initialize the connection server process. Exiting!\n");
-			palert2ew_list_end();
+			pa2ew_list_end();
 			exit(-1);
 		}
 		check_reciever_func = check_reciever_server;
@@ -261,7 +263,7 @@ int main ( int argc, char **argv )
 			/* Each channel part */
 				for ( i = 0; i < staptr->nchannel; i++, chaptr++ ) {
 					strcpy(tracebuf.trh2.chan, chaptr->chan);
-					copydata_tracebuf_pm1( &tracebuf, (PalertPacket *)packet.data, chaptr->seq );
+					COPYDATA_TRACEBUF_PM1( &tracebuf, (PalertPacket *)packet.data, chaptr->seq );
 					if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
 						logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
 				}
@@ -444,46 +446,46 @@ static void palert2ew_config( char *configfile )
 				str = k_str();
 				if ( str ) strcpy(loc, str);
 
-				int    nchannel = k_int();
-				char **chan = NULL;
-				if ( nchannel > 0 ) {
-					chan = calloc(nchannel, sizeof(char *));
+				int   nchannel = k_int();
+				char *chan[PALERTMODE1_CHAN_COUNT] = { NULL };
+				if ( nchannel > 0 && nchannel <= PALERTMODE1_CHAN_COUNT ) {
 					for ( i = 0; i < nchannel; i++ ) {
 						str = k_str();
 						chan[i] = malloc(TRACE2_CHAN_LEN);
 						strcpy(chan[i], str);
 					}
+					pa2ew_list_station_add( (void **)&_Root, serial, sta, net, loc, nchannel, (const char **)chan );
 				}
-				palert2ew_list_station_add( (void **)&_Root, serial, sta, net, loc, nchannel, (const char **)chan );
+				else {
+					logit(
+						"e", "palert2ew: ERROR, wrong channels number for station %s in <%s>, exiting!\n",
+						sta, configfile
+					);
+					exit(-1);
+				}
 			/* */
 				for ( i = 0; i < nchannel; i++ )
 					free(chan[i]);
-				free(chan);
 			}
-		 /* Unknown command
-		  *****************/
+		/* Unknown command */
 			else {
-				logit( "e", "palert2ew: <%s> Unknown command in <%s>.\n",
-						 com, configfile );
+				logit("e", "palert2ew: <%s> Unknown command in <%s>.\n", com, configfile);
 				continue;
 			}
 
 		/* See if there were any errors processing the command
 		 *****************************************************/
-			if( k_err() ) {
-			   logit( "e",
-					   "palert2ew: Bad <%s> command in <%s>; exiting!\n",
-						com, configfile );
-			   exit( -1 );
+			if ( k_err() ) {
+			   logit("e", "palert2ew: Bad <%s> command in <%s>; exiting!\n", com, configfile);
+			   exit(-1);
 			}
 		}
 		nfiles = k_close();
    }
 
-/* After all files are closed, check init flags for missed commands
- ******************************************************************/
+/* After all files are closed, check init flags for missed commands */
 	nmiss = 0;
-	for ( i=0; i<ncommand; i++ )  if( !init[i] ) nmiss++;
+	for ( i = 0; i < ncommand; i++ ) if ( !init[i] ) nmiss++;
 	if ( nmiss ) {
 		logit( "e", "palert2ew: ERROR, no " );
 		if ( !init[0] )  logit( "e", "<LogFile> "           );
@@ -501,8 +503,8 @@ static void palert2ew_config( char *configfile )
 		if ( !init[12] ) logit( "e", "<SQLDatabase> "       );
 		if ( !init[13] ) logit( "e", "<SQLStationTable> "   );
 
-		logit( "e", "command(s) in <%s>; exiting!\n", configfile );
-		exit( -1 );
+		logit("e", "command(s) in <%s>; exiting!\n", configfile);
+		exit(-1);
 	}
 
 	return;
@@ -514,58 +516,51 @@ static void palert2ew_config( char *configfile )
 static void palert2ew_lookup( void )
 {
 /* Look up keys to shared memory regions */
-	if( ( RingKey[WAVE_MSG_LOGO] = GetKey(&RingName[WAVE_MSG_LOGO][0]) ) == -1 ) {
-		fprintf( stderr,
-				"palert2ew:  Invalid ring name <%s>; exiting!\n", &RingName[WAVE_MSG_LOGO][0]);
-		exit( -1 );
+	if( (RingKey[WAVE_MSG_LOGO] = GetKey(&RingName[WAVE_MSG_LOGO][0])) == -1 ) {
+		fprintf(
+			stderr, "palert2ew: Invalid ring name <%s>; exiting!\n", &RingName[WAVE_MSG_LOGO][0]
+		);
+		exit(-1);
 	}
 	if ( RawOutputSwitch ) {
-		if( ( RingKey[RAW_MSG_LOGO] = GetKey(&RingName[RAW_MSG_LOGO][0]) ) == -1 ) {
-			fprintf( stderr,
-					"palert2ew:  Invalid ring name <%s>; exiting!\n", &RingName[RAW_MSG_LOGO][0]);
-			exit( -1 );
+		if ( (RingKey[RAW_MSG_LOGO] = GetKey(&RingName[RAW_MSG_LOGO][0])) == -1 ) {
+			fprintf(
+				stderr, "palert2ew: Invalid ring name <%s>; exiting!\n", &RingName[RAW_MSG_LOGO][0]
+			);
+			exit(-1);
 		}
 	}
 	else RingKey[RAW_MSG_LOGO] = -1;
 
-/* Look up installations of interest
-*********************************/
+/* Look up installations of interest */
 	if ( GetLocalInst( &InstId ) != 0 ) {
-		fprintf( stderr,
-				"palert2ew: error getting local installation id; exiting!\n" );
-		exit( -1 );
+		fprintf(stderr, "palert2ew: error getting local installation id; exiting!\n");
+		exit(-1);
 	}
 
-/* Look up modules of interest
-***************************/
+/* Look up modules of interest */
 	if ( GetModId( MyModName, &MyModId ) != 0 ) {
-		fprintf( stderr,
-				"palert2ew: Invalid module name <%s>; exiting!\n", MyModName );
-		exit( -1 );
+		fprintf(stderr, "palert2ew: Invalid module name <%s>; exiting!\n", MyModName);
+		exit(-1);
 	}
 
-/* Look up message types of interest
-*********************************/
+/* Look up message types of interest */
 	if ( GetType( "TYPE_HEARTBEAT", &TypeHeartBeat ) != 0 ) {
-		fprintf( stderr,
-				"palert2ew: Invalid message type <TYPE_HEARTBEAT>; exiting!\n" );
-		exit( -1 );
+		fprintf(stderr, "palert2ew: Invalid message type <TYPE_HEARTBEAT>; exiting!\n");
+		exit(-1);
 	}
 	if ( GetType( "TYPE_ERROR", &TypeError ) != 0 ) {
-		fprintf( stderr,
-				"palert2ew: Invalid message type <TYPE_ERROR>; exiting!\n" );
-		exit( -1 );
+		fprintf(stderr, "palert2ew: Invalid message type <TYPE_ERROR>; exiting!\n");
+		exit(-1);
 	}
 	if ( GetType( "TYPE_TRACEBUF2", &TypeTracebuf2 ) != 0 ) {
-		fprintf( stderr,
-				"palert2ew: Invalid message type <TYPE_TRACEBUF2>; exiting!\n" );
-		exit( -1 );
+		fprintf(stderr, "palert2ew: Invalid message type <TYPE_TRACEBUF2>; exiting!\n");
+		exit(-1);
 	}
 	if ( RawOutputSwitch ) {
 		if ( GetType( "TYPE_PALERTRAW", &TypePalertRaw ) != 0 ) {
-			fprintf( stderr,
-					"palert2ew: Invalid message type <TYPE_PALERTRAW>; exiting!\n" );
-			exit( -1 );
+			fprintf(stderr, "palert2ew: Invalid message type <TYPE_PALERTRAW>; exiting!\n");
+			exit(-1);
 		}
 	}
 	return;
@@ -589,23 +584,23 @@ static void palert2ew_status( unsigned char type, short ierr, char *note )
 
 	time(&t);
 
-	if( type == TypeHeartBeat ) {
-		sprintf( msg, "%ld %ld\n", (long)t, (long)MyPid);
+	if ( type == TypeHeartBeat ) {
+		sprintf(msg, "%ld %ld\n", (long)t, (long)MyPid);
 	}
-	else if( type == TypeError ) {
-		sprintf( msg, "%ld %hd %s\n", (long)t, ierr, note);
-		logit( "et", "palert2ew: %s\n", note );
+	else if ( type == TypeError ) {
+		sprintf(msg, "%ld %hd %s\n", (long)t, ierr, note);
+		logit("et", "palert2ew: %s\n", note);
 	}
 
 	size = strlen(msg);   /* don't include the null byte in the message */
 
 /* Write the message to shared memory */
-	if ( tport_putmsg( &Region[0], &logo, size, msg ) != PUT_OK ) {
-		if( type == TypeHeartBeat ) {
-			logit("et","palert2ew:  Error sending heartbeat.\n" );
+	if ( tport_putmsg(&Region[0], &logo, size, msg) != PUT_OK ) {
+		if ( type == TypeHeartBeat ) {
+			logit("et","palert2ew: Error sending heartbeat.\n");
 		}
-		else if( type == TypeError ) {
-			logit("et","palert2ew:  Error sending error:%d.\n", ierr );
+		else if ( type == TypeError ) {
+			logit("et","palert2ew: Error sending error:%d.\n", ierr);
 		}
 	}
 
@@ -622,7 +617,7 @@ static void palert2ew_end( void )
 		tport_detach( &Region[RAW_MSG_LOGO] );
 
 	pa2ew_msgqueue_end();
-	palert2ew_list_end();
+	pa2ew_list_end();
 	if ( ServerSwitch == 0 )
 		pa2ew_client_end();
 	else

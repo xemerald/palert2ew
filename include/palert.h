@@ -132,6 +132,14 @@ typedef struct {
 /*
  *
  */
+#define PALERT_SET_IP   0
+#define PALERT_NTP_IP   1
+#define PALERT_TCP0_IP  2
+#define PALERT_TCP1_IP  3
+
+/*
+ *
+ */
 #define PALERTMODE1_HEADER_ACC_UNIT   0.059814453f
 #define PALERTMODE1_HEADER_VEL_UNIT   0.01f
 #define PALERTMODE1_HEADER_DIS_UNIT   0.001f
@@ -149,17 +157,65 @@ typedef struct {
 #define PALERTMODE1_SAMPLE_NUMBER    100
 
 /*
+ * Palert default channel information
+ */
+#define PALERT_DEFAULT_SAMPRATE  100
+
+#define PALERTMODE1_CHAN_TABLE \
+		X(PALERTMODE1_CHAN_0,     "HLZ",  PALERTMODE1_HEADER_ACC_UNIT) \
+		X(PALERTMODE1_CHAN_1,     "HLN",  PALERTMODE1_HEADER_ACC_UNIT) \
+		X(PALERTMODE1_CHAN_2,     "HLE",  PALERTMODE1_HEADER_ACC_UNIT) \
+		X(PALERTMODE1_CHAN_3,     "PD",   PALERTMODE1_HEADER_DIS_UNIT) \
+		X(PALERTMODE1_CHAN_4,     "DIS",  PALERTMODE1_HEADER_DIS_UNIT) \
+		X(PALERTMODE1_CHAN_COUNT, "NULL", 0                          )
+
+#define X(a, b, c) a,
+typedef enum {
+	PALERTMODE1_CHAN_TABLE
+} PALERTMODE1_CHANNEL;
+#undef X
+
+/*
+ * Palert trigger mode information
+ */
+#define PALERT_TRIGMODE_VDIS_BIT     0x01
+#define PALERT_TRIGMODE_PD_BIT       0x02
+#define PALERT_TRIGMODE_PGA_BIT      0x04
+#define PALERT_TRIGMODE_STA_LTA_BIT  0x08
+
+#define PALERT_TRIGMODE_TABLE \
+		X(PALERT_TRIGMODE_VDIS,    "vdisp",   0x01) \
+		X(PALERT_TRIGMODE_PD,      "Pd",      0x02) \
+		X(PALERT_TRIGMODE_PGA,     "PGA",     0x04) \
+		X(PALERT_TRIGMODE_STA_LTA, "STA/LTA", 0x08) \
+		X(PALERT_TRIGMODE_COUNT,   "NULL",    0xFF)
+
+#define PALERT_TRIGMODE_STR_LENGTH  24
+
+#define X(a, b, c) a,
+typedef enum {
+	PALERT_TRIGMODE_TABLE
+} PALERT_TRIGMODES;
+#undef X
+
+/*
  * Definition of Palert data block structure, total size is 10 bytes
  */
-typedef struct {
+typedef union {
 #ifdef _SPARC
-	uint8_t acc[3][2];
-	uint8_t pd[2];
-	uint8_t dis[2];
+	struct {
+		uint8_t acc[3][2];
+		uint8_t pd[2];
+		uint8_t dis[2];
+	} norm_label;
+	uint8_t cmp[PALERTMODE1_CHAN_COUNT][2];
 #else
-	int16_t acc[3];
-	int16_t pd;
-	int16_t dis;
+	struct {
+		int16_t acc[3];
+		int16_t pd;
+		int16_t dis;
+	} norm_label;
+	int16_t cmp[PALERTMODE1_CHAN_COUNT];
 #endif
 } PALERTDATA;
 
@@ -222,56 +278,6 @@ typedef struct {
 	uint8_t reserved[6];
 } SMSRECORD;
 */
-
-/*
- * Palert default channel information
- */
-#define PALERT_DEFAULT_SAMPRATE  100
-
-#define PALERTMODE1_CHAN_TABLE \
-		X(PALERTMODE1_CHAN_0,     "HLZ",  PALERTMODE1_HEADER_ACC_UNIT) \
-		X(PALERTMODE1_CHAN_1,     "HLN",  PALERTMODE1_HEADER_ACC_UNIT) \
-		X(PALERTMODE1_CHAN_2,     "HLE",  PALERTMODE1_HEADER_ACC_UNIT) \
-		X(PALERTMODE1_CHAN_3,     "PD",   PALERTMODE1_HEADER_DIS_UNIT) \
-		X(PALERTMODE1_CHAN_4,     "DIS",  PALERTMODE1_HEADER_DIS_UNIT) \
-		X(PALERTMODE1_CHAN_COUNT, "NULL", 0                          )
-
-#define X(a, b, c) a,
-typedef enum {
-	PALERTMODE1_CHAN_TABLE
-} PALERTMODE1_CHANNEL;
-#undef X
-
-/*
- * Palert trigger mode information
- */
-#define PALERT_TRIGMODE_VDIS_BIT     0x01
-#define PALERT_TRIGMODE_PD_BIT       0x02
-#define PALERT_TRIGMODE_PGA_BIT      0x04
-#define PALERT_TRIGMODE_STA_LTA_BIT  0x08
-
-#define PALERT_TRIGMODE_TABLE \
-		X(PALERT_TRIGMODE_VDIS,    "vdisp",   0x01) \
-		X(PALERT_TRIGMODE_PD,      "Pd",      0x02) \
-		X(PALERT_TRIGMODE_PGA,     "PGA",     0x04) \
-		X(PALERT_TRIGMODE_STA_LTA, "STA/LTA", 0x08) \
-		X(PALERT_TRIGMODE_COUNT,   "NULL",    0xFF)
-
-#define PALERT_TRIGMODE_STR_LENGTH  24
-
-#define X(a, b, c) a,
-typedef enum {
-	PALERT_TRIGMODE_TABLE
-} PALERT_TRIGMODES;
-#undef X
-
-/*
- *
- */
-#define PALERT_SET_IP   0
-#define PALERT_NTP_IP   1
-#define PALERT_TCP0_IP  2
-#define PALERT_TCP1_IP  3
 
 /*
  * PALERTMODE1_HEADER_GET_WORD()
