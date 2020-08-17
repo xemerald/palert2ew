@@ -19,7 +19,7 @@
 #include <palert2ew_msg_queue.h>
 
 #define FORWARD_PACKET_HEADER_LENGTH  4
-#define RECONNECT_INTERVAL            15000
+#define RECONNECT_INTERVAL_MSEC       15000
 
 /* */
 static int reconstruct_connect_sock( void );
@@ -83,7 +83,7 @@ int pa2ew_client_stream( void )
 			}
 
 			if ( reconstruct_connect_sock() < 0 )
-				return -3;
+				return -2;
 
 			data_read = 0;
 			data_req  = FORWARD_PACKET_HEADER_LENGTH;
@@ -108,21 +108,22 @@ int pa2ew_client_stream( void )
 		}
 	}
 	else {
-		if ( ret = MsgEnqueue( readptr, staptr ) ) {
-			if ( ret == -1 ) {
+		if ( (ret = pa2ew_msgqueue_prequeue( staptr, readptr )) ) {
+			if ( ret == 1 ) {
 				if ( ++sync_errors >= 10 ) {
 					sync_errors = 0;
 					logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
 					if ( reconstruct_connect_sock() < 0 )
-						return -3;
+						return -2;
 				}
 			}
-			else if ( ret == -4 ) {
-				printf("palert2ew: Main queue has lapped, please check it!\n");
-				return -2;
+			else {
+				sleep_ew(100);
 			}
 		}
-		else sync_errors = 0;
+		else {
+			sync_errors = 0;
+		}
 	}
 
 	return 0;
@@ -146,7 +147,7 @@ static int reconstruct_connect_sock( void )
 			return -1;
 		}
 	/* Waiting for a while */
-		sleep_ew(RECONNECT_INTERVAL);
+		sleep_ew(RECONNECT_INTERVAL_MSEC);
 	}
 	logit("t", "palert2ew: Reconstruct socket success!\n");
 

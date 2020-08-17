@@ -1,0 +1,45 @@
+#
+#
+#
+
+CFLAGS = $(GLOBALFLAGS) -O2 -g -I/usr/include/mysql -I../include -flto
+LIBS = -lmysqlclient -lpthread $(MT_FLAG)
+
+B = $(EW_HOME)/$(EW_VERSION)/bin
+L = $(EW_HOME)/$(EW_VERSION)/lib
+LL = ../lib
+
+EWLIBS = $L/lockfile_ew.o $L/lockfile.o \
+         $L/mem_circ_queue.o $L/libew_mt.a
+
+LOCALLIBS = $(LL)/stalist.o $(LL)/palert.o
+
+UTILITY = palert2ew_msg_queue.o palert2ew_list.o \
+		palert2ew_server.o palert2ew_client.o
+
+SRC = palert2ew.c palert2ew_msg_queue.c palert2ew_list.c \
+		palert2ew_server.c palert2ew_client.c
+
+# Compile rule for Earthworm version under 7.9
+#
+ver_709: palert2ew.o $(EWLIBS) $(UTILITY)
+	$(CC) $(CFLAGS) -o $B/palert2ew_test palert2ew.o $(UTILITY) $(EWLIBS) $(LOCALLIBS) $(LIBS)
+
+# Compile rule for Earthworm version over 7.10
+#
+ver_710: palert2ew.o_v710 $(EWLIBS) $(UTILITY)
+	$(CC) $(CFLAGS) -D_V710 -o $B/palert2ew_test palert2ew.o $(UTILITY) $(EWLIBS) $(LOCALLIBS) $(LIBS)
+
+palert2ew.o_v710:
+	$(CC) $(CFLAGS) -D_V710 -c palert2ew.c
+
+#
+lint:
+	lint $(SRC) $(GLOBALFLAGS)
+
+# Clean-up rules
+clean:
+	rm -f a.out core *.o *.obj *% *~
+
+clean_bin:
+	rm -f $B/palert2ew*

@@ -16,14 +16,12 @@
 /* Earthworm environment header include */
 #include <earthworm.h>
 /* Local header include */
-#include <palert.h>
 #include <palert2ew.h>
 #include <palert2ew_list.h>
 #include <palert2ew_msg_queue.h>
 
-/* Listening Palert port */
-#define PALERT_PORT "502"
-#define LISTENQ      128
+/* */
+#define LISTENQ  128
 
 /* Connection descriptors struct */
 typedef struct {
@@ -84,7 +82,7 @@ int pa2ew_server_init( const int max_stations )
 			PalertConns[i].sock = -1;
 	}
 /* Construct the accept socket */
-	if ( (AcceptSocket = construct_listen_sock( PALERT_PORT )) == -1 )
+	if ( (AcceptSocket = construct_listen_sock( PA2EW_PALERT_PORT )) == -1 )
 		return -2;
 /* */
 	connevt.events   = EPOLLIN | EPOLLERR;
@@ -106,8 +104,8 @@ void pa2ew_server_end( void )
 	close(AcceptSocket);
 	close(AcceptEpoll);
 /* Closing connections of Palerts */
-	for ( i = 0; i < MaxStationNum; i++ ) close_palert_connect( (PalertConn + i), i % 2 );
-	free(PalertConn);
+	for ( i = 0; i < MaxStationNum; i++ ) close_palert_connect( (PalertConns + i), i % 2 );
+	free(PalertConns);
 /* Free epoll & readevts */
 	for ( i = 0; i < ThreadsNumber; i++ )
 		close(PalertThreadSets[i].epoll_fd);
@@ -150,16 +148,16 @@ int pa2ew_server_stream( const int countindex, const int msec )
 					if ( conn->is_palert == 1 ) {
 					/* Process message */
 						readptr->len = ret;
-						if ( (ret = MsgEnqueue( readptr, conn->staptr )) != 0 ) {
-							if ( ret == -1 ) {
+						if ( (ret = pa2ew_msgqueue_prequeue( conn->staptr, readptr )) != 0 ) {
+							if ( ret == 1 ) {
 								if ( ++(conn->sync_errors) >= 10 ) {
 									conn->sync_errors = 0;
-									logit("e","palert2ew: Palert %s TCP connection sync error, close connection!\n", conn->staptr->sta_c);
+									logit("e","palert2ew: Palert %s TCP connection sync error, close connection!\n", conn->staptr->sta);
 									close_palert_connect(conn, countindex);
 								}
 							}
 							else {
-								sleep_ew(200);
+								sleep_ew(100);
 							}
 						}
 						else {
@@ -186,7 +184,7 @@ int pa2ew_server_stream( const int countindex, const int msec )
 								close_palert_connect(conn, countindex);
 							}
 							else {
-								printf("palert2ew: Palert %s now online.\n", staptr->sta_c);
+								printf("palert2ew: Palert %s now online.\n", staptr->sta);
 								conn->is_palert = 1;
 								conn->staptr    = staptr;
 							}
@@ -222,7 +220,7 @@ int pa2ew_server_conn_check( void )
 
 /* */
 	for ( i = 0; i < MaxStationNum; i++ ) {
-		conn = PalertConn + i;
+		conn = PalertConns + i;
 		if ( conn->sock != -1 ) {
 			if ( (timenow - conn->last_act) >= 120 ) {
 				logit("t", "palert2ew: Connection: %s idle over two minutes, close connection!\n", conn->ip);
@@ -337,7 +335,7 @@ static int real_accept_palert( void )
 	struct sockaddr_storage cliaddr;
 	struct sockaddr_in     *cli4_ptr = (struct sockaddr_in *)&cliaddr;
 	struct sockaddr_in6    *cli6_ptr = (struct sockaddr_in6 *)&cliaddr;
-	size_t                  clilen   = sizeof(cliaddr);
+	unsigned int            clilen   = sizeof(cliaddr);
 	CONNDESCRIP            *conn     = NULL;
 
 /* */
@@ -365,7 +363,7 @@ static int real_accept_palert( void )
 
 /* Find and save to an empty Palert connection */
 	for ( i = 0; i < MaxStationNum; i++ ) {
-		conn = PalertConn + i;
+		conn = PalertConns + i;
 		if ( conn->sock == -1 ) {
 			int tmp = i % ThreadsNumber;
 			conn->sock = connsd;

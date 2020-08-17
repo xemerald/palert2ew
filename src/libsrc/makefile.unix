@@ -1,0 +1,25 @@
+#
+#
+#
+
+CFLAGS = $(GLOBALFLAGS) -O2 -g -I/usr/include/mysql -I../../include -flto
+
+LL = ../../lib
+
+LOCALSRCS = stalist.c palert.c
+LOCALOBJS = $(LOCALSRCS:%.c=%.o)
+
+all: $(LOCALOBJS)
+	mv *.o $(LL)
+
+.c.o:
+	$(CC) $(CFLAGS) -c $<
+
+# Clean-up rules
+clean:
+	rm -f a.out core *.o *.obj *% *~
+
+clean_lib:
+	rm -f $(LL)/*.o
+
+PHONY:

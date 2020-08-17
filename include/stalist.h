@@ -82,12 +82,3 @@ int        stalist_num_rows_sql( MYSQL_RES * );
 void       stalist_free_result_sql( MYSQL_RES * );
 MYSQL     *stalist_start_persistent_sql( const DBINFO * );
 void       stalist_close_persistent_sql( void );
-
-/* */
-char      *stalist_get_chan_code( const int );
-int        stalist_get_chan_seq( const char * );
-char      *stalist_get_chan_code( const int );
-char      *stalist_get_chan_recordtype( const int );
-char      *stalist_get_chan_instrument( const int );
-int        stalist_get_chan_samprate( const int );
-double     stalist_get_chan_conv_factor( const int );
