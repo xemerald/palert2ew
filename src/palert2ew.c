@@ -54,7 +54,7 @@ static pid_t    MyPid;          /* for restarts by startstop               */
 #define THREAD_OFF    0              /* Thread has not been started      */
 #define THREAD_ALIVE  1              /* Thread alive and well            */
 #define THREAD_ERR   -1              /* Thread encountered error quit    */
-static volatile uint8_t ReceiverThreadsNum = 0;
+static volatile int     ReceiverThreadsNum = 0;
 static volatile int8_t *MessageReceiverStatus = NULL;
 #if defined( _V710 )
 static ew_thread_t     *ReceiverThreadID = NULL;       /* Thread moving messages from transport to queue */
@@ -167,7 +167,7 @@ int main ( int argc, char **argv )
 
 /* Initialize the connection process either server or client */
 	if ( ServerSwitch == 0 ) {
-		ReceiverThreadsNum = 1;
+		ReceiverThreadsNum  = 1;
 		if ( pa2ew_client_init( ServerIP, ServerPort ) < 0 ) {
 			logit("e","palert2ew: Cannot initialize the connection client process. Exiting!\n");
 			pa2ew_list_end();
@@ -256,15 +256,15 @@ int main ( int argc, char **argv )
 				if ( RawOutputSwitch )
 					if ( tport_putmsg(&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO], PALERTMODE1_PACKET_LENGTH, (char *)packet.data ) != PUT_OK )
 						logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[RAW_MSG_LOGO]);
-			/* Examine the NTP sync. status */
-				if ( !examine_ntp_sync_pm1( (_STAINFO *)packet.sptr, pah ) )
-					continue;
 			}
 
 		/* Process the message */
 			if ( pah->packet_type[0] & 0x01 ) {
 				_STAINFO *staptr = (_STAINFO *)packet.sptr;
 				_CHAINFO *chaptr = (_CHAINFO *)staptr->chaptr;
+			/* Examine the NTP sync. status */
+				if ( !examine_ntp_sync_pm1( staptr, pah ) )
+					continue;
 			/* Common part */
 				enrich_trh2_pm1( &tracebuf.trh2, staptr, pah );
 				msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
@@ -443,38 +443,47 @@ static void palert2ew_config( char *configfile )
 			else if ( k_its("Palert") ) {
 				int serial = k_int();
 			/* */
-				char sta[TRACE2_STA_LEN];
+				char sta[TRACE2_STA_LEN] = { 0 };
 				str = k_str();
 				if ( str ) strcpy(sta, str);
 			/* */
-				char net[TRACE2_NET_LEN];
+				char net[TRACE2_NET_LEN] = { 0 };
 				str = k_str();
 				if ( str ) strcpy(net, str);
 			/* */
-				char loc[TRACE2_LOC_LEN];
+				char loc[TRACE2_LOC_LEN] = { 0 };
 				str = k_str();
 				if ( str ) strcpy(loc, str);
 
-				int   nchannel = k_int();
-				char *chan[PALERTMODE1_CHAN_COUNT] = { NULL };
-				if ( nchannel > 0 && nchannel <= PALERTMODE1_CHAN_COUNT ) {
-					for ( i = 0; i < nchannel; i++ ) {
+				if ( strlen(sta) && strlen(net) && strlen(loc) ) {
+					int   nchannel = k_int();
+					char *chan[PALERTMODE1_CHAN_COUNT] = { NULL };
+					for ( i = 0; i < nchannel && i < PALERTMODE1_CHAN_COUNT; i++ ) {
 						str = k_str();
-						chan[i] = malloc(TRACE2_CHAN_LEN);
-						strcpy(chan[i], str);
+						if ( str ) {
+							chan[i] = malloc(TRACE2_CHAN_LEN);
+							strcpy(chan[i], str);
+						}
+						else {
+							logit(
+								"e", "palert2ew: ERROR, lack of channel code for station %s in <%s>, exiting!\n",
+								sta, configfile
+							);
+							exit(-1);
+						}
 					}
-					pa2ew_list_station_add( (void **)&_Root, serial, sta, net, loc, nchannel, (const char **)chan );
+					pa2ew_list_station_add( (void **)&_Root, serial, sta, net, loc, i, (const char **)chan );
+				/* */
+					for ( i = 0; i < nchannel; i++ )
+						free(chan[i]);
 				}
 				else {
 					logit(
-						"e", "palert2ew: ERROR, wrong channels number for station %s in <%s>, exiting!\n",
-						sta, configfile
+						"e", "palert2ew: ERROR, lack of some station information for serial %d in <%s>, exiting!\n",
+						serial, configfile
 					);
 					exit(-1);
 				}
-			/* */
-				for ( i = 0; i < nchannel; i++ )
-					free(chan[i]);
 			}
 		/* Unknown command */
 			else {

@@ -102,13 +102,14 @@ _STAINFO *pa2ew_list_station_add(
 
 	if ( result != NULL ) {
 		enrich_stainfo_raw( result, serial, sta, net, loc );
+	/* */
 		if ( tfind(result, root, compare_serial) == NULL ) {
 		/* */
+			result->chaptr = NULL;
 			if ( nchannel )
 				enrich_chainfo_raw( result, nchannel, chan );
 			else
 				enrich_chainfo_default( result );
-
 		/* Insert the station information into binary tree */
 			if ( result->chaptr != NULL ) {
 				if ( tsearch(result, root, compare_serial) != NULL )
@@ -172,7 +173,10 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 	/* Allocate the station information memory */
 		if ( (stainfo = (_STAINFO *)calloc(1, sizeof(_STAINFO))) != NULL ) {
 			enrich_stainfo_mysql( stainfo, sql_row );
+		/* */
 			if ( tfind(stainfo, root, compare_serial) == NULL ) {
+			/* */
+				stainfo->chaptr = NULL;
 				if ( table_chan != NULL && strlen(table_chan) ) {
 					enrich_chainfo_mysql(
 						stainfo,
@@ -181,9 +185,9 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 						)
 					);
 				}
-				else {
+			/* */
+				if ( stainfo->chaptr == NULL )
 					enrich_chainfo_default( stainfo );
-				}
 			/* */
 				if ( stainfo->chaptr != NULL ) {
 				/* Insert the station information into binary tree */
@@ -255,14 +259,13 @@ static _CHAINFO *enrich_chainfo_mysql( _STAINFO *stainfo, MYSQL_RES *sql_res )
 /* */
 	int       i = 0;
 	const int nchannel = stalist_num_rows_sql( sql_res );
-	char    **chan = NULL;
+	char     *chan[PALERTMODE1_CHAN_COUNT] = { NULL };
 
 	MYSQL_ROW sql_row;
 	_CHAINFO *result = NULL;
 
 /* */
-	if ( nchannel > 0 ) {
-		chan = calloc(nchannel, sizeof(char *));
+	if ( nchannel > 0 && nchannel <= PALERTMODE1_CHAN_COUNT ) {
 		while ( (sql_row = stalist_fetch_row_sql( sql_res )) != NULL ) {
 			chan[i] = malloc(TRACE2_CHAN_LEN);
 			strcpy(chan[i++], sql_row[0]);
@@ -273,7 +276,6 @@ static _CHAINFO *enrich_chainfo_mysql( _STAINFO *stainfo, MYSQL_RES *sql_res )
 	/* */
 		for ( i = 0; i < nchannel; i++ )
 			free(chan[i]);
-		free(chan);
 	}
 
 	return result;
@@ -329,15 +331,14 @@ static _CHAINFO *enrich_chainfo_raw(
 	_STAINFO *stainfo, const int nchannel, const char *chan[]
 ) {
 	int       i;
-	_CHAINFO *chainfo = NULL;
+	_CHAINFO *chainfo = calloc(nchannel, sizeof(_CHAINFO));
 
 /* */
 	stainfo->nchannel = nchannel;
-	stainfo->chaptr   = calloc(stainfo->nchannel, sizeof(_CHAINFO));
-	chainfo           = (_CHAINFO *)stainfo->chaptr;
+	stainfo->chaptr   = chainfo;
 
 	if ( chainfo != NULL ) {
-		for ( i = 0; i < stainfo->nchannel; i++ ) {
+		for ( i = 0; i < nchannel; i++ ) {
 			chainfo[i].seq = i;
 			strcpy(chainfo[i].chan, chan[i]);
 		}

@@ -5,11 +5,11 @@ The P-alert sensor messages reciever module based on Earthworm that developed by
 ## Requirement
 
 1. It needs the [Earthworm](http://love.isti.com/trac/ew/wiki/Earthworm) environment so you need to finish the installation before compilation!
-2. And you might need the MySQL optional function if so please install the lib-mysqlclient.
+2. And you might need the MySQL optional function if so please install the **lib-mysqlclient**.
 
-## installation
+## Installation
 
-The version of Earthworm is under 7.9:
+The version of Earthworm is under **7.9**:
 
 ```
 $ make ver_709
@@ -19,7 +19,7 @@ or
 $ make
 ```
 
-The version of Earthworm is above 7.10:
+The version of Earthworm is above **7.10**:
 
 ```
 $ make ver_710
@@ -38,7 +38,7 @@ $ make ver_710_sql
 
 After compilation, you can find the binary file under the bin directory of Earthworm. But there still are some step need to do:
 
-Add the lines below to the earthworm.d file:
+1. First, add the lines below to the earthworm.d file:
 
 ```
 Module   MOD_PALERT2EW      XXX   # XXX can be any number that is unused by other module
@@ -48,19 +48,27 @@ and
 Message  TYPE_PALERTRAW     XXX   # XXX can be any number that is unused by other message type
 ```
 
+2. Second, copy the configuration file **palert2ew.d** to the param directory of Earthworm.
+
+3. Final, 'cause the P-alert use the modbus protocol, the listening port of Server mode is **502**. And under UNIX-like system it need the superuser permission or you can use the command below to enable the capability of binding the port below 1024:
+
+```
+$ setcap cap_net_bind_service+=ep <PATH_TO_THE_BINARY_FILE>
+```
+
 Then you are able to execute this module under startstop module!
 
 ## Configuration
 
-In fact, inside the palert2ew.d file already providing a lot of detailed information. Therefore, if you are urgent, just skip the content below directly read the configuration file.
+In fact, inside the palert2ew.d file already providing a lot of detailed information. Therefore, if you are reallly urgent, just skip the content below directly read the configuration file.
 
 ### Basic Earthworm setup:
 
-I recommend users do not change the parameters inside this part. However, there is one optional parameter, OutRawRing. You can define the ring for output P-alert raw packet or just comment it and close this function.
+I recommend users do not change the parameters inside this part. However, there is an optional parameter, OutRawRing. You can define the ring for output P-alert raw packet or just comment it and close this function.
 
 ### Palert server setup:
 
-- ServerSwitch: You can switch program mode by this parameter, that 0(Client mode) means connect to the Palert server; 1(Server mode) as the server of Palert.
+- ServerSwitch: You can switch program mode by this parameter, that 0, **Client mode** means connect to the Palert server; 1, **Server mode** as the server of Palert.
 - ServerIP: The server IP address of Palert server under mode 0.
 - ServerPort: The server port of Palert server under mode 0.
 
@@ -68,7 +76,7 @@ By the way, you can ignore the parameters, ServerIP & ServerPort when switching 
 
 ### MySQL server information:
 
-The alternative way for list P-alerts that will receive by this program. If you setup these parameters, especially SQLHost, the program will fetch list from MySQL server or you can just comment all of them, then it will turn off this function. And the schema of station table should include at least four columns, serial, station, network & location. Only the type of serial is number, the others are character.
+The alternative way for list P-alerts that will receive by this program. If you setup these parameters, **especially SQLHost**, the program will fetch list from MySQL server or you can just comment all of them, then it will turn off this function. And the schema of station table should include at least four columns, serial, station, network & location. Only the type of serial is number, the others are character.
 
 The other thing, even when you using MySQL server to fetch station information, the channel table is optional. Once you comment the option, the channel information will be filled by default value(HLZ, HLN & HLE).
 
