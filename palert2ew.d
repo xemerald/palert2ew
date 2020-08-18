@@ -19,8 +19,8 @@ MaxStationNum      1024           # max number of stations which will receive da
 # Warning: Do not receive the same station by two ways simultaneously!!
 #
 ServerSwitch      0               # 0 connect to Palert server; 1 as the server of Palert
-ServerIP          127.0.0.1       # Server IP address of reciving socket
-ServerPort        23000           # Server port of reciving socket
+ServerIP          127.0.0.1       # Server IP address of Palert server
+ServerPort        23000           # Server port of Palert server
 
 # MySQL server information:
 #
@@ -36,7 +36,7 @@ SQLDatabase     EEW	              # The maximum length is 36 words
 #
 # SQLUser       test
 # SQLPassword   123456
-@LoginInfo_sql                    # Please keep the security of the SQL login information
+#@LoginInfo_sql                    # Please keep the security of the SQL login information
 
 # List the stations list that will grab from MySQL server
 #
@@ -49,12 +49,12 @@ SQLChannelTable    PalertChannelList
 
 # Local station list:
 #
-# The local list for Palerts that will receive. The channel codes are optional,
-# and the value will be filled by the default value. And the layout should be
-# like these example:
+# The local list for Palerts that will receive. By the way, the priority of local list
+# is higher than the one from remote data. The channel codes are optional, and the value
+# will be filled by the default value. And the layout should be like these example:
 #
 # Palert   Serial   Station   Network   Location   Nchannel   Channel_0   Channel_1   Channel_2
 # Palert    1993      TEST      TW         --         3         HLZ          HLN        HLE      # First example
 # Palert    1993      TEST      TW         --         0                                          # Optional example
 #
-@palertlist_p2ew
+#@palertlist_p2ew
