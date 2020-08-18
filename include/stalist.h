@@ -22,9 +22,6 @@
 #define  MAX_DATABASE_LENGTH  64
 #define  MAX_TABLE_LEGTH      64
 
-/* */
-#define STA_CODE_LEN   8     /* 5 bytes plus 3 bytes padding */
-
 /* Database login information */
 typedef struct {
 	char host[MAX_HOST_LENGTH];
@@ -71,6 +68,9 @@ typedef union {
 } STALIST_COL_LIST __attribute__((__transparent_union__));
 
 typedef char *(*GET_COLUMN_NAME)( const STALIST_COL_LIST );
+
+#define STALIST_DBINFO_INIT(_DB_INFO_) \
+		((_DB_INFO_) = (DBINFO){ { 0 }, { 0 }, { 0 }, { 0 }, 0 })
 
 /* Export functions' prototypes */
 MYSQL_RES *stalist_sta_query_sql( const DBINFO *, const char *, const int, ... );

@@ -1,18 +1,17 @@
 #
 #
 #
-
 CFLAGS = $(GLOBALFLAGS) -O2 -g -I/usr/include/mysql -I../include -flto
-LIBS = -lmysqlclient -lpthread $(MT_FLAG)
+LIBS = -lpthread $(MT_FLAG)
 
 B = $(EW_HOME)/$(EW_VERSION)/bin
 L = $(EW_HOME)/$(EW_VERSION)/lib
 LL = ../lib
 
 EWLIBS = $L/lockfile_ew.o $L/lockfile.o \
-         $L/mem_circ_queue.o $L/libew_mt.a
+        $L/mem_circ_queue.o $L/libew_mt.a
 
-LOCALLIBS = $(LL)/stalist.o $(LL)/palert.o
+LOCALLIBS = $(LL)/palert.o
 
 UTILITY = palert2ew_msg_queue.o palert2ew_list.o \
 		palert2ew_server.o palert2ew_client.o
@@ -20,22 +19,34 @@ UTILITY = palert2ew_msg_queue.o palert2ew_list.o \
 SRC = palert2ew.c palert2ew_msg_queue.c palert2ew_list.c \
 		palert2ew_server.c palert2ew_client.c
 
+base: palert2ew.o $(EWLIBS) $(UTILITY)
+	$(CC) $(CFLAGS) -o $B/palert2ew_test palert2ew.o $(UTILITY) $(EWLIBS) $(LOCALLIBS) $(LIBS)
+
 # Compile rule for Earthworm version under 7.9
 #
-ver_709: palert2ew.o $(EWLIBS) $(UTILITY)
-	$(CC) $(CFLAGS) -o $B/palert2ew_test palert2ew.o $(UTILITY) $(EWLIBS) $(LOCALLIBS) $(LIBS)
+ver_709: base
+
+ver_709_sql: CFLAGS+=-D_USE_SQL
+ver_709_sql: LIBS+=-lmysqlclient
+ver_709_sql: LOCALLIBS+=$(LL)/stalist.o
+ver_709_sql: ver_709
 
 # Compile rule for Earthworm version over 7.10
 #
-ver_710: palert2ew.o_v710 $(EWLIBS) $(UTILITY)
-	$(CC) $(CFLAGS) -D_V710 -o $B/palert2ew_test palert2ew.o $(UTILITY) $(EWLIBS) $(LOCALLIBS) $(LIBS)
+ver_710: CFLAGS+=-D_V710
+ver_710: base
 
-palert2ew.o_v710:
+ver_710_sql: CFLAGS+=-D_USE_SQL
+ver_710_sql: LIBS+=-lmysqlclient
+ver_710_sql: LOCALLIBS+=$(LL)/stalist.o
+ver_710_sql: ver_710
+
+# Compile rule for Object
+.c.o:
+	$(CC) $(CFLAGS) -c $<
+
+palert2ew_obj_v710:
 	$(CC) $(CFLAGS) -D_V710 -c palert2ew.c
-
-#
-lint:
-	lint $(SRC) $(GLOBALFLAGS)
 
 # Clean-up rules
 clean:

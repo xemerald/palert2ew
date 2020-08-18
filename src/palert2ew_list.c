@@ -1,3 +1,6 @@
+/*
+ *
+ */
 #define _GNU_SOURCE
 /* */
 #include <stdio.h>
@@ -13,14 +16,16 @@
 
 /* Internal functions' prototypes */
 static int       fetch_list_sql( void **, const char *, const char *, const DBINFO * );
-static _STAINFO *enrich_stainfo_mysql( _STAINFO *, const MYSQL_ROW );
-static _CHAINFO *enrich_chainfo_mysql( _STAINFO *, MYSQL_RES * );
 static _CHAINFO *enrich_chainfo_default( _STAINFO * );
 static _STAINFO *enrich_stainfo_raw( _STAINFO *, const int, const char *, const char *, const char * );
 static _CHAINFO *enrich_chainfo_raw( _STAINFO *, const int, const char *[] );
 static int       compare_serial( const void *, const void * );	/* The compare function of binary tree search */
 static void      cal_total_stations( const void *, const VISIT, const int );
 static void      free_stainfo( void * );
+#if defined( _USE_SQL )
+static _STAINFO *enrich_stainfo_mysql( _STAINFO *, const MYSQL_ROW );
+static _CHAINFO *enrich_chainfo_mysql( _STAINFO *, MYSQL_RES * );
+#endif
 
 /* Global variables */
 static volatile void *Root          = NULL;       /* Root of serial binary tree */
@@ -31,7 +36,10 @@ static volatile int   TotalStations = 0;
  */
 int pa2ew_list_db_fetch( void **root, const char *table_sta, const char *table_chan, const DBINFO *dbinfo )
 {
-	return fetch_list_sql( root, table_sta, table_chan, dbinfo );
+	if ( strlen(dbinfo->host) > 0 )
+		return fetch_list_sql( root, table_sta, table_chan, dbinfo );
+	else
+		return 0;
 }
 
 /*
@@ -139,6 +147,7 @@ void *pa2ew_list_root_switch( void **root )
 /*
  * fetch_list_sql() - Get stations list from MySQL server
  */
+#if defined( _USE_SQL )
 static int fetch_list_sql( void **root, const char *table_sta, const char *table_chan, const DBINFO *dbinfo )
 {
 	int        result  = 0;
@@ -269,6 +278,19 @@ static _CHAINFO *enrich_chainfo_mysql( _STAINFO *stainfo, MYSQL_RES *sql_res )
 
 	return result;
 }
+#else
+/*
+ * fetch_list_sql() - Fake function
+ */
+static int fetch_list_sql( void **root, const char *table_sta, const char *table_chan, const DBINFO *dbinfo )
+{
+	printf(
+		"palert2ew: Skip the process of fetching station list from remote database "
+		"'cause you did not define the _USE_SQL tag when compiling.\n"
+	);
+	return 0;
+}
+#endif
 
 /*
  *

@@ -1,3 +1,6 @@
+/*
+ *
+ */
 /* Standard C header include */
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +63,7 @@ void pa2ew_client_end( void )
  */
 int pa2ew_client_stream( void )
 {
-	static uint8_t buffer[PREPACKET_LENGTH] = { 0 };
+	static uint8_t buffer[PA2EW_PREPACKET_LENGTH] = { 0 };
 	static uint8_t sync_errors              = 0;
 
 	int        ret       = 0;
@@ -68,7 +71,7 @@ int pa2ew_client_stream( void )
 	int        data_req  = FORWARD_PACKET_HEADER_LENGTH;
 	PREPACKET *readptr   = (PREPACKET *)buffer;
 
-	memset(buffer, 0, PREPACKET_LENGTH);
+	memset(buffer, 0, PA2EW_PREPACKET_LENGTH);
 	do {
 		if ( (ret = recv(ClientSocket, buffer + data_read, data_req, 0)) <= 0 ) {
 			if ( errno == EINTR ) {

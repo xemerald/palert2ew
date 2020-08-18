@@ -1,3 +1,7 @@
+/*
+ *
+ */
+
 #ifdef _OS2
 #define INCL_DOSMEMMGR
 #define INCL_DOSSEMAPHORES
@@ -36,7 +40,6 @@ static thr_ret update_list_thread( void * );
 
 static int            examine_ntp_sync_pm1( _STAINFO *, const PALERTMODE1_HEADER * );
 static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
-static int32_t       *copydata_tracebuf_pm1( TracePacket *, const PalertPacket *, const PALERTMODE1_CHANNEL );
 
 /* Ring messages things */
 #define WAVE_MSG_LOGO  0
@@ -99,8 +102,10 @@ static volatile uint8_t UpdateFlag = 0;
 
 static int64_t LocalTimeShift = 0;            /* Time difference between UTC & local timezone */
 
+/* Macro */
 #define COPYDATA_TRACEBUF_PM1(TBUF, PM1, SEQ) \
 		(palert_get_data( (PM1), (SEQ), (int32_t *)((&(TBUF)->trh2) + 1) ))
+
 /*
  *
  */
@@ -134,9 +139,12 @@ int main ( int argc, char **argv )
 /* Read the station list from remote database */
 	pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo );
 	pa2ew_list_root_switch( (void **)&_Root );
-	if ( !pa2ew_list_total_station() ) {
+	if ( !(i = pa2ew_list_total_station()) ) {
 		fprintf(stderr, "There is not any station in the list after fetching, exiting!\n");
 		exit(-1);
+	}
+	else {
+		logit("o", "palert2ew: There are total %d stations in the list.\n", i);
 	}
 
 /* Look up important info from earthworm.h tables */
@@ -301,7 +309,8 @@ static void palert2ew_config( char *configfile )
 		else
 			init[i] = 1;
 	}
-
+/* */
+	STALIST_DBINFO_INIT( DBInfo );
 /* Open the main configuration file */
 	nfiles = k_open( configfile );
 	if ( nfiles == 0 ) {
@@ -755,7 +764,7 @@ static thr_ret update_list_thread( void *dummy )
 {
 	logit("o", "palert2ew: Start to updating the list of Palerts.\n");
 
-	if ( palert2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo ) <= 0 )
+	if ( pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo ) <= 0 )
 		logit("e", "palert2ew: Fetching list from remote database error!\n");
 
 /* Just wait for 30 seconds */
@@ -828,13 +837,4 @@ static TRACE2_HEADER *enrich_trh2_pm1(
 #endif
 
 	return trh2;
-}
-
-/*
- * copydata_tracebuf_pm1() -
- */
-static int32_t *copydata_tracebuf_pm1(
-	TracePacket *tracebuf, const PalertPacket *palertp, const PALERTMODE1_CHANNEL chan_seq
-) {
-	return palert_get_data( palertp, chan_seq, (int32_t *)((&tracebuf->trh2) + 1) );
 }

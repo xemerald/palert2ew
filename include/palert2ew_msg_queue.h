@@ -1,4 +1,13 @@
 /*
+ * palert2ew_msg_queue.h
+ *
+ * Header file for construct main messages queue.
+ *
+ * Benjamin Yang
+ * Department of Geology
+ * National Taiwan University
+ *
+ * August, 2020
  *
  */
 #pragma once

@@ -9,9 +9,13 @@ LL = ../../lib
 LOCALSRCS = stalist.c palert.c
 LOCALOBJS = $(LOCALSRCS:%.c=%.o)
 
+no_sql: palert.o
+	mv *.o $(LL)
+
 all: $(LOCALOBJS)
 	mv *.o $(LL)
 
+#
 .c.o:
 	$(CC) $(CFLAGS) -c $<
 

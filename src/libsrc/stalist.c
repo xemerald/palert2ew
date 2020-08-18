@@ -1,3 +1,15 @@
+/*
+ * stalist.c
+ *
+ * Tool for fetching station information from remote database.
+ *
+ * Benjamin Yang
+ * Department of Geology
+ * National Taiwan University
+ *
+ * March, 2020
+ *
+ */
 /* Standard C header include */
 #include <stdio.h>
 #include <string.h>

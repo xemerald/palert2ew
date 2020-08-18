@@ -1,4 +1,13 @@
 /*
+ * palert2ew_list.h
+ *
+ * Header file for construct the dictionary of station.
+ *
+ * Benjamin Yang
+ * Department of Geology
+ * National Taiwan University
+ *
+ * August, 2020
  *
  */
 #pragma once

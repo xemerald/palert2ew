@@ -1,4 +1,13 @@
 /*
+ * palert2ew.h
+ *
+ * Header file of main program, that define those general constants & struct.
+ *
+ * Benjamin Yang
+ * Department of Geology
+ * National Taiwan University
+ *
+ * August, 2020
  *
  */
 #pragma once
@@ -11,8 +20,8 @@
 #define PA2EW_PALERT_PORT            "502"
 #define PA2EW_MAX_PALERTS_PER_THREAD  512
 /* */
-#define DATA_BUFFER_LENGTH  12000
-#define PREPACKET_LENGTH    (DATA_BUFFER_LENGTH + 4)
+#define PA2EW_RECV_BUFFER_LENGTH  12000
+#define PA2EW_PREPACKET_LENGTH    (PA2EW_RECV_BUFFER_LENGTH + 4)
 
 /* */
 #include <trace_buf.h>
@@ -23,7 +32,7 @@
 typedef struct {
 	uint16_t serial;
 	uint16_t len;
-	uint8_t  data[DATA_BUFFER_LENGTH];
+	uint8_t  data[PA2EW_RECV_BUFFER_LENGTH];
 } PREPACKET;
 
 /* Internal stack related struct */
@@ -37,7 +46,6 @@ typedef struct {
 	uint8_t  header_ready;
 	uint8_t  ntp_errors;
 	uint16_t packet_rear;
-	uint16_t packet_req;
 } PACKETPARAM;
 
 /* Station info related struct */

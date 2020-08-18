@@ -1,3 +1,6 @@
+/*
+ *
+ */
 /* Standard C header include */
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,7 +39,7 @@ typedef struct {
 /* */
 typedef struct {
 	int                epoll_fd;
-	uint8_t            buffer[PREPACKET_LENGTH];
+	uint8_t            buffer[PA2EW_PREPACKET_LENGTH];
 	struct epoll_event evts[PA2EW_MAX_PALERTS_PER_THREAD];
 } PALERT_THREAD_SET;
 
@@ -137,7 +140,7 @@ int pa2ew_server_stream( const int countindex, const int msec )
 				CONNDESCRIP *conn = (CONNDESCRIP *)readevts[i].data.ptr;
 			/* */
 				conn->last_act = time_now;
-				if ( (ret = recv(conn->sock, readptr->data, DATA_BUFFER_LENGTH, 0)) <= 0 ) {
+				if ( (ret = recv(conn->sock, readptr->data, PA2EW_RECV_BUFFER_LENGTH, 0)) <= 0 ) {
 					printf(
 						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
 						conn->ip, ret, errno, strerror(errno)

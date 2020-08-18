@@ -1,4 +1,13 @@
 /*
+ * palert2ew_client.h
+ *
+ * Header file for setting up client connections to Palert server.
+ *
+ * Benjamin Yang
+ * Department of Geology
+ * National Taiwan University
+ *
+ * August, 2020
  *
  */
 #pragma once

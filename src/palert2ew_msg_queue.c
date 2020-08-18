@@ -1,3 +1,6 @@
+/*
+ *
+ */
 /* Standard C header include */
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,9 +91,7 @@ int pa2ew_msgqueue_enqueue( PACKET *packet, size_t size )
  */
 /* Internal macro for pa2ew_msgqueue_prequeue() */
 #define RESET_BUFFER_IN_STA(STAINFO) \
-		__extension__({ \
-			(STAINFO)->param.packet_rear = 0; \
-		})
+		((STAINFO)->param.packet_rear = 0)
 
 #define GET_FRAG_BYTES_OF_200BLOCK_IN_STA(STAINFO) \
 		((STAINFO)->param.packet_rear % PALERTMODE1_HEADER_LENGTH)
@@ -159,12 +160,11 @@ int pa2ew_msgqueue_prequeue( _STAINFO *stainfo, const PREPACKET *pre_packet )
 			/* */
 				if ( stainfo->param.header_ready ) {
 					if ( stainfo->param.packet_rear == PALERTMODE1_PACKET_LENGTH ) {
-						PACKET *out_packet = &stainfo->packet;
+					/* Put it into the main queue */
+						result = pa2ew_msgqueue_enqueue( &stainfo->packet, sizeof(PACKET) );
 					/* Flush the queue of station */
 						RESET_BUFFER_IN_STA( stainfo );
 						stainfo->param.header_ready = 0;
-					/* Put it into the main queue */
-						result = pa2ew_msgqueue_enqueue( out_packet, sizeof(PACKET) );
 					}
 				}
 			}
