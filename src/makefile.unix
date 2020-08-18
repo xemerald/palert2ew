@@ -20,7 +20,7 @@ SRC = palert2ew.c palert2ew_msg_queue.c palert2ew_list.c \
 		palert2ew_server.c palert2ew_client.c
 
 base: palert2ew.o $(EWLIBS) $(UTILITY)
-	$(CC) $(CFLAGS) -o $B/palert2ew_test palert2ew.o $(UTILITY) $(EWLIBS) $(LOCALLIBS) $(LIBS)
+	$(CC) $(CFLAGS) -o $B/palert2ew palert2ew.o $(UTILITY) $(EWLIBS) $(LOCALLIBS) $(LIBS)
 
 # Compile rule for Earthworm version under 7.9
 #
