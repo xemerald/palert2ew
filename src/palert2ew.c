@@ -32,10 +32,10 @@ static void palert2ew_lookup( void );
 static void palert2ew_status( unsigned char, short, char * );
 static void palert2ew_end( void );                /* Free all the local memory & close socket */
 
-static void    check_reciever_client( const int );
-static void    check_reciever_server( const int );
-static thr_ret reciever_client_thread( void * );  /* Read messages from the socket of forward server */
-static thr_ret reciever_server_thread( void * );  /* Read messages from the socket of Palerts */
+static void    check_receiver_client( const int );
+static void    check_receiver_server( const int );
+static thr_ret receiver_client_thread( void * );  /* Read messages from the socket of forward server */
+static thr_ret receiver_server_thread( void * );  /* Read messages from the socket of Palerts */
 static thr_ret update_list_thread( void * );
 
 static int            examine_ntp_sync_pm1( _STAINFO *, const PALERTMODE1_HEADER * );
@@ -121,7 +121,7 @@ int main ( int argc, char **argv )
 	PACKET              packet = { 0 };
 	PALERTMODE1_HEADER *pah    = (PALERTMODE1_HEADER *)packet.data;
 
-	void (*check_reciever_func)( const int ) = NULL;
+	void (*check_receiver_func)( const int ) = NULL;
 
 /* Check command line arguments */
 	if ( argc != 2 ) {
@@ -173,7 +173,7 @@ int main ( int argc, char **argv )
 			pa2ew_list_end();
 			exit(-1);
 		}
-		check_reciever_func = check_reciever_client;
+		check_receiver_func = check_receiver_client;
 	}
 	else {
 		if ( (ReceiverThreadsNum = pa2ew_server_init( MaxStationNum )) < 1 ) {
@@ -181,7 +181,7 @@ int main ( int argc, char **argv )
 			pa2ew_list_end();
 			exit(-1);
 		}
-		check_reciever_func = check_reciever_server;
+		check_receiver_func = check_receiver_server;
 	}
 
 /* Build the message */
@@ -225,7 +225,7 @@ int main ( int argc, char **argv )
 			palert2ew_status( TypeHeartBeat, 0, "" );
 		}
 	/* Start the message recieving thread if it isn't already running. */
-		check_reciever_func( 50 );
+		check_receiver_func( 50 );
 
 	/* Process all new messages */
 		uint32_t count    = 0;
@@ -641,11 +641,11 @@ static void palert2ew_end( void )
 /*
  *
  */
-static void check_reciever_client( const int wait_msec  )
+static void check_receiver_client( const int wait_msec  )
 {
 	if ( MessageReceiverStatus[0] != THREAD_ALIVE ) {
-		if ( StartThread(reciever_client_thread, (uint32_t)THREAD_STACK, ReceiverThreadID) == -1 ) {
-			logit("e", "palert2ew: Error starting reciever_client thread; exiting!\n");
+		if ( StartThread(receiver_client_thread, (uint32_t)THREAD_STACK, ReceiverThreadID) == -1 ) {
+			logit("e", "palert2ew: Error starting receiver_client thread; exiting!\n");
 			palert2ew_end();
 			exit(-1);
 		}
@@ -659,7 +659,7 @@ static void check_reciever_client( const int wait_msec  )
 /*
  *
  */
-static void check_reciever_server( const int wait_msec )
+static void check_receiver_server( const int wait_msec )
 {
 	static uint8_t *number     = NULL;
 	static time_t   time_check = 0;
@@ -680,10 +680,10 @@ static void check_reciever_server( const int wait_msec )
 	for ( i = 0; i < ReceiverThreadsNum; i++ ) {
 		if ( MessageReceiverStatus[i] != THREAD_ALIVE ) {
 			if ( StartThreadWithArg(
-					reciever_server_thread, number + i, (uint32_t)THREAD_STACK, ReceiverThreadID + i
+					receiver_server_thread, number + i, (uint32_t)THREAD_STACK, ReceiverThreadID + i
 				) == -1
 			) {
-				logit("e", "palert2ew: Error starting reciever_server thread(%d); exiting!\n", i);
+				logit("e", "palert2ew: Error starting receiver_server thread(%d); exiting!\n", i);
 				palert2ew_end();
 				exit(-1);
 			}
@@ -700,10 +700,10 @@ static void check_reciever_server( const int wait_msec )
 }
 
 /*
- * reciever_client_thread() - Receive the messages from the socket of forward server
+ * receiver_client_thread() - Receive the messages from the socket of forward server
  *                            and send it to the MessageStacker.
  */
-static thr_ret reciever_client_thread( void *dummy )
+static thr_ret receiver_client_thread( void *dummy )
 {
 	int ret;
 
@@ -732,10 +732,10 @@ static thr_ret reciever_client_thread( void *dummy )
 }
 
 /*
- * reciever_server_thread() - Receive the messages from the socket of all the Palerts
+ * receiver_server_thread() - Receive the messages from the socket of all the Palerts
  *                            and send it to the MessageStacker.
  */
-static thr_ret reciever_server_thread( void *arg )
+static thr_ret receiver_server_thread( void *arg )
 {
 	int           ret;
 	const uint8_t countindex = *((uint8_t *)arg);

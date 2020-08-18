@@ -68,13 +68,13 @@ By the way, you can ignore the parameters, ServerIP & ServerPort when switching 
 
 ### MySQL server information:
 
-The alternative way for list P-alerts that will recieve by this program. If you setup these parameters, especially SQLHost, the program will fetch list from MySQL server or you can just comment all of them, then it will turn off this function. And the schema of station table should include at least four columns, serial, station, network & location. Only the type of serial is number, the others are character.
+The alternative way for list P-alerts that will receive by this program. If you setup these parameters, especially SQLHost, the program will fetch list from MySQL server or you can just comment all of them, then it will turn off this function. And the schema of station table should include at least four columns, serial, station, network & location. Only the type of serial is number, the others are character.
 
 The other thing, even when you using MySQL server to fetch station information, the channel table is optional. Once you comment the option, the channel information will be filled by default value(HLZ, HLN & HLE).
 
 ### Local station list:
 
-Where to list P-alerts that will recieve by this program. By the way, the priority of local list is higher than the one from remote data. And the channel codes are optional, if you don't list any of them the value will be filled by the default value.
+Where to list P-alerts that will receive by this program. By the way, the priority of local list is higher than the one from remote data. And the channel codes are optional, if you don't list any of them the value will be filled by the default value.
 
 - Normal example:
 
