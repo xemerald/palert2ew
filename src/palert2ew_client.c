@@ -9,11 +9,7 @@
 #include <errno.h>
 /* Network related header include */
 #include <netdb.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <arpa/inet.h>
 /* Earthworm environment header include */
 #include <earthworm.h>
 /* Local header include */

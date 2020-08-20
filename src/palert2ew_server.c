@@ -5,15 +5,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
 /* Network related header include */
 #include <netdb.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
-#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 /* Earthworm environment header include */

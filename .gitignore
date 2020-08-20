@@ -7,6 +7,3 @@
 # Ignore the library files.
 *.a
 *.so
-
-# Ignore the testing files.
-test*

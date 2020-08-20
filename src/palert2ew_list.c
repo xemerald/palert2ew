@@ -6,9 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <search.h>
-#include <unistd.h>
-#include <errno.h>
 /* */
 #include <earthworm.h>
 /* */
@@ -145,10 +142,10 @@ void *pa2ew_list_root_switch( void **root )
 	return (void *)Root;
 }
 
+#if defined( _USE_SQL )
 /*
  * fetch_list_sql() - Get stations list from MySQL server
  */
-#if defined( _USE_SQL )
 static int fetch_list_sql( void **root, const char *table_sta, const char *table_chan, const DBINFO *dbinfo )
 {
 	int        result  = 0;

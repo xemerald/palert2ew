@@ -19,7 +19,6 @@
 #include <transport.h>
 #include <lockfile.h>
 /* Local header include */
-#include <palert2ew.h>
 #include <palert2ew_list.h>
 #include <palert2ew_client.h>
 #include <palert2ew_server.h>

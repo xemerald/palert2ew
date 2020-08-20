@@ -2,15 +2,11 @@
  *
  */
 /* Standard C header include */
-#include <stdio.h>
-#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-
 /* Earthworm environment header include */
 #include <earthworm.h>
 #include <mem_circ_queue.h>
-
 /* Local header include */
 #include <palert2ew.h>
 
