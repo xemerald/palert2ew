@@ -50,10 +50,10 @@ Message  TYPE_PALERTRAW     XXX   # XXX can be any number that is unused by othe
 
 2. Second, copy the configuration file **palert2ew.d** to the param directory of Earthworm.
 
-3. Final, 'cause the P-alert use the modbus protocol, the listening port of Server mode is **502**. And under UNIX-like system it need the superuser permission or you can use the command below to enable the capability of binding the port below 1024:
+3. Final, 'cause the P-alert use the modbus protocol, the listening port of Server mode is **502**. And under UNIX-like system it need the **superuser permission** or you can execute the command below to enable the capability of binding the port below 1024:
 
 ```
-$ setcap cap_net_bind_service+=ep <PATH_TO_THE_BINARY_FILE>
+$ sudo setcap cap_net_bind_service=+ep <PATH_TO_THE_BINARY_FILE>
 ```
 
 Then you are able to execute this module under startstop module!
