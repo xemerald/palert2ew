@@ -14,22 +14,8 @@
 #pragma once
 /* */
 #include <mysql.h>
-
-/* Define the character length of parameters */
-#define  MAX_HOST_LENGTH      256
-#define  MAX_USER_LENGTH      16
-#define  MAX_PASSWORD_LENGTH  32
-#define  MAX_DATABASE_LENGTH  64
-#define  MAX_TABLE_LEGTH      64
-
-/* Database login information */
-typedef struct {
-	char host[MAX_HOST_LENGTH];
-	char user[MAX_USER_LENGTH];
-	char password[MAX_PASSWORD_LENGTH];
-	char database[MAX_DATABASE_LENGTH];
-	long port;
-} DBINFO;
+/* */
+#include <dbinfo.h>
 
 #define COL_STA_LIST_TABLE \
 		X(COL_STA_SERIAL,   "serial"  ) \
@@ -68,9 +54,6 @@ typedef union {
 } STALIST_COL_LIST __attribute__((__transparent_union__));
 
 typedef char *(*GET_COLUMN_NAME)( const STALIST_COL_LIST );
-
-#define STALIST_DBINFO_INIT(_DB_INFO_) \
-		((_DB_INFO_) = (DBINFO){ { 0 }, { 0 }, { 0 }, { 0 }, 0 })
 
 /* Export functions' prototypes */
 MYSQL_RES *stalist_sta_query_sql( const DBINFO *, const char *, const int, ... );

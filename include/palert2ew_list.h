@@ -14,7 +14,12 @@
 /* */
 #include <search.h>
 /* */
+#if defined( _USE_SQL )
 #include <stalist.h>
+#else
+#include <dbinfo.h>
+#endif
+/* */
 #include <palert2ew.h>
 
 /* */

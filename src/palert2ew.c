@@ -310,7 +310,7 @@ static void palert2ew_config( char *configfile )
 			init[i] = 1;
 	}
 /* */
-	STALIST_DBINFO_INIT( DBInfo );
+	DBINFO_INIT( DBInfo );
 /* Open the main configuration file */
 	nfiles = k_open( configfile );
 	if ( nfiles == 0 ) {
@@ -803,8 +803,10 @@ static int examine_ntp_sync_pm1( _STAINFO *stainfo, const PALERTMODE1_HEADER *pa
 				printf("palert2ew: Station %s NTP sync error, please check it!\n", stainfo->sta);
 			}
 			else {
-				if ( *ntp_errors == PA2EW_NTP_SYNC_ERR_LIMIT )
+				if ( *ntp_errors == PA2EW_NTP_SYNC_ERR_LIMIT ) {
 					logit("e", "palert2ew: Station %s NTP sync error, drop the packet.\n", stainfo->sta);
+					(*ntp_errors)++;
+				}
 				return 0;
 			}
 		}
@@ -842,7 +844,7 @@ static TRACE2_HEADER *enrich_trh2_pm1(
 #elif defined( _INTEL )
 	strcpy(trh2->datatype, "i4");   /* VAX/Intel IEEE integer */
 #else
-	logit("e", "palert2ew warning: _INTEL and _SPARC are both undefined.");
+	logit("e", "palert2ew: warning _INTEL and _SPARC are both undefined.");
 #endif
 
 	return trh2;
