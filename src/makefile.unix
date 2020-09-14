@@ -19,12 +19,12 @@ UTILITY = palert2ew_msg_queue.o palert2ew_list.o \
 SRC = palert2ew.c palert2ew_msg_queue.c palert2ew_list.c \
 		palert2ew_server.c palert2ew_client.c
 
-base: palert2ew.o $(EWLIBS) $(UTILITY)
+palert2ew: palert2ew.o $(EWLIBS) $(UTILITY)
 	$(CC) $(CFLAGS) -o $B/palert2ew palert2ew.o $(UTILITY) $(EWLIBS) $(LOCALLIBS) $(LIBS)
 
 # Compile rule for Earthworm version under 7.9
 #
-ver_709: base
+ver_709: palert2ew
 
 ver_709_sql: CFLAGS+=-D_USE_SQL
 ver_709_sql: LIBS+=-lmysqlclient
@@ -34,7 +34,7 @@ ver_709_sql: ver_709
 # Compile rule for Earthworm version over 7.10
 #
 ver_710: CFLAGS+=-D_V710
-ver_710: base
+ver_710: palert2ew
 
 ver_710_sql: CFLAGS+=-D_USE_SQL
 ver_710_sql: LIBS+=-lmysqlclient
@@ -44,9 +44,6 @@ ver_710_sql: ver_710
 # Compile rule for Object
 .c.o:
 	$(CC) $(CFLAGS) -c $<
-
-palert2ew_obj_v710:
-	$(CC) $(CFLAGS) -D_V710 -c palert2ew.c
 
 # Clean-up rules
 clean:

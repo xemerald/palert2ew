@@ -99,7 +99,7 @@ int pa2ew_msgqueue_enqueue( PACKET *packet, size_t size )
 		})
 
 #define VALIDATE_LATEST_200BLOCK_IN_STA(STAINFO) \
-		__extension__ ({ \
+		__extension__({ \
 			int                 _ret_in_MACRO   = 0; \
 			PACKETPARAM        *_param_in_MACRO = &(STAINFO)->param; \
 			PALERTMODE1_HEADER *_pah_in_MACRO   = \
