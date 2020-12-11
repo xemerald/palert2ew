@@ -73,6 +73,7 @@ static uint8_t  RawOutputSwitch = 0;
 static char     ServerIP[INET6_ADDRSTRLEN];
 static char     ServerPort[8];
 static uint64_t MaxStationNum;
+static uint32_t UniSampRate = 0;
 static DBINFO   DBInfo;
 static char     SQLStationTable[MAX_TABLE_LEGTH];
 static char     SQLChannelTable[MAX_TABLE_LEGTH];
@@ -115,12 +116,16 @@ int main ( int argc, char **argv )
 	time_t     timeLastBeat;     /* time last heartbeat was sent  */
 	char      *lockfile;
 	int32_t    lockfile_fd;
+	uint32_t   count    = 0;
+	size_t     msg_size = 0;
 
 	TracePacket         tracebuf;  /* message which is sent to share ring    */
 	PACKET              packet = { 0 };
 	PALERTMODE1_HEADER *pah    = (PALERTMODE1_HEADER *)packet.data;
 
-	void (*check_receiver_func)( const int ) = NULL;
+	void    (*check_receiver_func)( const int ) = NULL;
+	_STAINFO *staptr = NULL;
+	_CHAINFO *chaptr = NULL;
 
 /* Check command line arguments */
 	if ( argc != 2 ) {
@@ -227,8 +232,8 @@ int main ( int argc, char **argv )
 		check_receiver_func( 50 );
 
 	/* Process all new messages */
-		uint32_t count    = 0;
-		size_t   msg_size = 0;
+		count    = 0;
+		msg_size = 0;
 		do {
 		/* See if a termination has been requested */
 			if ( tport_getflag( &Region[0] ) == TERMINATE ||
@@ -258,9 +263,9 @@ int main ( int argc, char **argv )
 			}
 
 		/* Process the message */
-			if ( pah->packet_type[0] & 0x01 ) {
-				_STAINFO *staptr = (_STAINFO *)packet.sptr;
-				_CHAINFO *chaptr = (_CHAINFO *)staptr->chaptr;
+			if ( PALERT_IS_MODE1_HEADER( pah ) ) {
+				staptr = (_STAINFO *)packet.sptr;
+				chaptr = (_CHAINFO *)staptr->chaptr;
 			/* Examine the NTP sync. status */
 				if ( !examine_ntp_sync_pm1( staptr, pah ) )
 					continue;
@@ -377,6 +382,13 @@ static void palert2ew_config( char *configfile )
 			else if( k_its("MaxStationNum") ) {
 				MaxStationNum = k_long();
 				init[5] = 1;
+			}
+			else if( k_its("UniSampRate") ) {
+				UniSampRate = k_int();
+				logit(
+					"o", "palert2ew: Change to unified sampling rate mode, the unified sampling rate is %d Hz!\n",
+					UniSampRate
+				);
 			}
 		/* 6 */
 			else if( k_its("ServerSwitch") ) {
@@ -824,7 +836,7 @@ static TRACE2_HEADER *enrich_trh2_pm1(
 /* */
 	trh2->pinno     = 0;
 	trh2->nsamp     = PALERTMODE1_SAMPLE_NUMBER;
-	trh2->samprate  = (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah );
+	trh2->samprate  = (double)(UniSampRate > 0 ? UniSampRate : PALERTMODE1_HEADER_GET_SAMPRATE( pah ));
 	trh2->starttime = palert_get_systime( pah, LocalTimeShift );
 	trh2->endtime   = trh2->starttime + (trh2->nsamp - 1) * 1.0 / trh2->samprate;
 /* */

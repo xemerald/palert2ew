@@ -93,7 +93,8 @@ int pa2ew_list_total_station( void )
  * pa2ew_list_station_add() -
  */
 _STAINFO *pa2ew_list_station_add(
-	void **root, const int serial, const char *sta, const char *net, const char *loc, const int nchannel, const char *chan[]
+	void **root, const int serial, const char *sta, const char *net,
+	const char *loc, const int nchannel, const char *chan[]
 ) {
 	_STAINFO *result = (_STAINFO *)calloc(1, sizeof(_STAINFO));
 

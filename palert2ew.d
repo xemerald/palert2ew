@@ -13,14 +13,19 @@ HeartBeatInterval  15             # seconds between heartbeats
 
 QueueSize          1000           # max messages in internal circular msg buffer
 MaxStationNum      1024           # max number of stations which will receive data from
-
+UniSampRate        100            # setting for unified sampling rate, if set this parameter,
+                                  # all of the P-alerts will be applied by this value; or just
+								  # comment it out, let the program detect the sampling rate
+								  # from the packet.
 # Palert server setup:
 #
-# Warning: Do not receive the same station by two ways simultaneously!!
+# There are two independent mode in this module: first, as a client-side program connect to the P-alert
+# Core; second, as server-side program accept those P-alerts connections. While setting second mode, the
+# P-alert Core server informations are neccessary.
 #
 ServerSwitch      0               # 0 connect to Palert server; 1 as the server of Palert
-ServerIP          127.0.0.1       # Server IP address of Palert server
-ServerPort        23000           # Server port of Palert server
+ServerIP          127.0.0.1       # Server IP address of P-alert Core server
+ServerPort        23000           # Server port of P-alert Core server
 
 # MySQL server information:
 #
@@ -49,7 +54,7 @@ SQLChannelTable    PalertChannelList
 
 # Local station list:
 #
-# The local list for Palerts that will receive. By the way, the priority of local list
+# The local list for P-alerts that will receive. By the way, the priority of local list
 # is higher than the one from remote data. The channel codes are optional, and the value
 # will be filled by the default value. And the layout should be like these example:
 #

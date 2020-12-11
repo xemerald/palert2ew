@@ -140,9 +140,10 @@ typedef struct {
 /*
  *
  */
-#define PALERTMODE1_HEADER_ACC_UNIT   0.059814453f
-#define PALERTMODE1_HEADER_VEL_UNIT   0.01f
-#define PALERTMODE1_HEADER_DIS_UNIT   0.001f
+#define PALERTMODE1_HEADER_VEC_UNIT   0.1f          /* count to gal    */
+#define PALERTMODE1_HEADER_ACC_UNIT   0.059814453f  /* count to gal    */
+#define PALERTMODE1_HEADER_VEL_UNIT   0.01f         /* count to cm/sec */
+#define PALERTMODE1_HEADER_DIS_UNIT   0.001f        /* count to cm     */
 
 /*
  *
@@ -278,6 +279,24 @@ typedef struct {
 	uint8_t reserved[6];
 } SMSRECORD;
 */
+
+/*
+ * PALERT_IS_MODE1_HEADER()
+ */
+#define PALERT_IS_MODE1_HEADER(PAH) \
+		(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] & 0x01)
+
+/*
+ * PALERT_IS_MODE2_HEADER()
+ */
+#define PALERT_IS_MODE2_HEADER(PAH) \
+		(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] & 0x02)
+
+/*
+ * PALERT_IS_MODE4_HEADER()
+ */
+#define PALERT_IS_MODE4_HEADER(PAH) \
+		(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] & 0x03)
 
 /*
  * PALERTMODE1_HEADER_GET_WORD()
