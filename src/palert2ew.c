@@ -836,7 +836,7 @@ static TRACE2_HEADER *enrich_trh2_pm1(
 /* */
 	trh2->pinno     = 0;
 	trh2->nsamp     = PALERTMODE1_SAMPLE_NUMBER;
-	trh2->samprate  = (double)(UniSampRate > 0 ? UniSampRate : PALERTMODE1_HEADER_GET_SAMPRATE( pah ));
+	trh2->samprate  = UniSampRate ? (double)UniSampRate : (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah );
 	trh2->starttime = palert_get_systime( pah, LocalTimeShift );
 	trh2->endtime   = trh2->starttime + (trh2->nsamp - 1) * 1.0 / trh2->samprate;
 /* */
