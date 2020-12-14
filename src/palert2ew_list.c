@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
+#include <ctype.h>
 /* */
 #include <earthworm.h>
 /* */
@@ -15,7 +17,7 @@
 static int       fetch_list_sql( void **, const char *, const char *, const DBINFO * );
 static _CHAINFO *enrich_chainfo_default( _STAINFO * );
 static _STAINFO *enrich_stainfo_raw( _STAINFO *, const int, const char *, const char *, const char * );
-static _CHAINFO *enrich_chainfo_raw( _STAINFO *, const int, const char *[] );
+static _CHAINFO *enrich_chainfo_raw( _STAINFO *, const int, const char * );
 static int       compare_serial( const void *, const void * );	/* The compare function of binary tree search */
 static void      cal_total_stations( const void *, const VISIT, const int );
 static void      free_stainfo( void * );
@@ -100,7 +102,7 @@ int pa2ew_list_station_line_parse( void **root, const char *line )
 	char  sta[TRACE2_STA_LEN] = { 0 };
 	char  net[TRACE2_NET_LEN] = { 0 };
 	char  loc[TRACE2_LOC_LEN] = { 0 };
-	char  chan[PALERTMODE1_CHAN_COUNT][TRACE2_CHAN_LEN] = { { 0 } };
+	char *chan[PALERTMODE1_CHAN_COUNT] = { NULL };
 	char *sub_line = malloc(strlen(line) + 1);
 	char *str_start, *str_end;
 
@@ -114,6 +116,7 @@ int pa2ew_list_station_line_parse( void **root, const char *line )
 			*str_end++ = '\0';
 		/* */
 			if ( strlen(str_start) ) {
+				chan[i] = malloc(strlen(str_start) + 1);
 				strcpy(chan[i], str_start);
 			}
 			else {
@@ -131,51 +134,16 @@ int pa2ew_list_station_line_parse( void **root, const char *line )
 		result = -1;
 	}
 
+	for ( i = 0; i < nchannel && i < PALERTMODE1_CHAN_COUNT; i++ )
+		free(chan[i]);
 	free(sub_line);
-	return result;
-}
-
-/*
- * pa2ew_list_station_add() -
- */
-_STAINFO *pa2ew_list_station_add(
-	void **root, const int serial, const char *sta, const char *net,
-	const char *loc, const int nchannel, const char *chan[]
-) {
-	_STAINFO *result = (_STAINFO *)calloc(1, sizeof(_STAINFO));
-
-	if ( result != NULL ) {
-		enrich_stainfo_raw( result, serial, sta, net, loc );
-	/* */
-		if ( tfind(result, root, compare_serial) == NULL ) {
-		/* */
-			result->chaptr = NULL;
-			if ( nchannel )
-				enrich_chainfo_raw( result, nchannel, chan );
-			else
-				enrich_chainfo_default( result );
-		/* Insert the station information into binary tree */
-			if ( result->chaptr != NULL ) {
-				if ( tsearch(result, root, compare_serial) != NULL )
-					return result;
-				else
-					logit("e", "palert2ew: Error insert station into binary tree!\n");
-			}
-			else {
-				logit("e", "palert2ew: Error allocate the memory for channels information!\n");
-			}
-		}
-		free(result);
-		result = NULL;
-	}
-
 	return result;
 }
 
 /*
  * pa2ew_list_root_reg() -
  */
-void *pa2ew_list_root_reg( const void *root )
+void *pa2ew_list_root_reg( void *root )
 {
 	void *_root = (void *)Root;
 
@@ -195,6 +163,7 @@ void *pa2ew_list_root_reg( const void *root )
 static int fetch_list_sql( void **root, const char *table_sta, const char *table_chan, const DBINFO *dbinfo )
 {
 	int        result  = 0;
+	_STAINFO   key;
 	_STAINFO  *stainfo = NULL;
 	MYSQL_RES *sql_res = NULL;
 	MYSQL_ROW  sql_row;
@@ -214,20 +183,19 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 /* Read station list from query result */
 	while ( (sql_row = stalist_fetch_row_sql(sql_res)) != NULL ) {
 	/* Allocate the station information memory */
-		if ( (stainfo = (_STAINFO *)calloc(1, sizeof(_STAINFO))) != NULL ) {
-			enrich_stainfo_mysql( stainfo, sql_row );
+		//if ( (stainfo = (_STAINFO *)calloc(1, sizeof(_STAINFO))) != NULL ) {
+		enrich_stainfo_mysql( &key, sql_row );
 		/* */
-			if ( tfind(stainfo, root, compare_serial) == NULL ) {
+			if ( tfind(&key, root, compare_serial) == NULL ) {
 			/* */
-				stainfo->chaptr = NULL;
 				if ( table_chan != NULL && strlen(table_chan) ) {
-					enrich_chainfo_mysql(
-						stainfo,
-						stalist_chan_query_sql(
-							dbinfo, table_chan, stainfo->sta, stainfo->net, stainfo->loc, 1, COL_CHAN_CHANNEL
-						)
+					sql_row = stalist_chan_query_sql(
+						dbinfo, table_chan, key.sta, key.net, key.loc, 1, COL_CHAN_CHANNEL
 					);
 				}
+			/* */
+
+				stainfo->chaptr = NULL;
 			/* */
 				if ( stainfo->chaptr == NULL )
 					enrich_chainfo_default( stainfo );
@@ -272,6 +240,43 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 			free(stainfo);
 		if ( *root != (void *)NULL )
 			tdestroy(*root, free_stainfo);
+	}
+
+	return result;
+}
+
+/*
+ * add_new_station() -
+ */
+static _STAINFO *add_new_station(
+	void **root, const int serial, const char *sta, const char *net,
+	const char *loc, const int nchannel, const char *chan[]
+) {
+	_STAINFO *result = (_STAINFO *)calloc(1, sizeof(_STAINFO));
+
+	if ( result != NULL ) {
+		enrich_stainfo_raw( result, serial, sta, net, loc );
+	/* */
+		if ( tfind(result, root, compare_serial) == NULL ) {
+		/* */
+			result->chaptr = NULL;
+			if ( nchannel )
+				enrich_chainfo_raw( result, nchannel, chan );
+			else
+				enrich_chainfo_default( result );
+		/* Insert the station information into binary tree */
+			if ( result->chaptr != NULL ) {
+				if ( tsearch(result, root, compare_serial) != NULL )
+					return result;
+				else
+					logit("e", "palert2ew: Error insert station into binary tree!\n");
+			}
+			else {
+				logit("e", "palert2ew: Error allocate the memory for channels information!\n");
+			}
+		}
+		free(result);
+		result = NULL;
 	}
 
 	return result;
@@ -370,9 +375,8 @@ static _STAINFO *enrich_stainfo_raw(
 /*
  *
  */
-static _CHAINFO *enrich_chainfo_raw(
-	_STAINFO *stainfo, const int nchannel, const char *chan[]
-) {
+static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, const char *chan[] )
+{
 	int       i;
 	_CHAINFO *chainfo = calloc(nchannel, sizeof(_CHAINFO));
 

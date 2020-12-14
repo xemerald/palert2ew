@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <ctype.h>
 #include <time.h>
 /* Earthworm environment header include */
 #include <earthworm.h>
@@ -141,7 +142,7 @@ int main ( int argc, char **argv )
 	logit("" , "%s: Read command file <%s>\n", argv[0], argv[1]);
 /* Read the station list from remote database */
 	pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo );
-	pa2ew_list_root_reg( _Root );
+	pa2ew_list_root_reg( (void *)_Root );
 	if ( !(i = pa2ew_list_total_station()) ) {
 		fprintf(stderr, "There is not any station in the list after fetching, exiting!\n");
 		exit(-1);
@@ -451,46 +452,13 @@ static void palert2ew_config( char *configfile )
 				if ( str ) strcpy(SQLChannelTable, str);
 			}
 			else if ( k_its("Palert") ) {
-				int serial = k_int();
-			/* */
-				char sta[TRACE2_STA_LEN] = { 0 };
-				str = k_str();
-				if ( str ) strcpy(sta, str);
-			/* */
-				char net[TRACE2_NET_LEN] = { 0 };
-				str = k_str();
-				if ( str ) strcpy(net, str);
-			/* */
-				char loc[TRACE2_LOC_LEN] = { 0 };
-				str = k_str();
-				if ( str ) strcpy(loc, str);
-
-				if ( strlen(sta) && strlen(net) && strlen(loc) ) {
-					int   nchannel = k_int();
-					char *chan[PALERTMODE1_CHAN_COUNT] = { NULL };
-					for ( i = 0; i < nchannel && i < PALERTMODE1_CHAN_COUNT; i++ ) {
-						str = k_str();
-						if ( str ) {
-							chan[i] = malloc(TRACE2_CHAN_LEN);
-							strcpy(chan[i], str);
-						}
-						else {
-							logit(
-								"e", "palert2ew: ERROR, lack of channel code for station %s in <%s>, exiting!\n",
-								sta, configfile
-							);
-							exit(-1);
-						}
-					}
-					pa2ew_list_station_add( (void **)&_Root, serial, sta, net, loc, i, (const char **)chan );
-				/* */
-					for ( i = 0; i < nchannel; i++ )
-						free(chan[i]);
-				}
-				else {
+				str = k_get();
+				for ( str += strlen(str) + 1; isspace(*str); str++ );
+				printf("%s\n", str);
+				if ( pa2ew_list_station_line_parse( (void **)&_Root, str ) ) {
 					logit(
-						"e", "palert2ew: ERROR, lack of some station information for serial %d in <%s>, exiting!\n",
-						serial, configfile
+						"e", "palert2ew: ERROR, lack of some station information for in <%s>, exiting!\n",
+						configfile
 					);
 					exit(-1);
 				}
