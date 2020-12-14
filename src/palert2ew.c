@@ -94,7 +94,6 @@ static uint8_t TypePalertRaw = 0;
 #define  ERR_TOOBIG        1   /* retreived msg too large for buffer     */
 #define  ERR_NOTRACK       2   /* msg retreived; tracking limit exceeded */
 #define  ERR_QUEUE         3   /* error queueing message for sending      */
-//static char Text[150];         /* string for log/error messages          */
 
 static volatile void   *_Root  = NULL;
 static volatile _Bool   Finish = 0;
@@ -142,7 +141,7 @@ int main ( int argc, char **argv )
 	logit("" , "%s: Read command file <%s>\n", argv[0], argv[1]);
 /* Read the station list from remote database */
 	pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo );
-	pa2ew_list_root_switch( (void **)&_Root );
+	pa2ew_list_root_reg( _Root );
 	if ( !(i = pa2ew_list_total_station()) ) {
 		fprintf(stderr, "There is not any station in the list after fetching, exiting!\n");
 		exit(-1);

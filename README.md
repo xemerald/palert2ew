@@ -1,6 +1,6 @@
 # Module palert2ew @ Earthworm
 
-The P-alert sensor messages reciever module based on Earthworm that developed by USGS.
+The P-alert sensor messages receiving module based on Earthworm that developed by USGS.
 
 ## Requirement
 

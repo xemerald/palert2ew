@@ -30,6 +30,6 @@ int   pa2ew_list_total_station( void );
 _STAINFO *pa2ew_list_station_add(
 	void **, const int, const char *, const char *, const char *, const int, const char *[]
 );
-void *pa2ew_list_root_switch( void ** );
+void *pa2ew_list_root_reg( const void * );
 
 _STAINFO *pa2ew_list_find( const int );

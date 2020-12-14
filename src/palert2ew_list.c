@@ -90,6 +90,52 @@ int pa2ew_list_total_station( void )
 }
 
 /*
+ *
+ */
+int pa2ew_list_station_line_parse( void **root, const char *line )
+{
+	int   i, result = 0;
+	int   serial;
+	int   nchannel;
+	char  sta[TRACE2_STA_LEN] = { 0 };
+	char  net[TRACE2_NET_LEN] = { 0 };
+	char  loc[TRACE2_LOC_LEN] = { 0 };
+	char  chan[PALERTMODE1_CHAN_COUNT][TRACE2_CHAN_LEN] = { { 0 } };
+	char *sub_line = malloc(strlen(line) + 1);
+	char *str_start, *str_end;
+
+/* */
+	if ( sscanf(line, "%d %s %s %s %d %[^\n]", &serial, sta, net, loc, &nchannel, sub_line) >= 5 ) {
+		str_start = str_end = sub_line;
+		for ( i = 0; i < nchannel && i < PALERTMODE1_CHAN_COUNT; i++ ) {
+		/* */
+			for ( str_start = str_end; isspace(*str_start); str_start++ );
+			for ( str_end = str_start; !isspace(*str_end); str_end++ );
+			*str_end++ = '\0';
+		/* */
+			if ( strlen(str_start) ) {
+				strcpy(chan[i], str_start);
+			}
+			else {
+				logit("e", "palert2ew: ERROR, lack of channel code for station %s in local list!\n", sta);
+				result = -1;
+				break;
+			}
+		}
+	/* */
+		if ( result != -1 )
+			pa2ew_list_station_add( root, serial, sta, net, loc, i, (const char **)chan );
+	}
+	else {
+		logit("e", "palert2ew: ERROR, lack of some station information for serial %d in local list!\n", serial);
+		result = -1;
+	}
+
+	free(sub_line);
+	return result;
+}
+
+/*
  * pa2ew_list_station_add() -
  */
 _STAINFO *pa2ew_list_station_add(
@@ -127,18 +173,17 @@ _STAINFO *pa2ew_list_station_add(
 }
 
 /*
- * pa2ew_list_root_switch() -
+ * pa2ew_list_root_reg() -
  */
-void *pa2ew_list_root_switch( void **root )
+void *pa2ew_list_root_reg( const void *root )
 {
 	void *_root = (void *)Root;
 
 /* Switch the tree's root */
-	Root = *root;
+	Root = root;
 /* Free the old one */
 	sleep_ew(500);
 	if ( _root != (void *)NULL ) tdestroy(_root, free_stainfo);
-	*root = NULL;
 
 	return (void *)Root;
 }
