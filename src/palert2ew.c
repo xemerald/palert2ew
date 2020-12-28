@@ -37,6 +37,7 @@ static void    check_receiver_server( const int );
 static thr_ret receiver_client_thread( void * );  /* Read messages from the socket of forward server */
 static thr_ret receiver_server_thread( void * );  /* Read messages from the socket of Palerts */
 static thr_ret update_list_thread( void * );
+static int     load_list_configfile( void **, char * );
 
 static int            examine_ntp_sync_pm1( _STAINFO *, const PALERTMODE1_HEADER * );
 static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
@@ -454,7 +455,6 @@ static void palert2ew_config( char *configfile )
 			else if ( k_its("Palert") ) {
 				str = k_get();
 				for ( str += strlen(str) + 1; isspace(*str); str++ );
-				printf("%s\n", str);
 				if ( pa2ew_list_station_line_parse( (void **)&_Root, str ) ) {
 					logit(
 						"e", "palert2ew: ERROR, lack of some station information for in <%s>, exiting!\n",
@@ -477,7 +477,7 @@ static void palert2ew_config( char *configfile )
 			}
 		}
 		nfiles = k_close();
-   }
+	}
 
 /* After all files are closed, check init flags for missed commands */
 	nmiss = 0;
@@ -747,19 +747,98 @@ static thr_ret receiver_server_thread( void *arg )
 /*
  * update_list_thread() -
  */
-static thr_ret update_list_thread( void *dummy )
+static thr_ret update_list_thread( void *arg )
 {
-	logit("o", "palert2ew: Start to updating the list of Palerts.\n");
+	void *root = NULL;
 
-	if ( pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo ) <= 0 )
-		logit("e", "palert2ew: Fetching list from remote database error!\n");
+	logit("o", "palert2ew: Updating the Palert list...\n");
+/* */
+	if ( load_list_configfile( &root, (char *)arg ) ) {
+		logit("e", "palert2ew: Fetching Palert list from local file error!\n");
+		pa2ew_list_root_destroy( root );
+	}
+	else {
+	/* */
+		if ( pa2ew_list_db_fetch( &root, SQLStationTable, SQLChannelTable, &DBInfo ) < 0 ) {
+			logit("e", "palert2ew: Fetching Palert list from remote database error!\n");
+			pa2ew_list_root_destroy( root );
+		}
+		else {
+			if ( root != NULL ) {
+				logit("o", "palert2ew: Successfully updated the Palert list!\n");
+				pa2ew_list_root_reg( root );
+				logit(
+					"o", "palert2ew: There are total %d stations in the new Palert list.\n", pa2ew_list_total_station()
+				);
+			}
+		}
+	}
 
-/* Just wait for 30 seconds */
-	sleep_ew(30000);
-/* Tell other threads that update is finshed */
-	UpdateFlag = 0;
-	KillSelfThread(); /* Just exit this thread */
+/* Just exit this thread */
+	KillSelfThread();
+
 	return NULL;
+}
+
+/*
+ *
+ */
+static int load_list_configfile( void **root, char *configfile )
+{
+	char *com;
+	char *str;
+	int   nfiles;
+	int   success;
+
+/* Open the main configuration file */
+	nfiles = k_open( configfile );
+	if ( nfiles == 0 ) {
+		logit("e","palert2ew: Error opening command file <%s> when updating!\n", configfile);
+		return -1;
+	}
+
+/* Process all command files */
+	while ( nfiles > 0 )   /* While there are command files open */
+	{
+		while ( k_rd() )        /* Read next line from active file  */
+		{
+			com = k_str();         /* Get the first token from line */
+		/* Ignore blank lines & comments */
+			if ( !com )          continue;
+			if ( com[0] == '#' ) continue;
+		/* Open a nested configuration file */
+			if ( com[0] == '@' ) {
+				success = nfiles + 1;
+				nfiles  = k_open(&com[1]);
+				if ( nfiles != success ) {
+					logit("e", "palert2ew: Error opening command file <%s> when updating!\n", &com[1]);
+					return -1;
+				}
+				continue;
+			}
+
+		/* Process only "Palert" command */
+			if ( k_its("Palert") ) {
+				str = k_get();
+				for ( str += strlen(str) + 1; isspace(*str); str++ );
+				if ( pa2ew_list_station_line_parse( root, str ) ) {
+					logit(
+						"e", "palert2ew: Some errors occured in <%s> when updating!\n",
+						configfile
+					);
+					return -1;
+				}
+			}
+		/* See if there were any errors processing the command */
+			if ( k_err() ) {
+			   logit("e", "palert2ew: Bad <%s> command in <%s> when updating!\n", com, configfile);
+			   return -1;
+			}
+		}
+		nfiles = k_close();
+	}
+
+	return 0;
 }
 
 /*

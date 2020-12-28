@@ -35,14 +35,15 @@ static MYSQL *SQL = NULL;
 MYSQL_RES *stalist_sta_query_sql( const DBINFO *dbinfo, const char *table, const int num_col, ... )
 {
 	char       query[4096];
-	size_t     query_len;
 	va_list    ap;
 
 	va_start(ap, num_col);
-	query_len = strlen(gen_select_str( query, table, get_sta_column_name, num_col, ap ));
+	gen_select_str( query, table, get_sta_column_name, num_col, ap );
 	va_end(ap);
+/* Restrict for those on-line stations */
+	strcat(query, " WHERE end_at > now() && start_at <= now()");
 
-	return query_sql( dbinfo, query, query_len );
+	return query_sql( dbinfo, query, strlen(query) );
 }
 
 /*
@@ -53,7 +54,6 @@ MYSQL_RES *stalist_chan_query_sql(
 ) {
 	char       query[4096];
 	char       tmpquery[512];
-	size_t     query_len;
 	va_list    ap;
 
 /* */
@@ -62,14 +62,14 @@ MYSQL_RES *stalist_chan_query_sql(
 	va_end(ap);
 /* */
 	sprintf(
-		tmpquery, " WHERE %s='%s' && %s='%s' && %s='%s'",
+		tmpquery, " WHERE `%s`='%s' && `%s`='%s' && `%s`='%s'",
 		get_sta_column_name( (COL_STA_LIST)COL_STA_STATION ), sta,
 		get_sta_column_name( (COL_STA_LIST)COL_STA_NETWORK ), net,
 		get_sta_column_name( (COL_STA_LIST)COL_STA_LOCATION ), loc
 	);
-	query_len = strlen(strcat(query, tmpquery));
+	strcat(query, tmpquery);
 
-	return query_sql( dbinfo, query, query_len );
+	return query_sql( dbinfo, query, strlen(query) );
 }
 
 /*
