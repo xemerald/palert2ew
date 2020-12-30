@@ -22,6 +22,11 @@
 /* */
 #define PA2EW_RECV_BUFFER_LENGTH  12000
 #define PA2EW_PREPACKET_LENGTH    (PA2EW_RECV_BUFFER_LENGTH + 4)
+/* */
+#define PA2EW_RECV_NORMAL         0
+#define PA2EW_RECV_NEED_UPDATE   -1
+#define PA2EW_RECV_CONNECT_ERROR -2
+#define PA2EW_RECV_FATAL_ERROR   -3
 
 /* */
 #include <trace_buf.h>

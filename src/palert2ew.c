@@ -58,9 +58,11 @@ static pid_t    MyPid;          /* for restarts by startstop               */
 static volatile int     ReceiverThreadsNum = 0;
 static volatile int8_t *MessageReceiverStatus = NULL;
 #if defined( _V710 )
-static ew_thread_t     *ReceiverThreadID = NULL;       /* Thread moving messages from transport to queue */
+static ew_thread_t      UpdateThreadID   = 0;          /* Thread id for updating the Palert list */
+static ew_thread_t     *ReceiverThreadID = NULL;       /* Thread id for receiving messages from TCP/IP */
 #else
-static unsigned        *ReceiverThreadID = NULL;       /* Thread moving messages from transport to queue */
+static unsigned         UpdateThreadID   = 0;          /* Thread id for updating the Palert list */
+static unsigned        *ReceiverThreadID = NULL;       /* Thread id for receiving messages from TCP/IP */
 #endif
 
 /* Things to read or derive from configuration file
@@ -69,6 +71,7 @@ static char     RingName[2][MAX_RING_STR];  /* name of transport ring for i/o   
 static char     MyModName[MAX_MOD_STR];     /* speak as this module name/id      */
 static uint8_t  LogSwitch;                  /* 0 if no logfile should be written */
 static uint64_t HeartBeatInterval;          /* seconds between heartbeats        */
+static uint64_t UpdateInterval = 0;         /* seconds between updating check    */
 static uint64_t QueueSize;                  /* max messages in output circular buffer */
 static uint8_t  ServerSwitch;               /* 0 connect to Palert server; 1 as the server of Palert */
 static uint8_t  RawOutputSwitch = 0;
@@ -113,8 +116,9 @@ static int64_t LocalTimeShift = 0;            /* Time difference between UTC & l
 int main ( int argc, char **argv )
 {
 	int        i;
-	time_t     timeNow;          /* current time                  */
-	time_t     timeLastBeat;     /* time last heartbeat was sent  */
+	time_t     timeNow;          /* current time                    */
+	time_t     timeLastBeat;     /* time last heartbeat was sent    */
+	time_t     timeLastUpd;      /* time last checked updating list */
 	char      *lockfile;
 	int32_t    lockfile_fd;
 	uint32_t   count    = 0;
@@ -220,16 +224,23 @@ int main ( int argc, char **argv )
 
 /* Force a heartbeat to be issued in first pass thru main loop */
 	timeLastBeat = time(&timeNow) - HeartBeatInterval - 1;
+	timeLastUpd  = timeNow;
 /* Initialize the timezone shift */
 	LocalTimeShift = -(localtime(&timeNow)->tm_gmtoff);
 /*----------------------- setup done; start main loop -------------------------*/
 	while ( 1 ) {
 	/* Send palert2ew's heartbeat */
-		if  ( time(&timeNow) - timeLastBeat >= (int64_t)HeartBeatInterval ) {
+		if ( time(&timeNow) - timeLastBeat >= (int64_t)HeartBeatInterval ) {
 			timeLastBeat = timeNow;
 			palert2ew_status( TypeHeartBeat, 0, "" );
 		}
-	/* Start the message recieving thread if it isn't already running. */
+	/* Start the check of updating list thread */
+		if ( UpdateInterval && UpdateFlag && (timeNow - timeLastUpd >= (int64_t)UpdateInterval) ) {
+			timeLastUpd = timeNow;
+			if ( StartThreadWithArg(update_list_thread, argv[1], (uint32_t)THREAD_STACK, &UpdateThreadID) == -1 )
+				logit("e", "palert2ew: Error starting update_list thread, just skip it!\n");
+		}
+	/* Start the message receiving thread if it isn't running. */
 		check_receiver_func( 50 );
 
 	/* Process all new messages */
@@ -389,6 +400,13 @@ static void palert2ew_config( char *configfile )
 				logit(
 					"o", "palert2ew: Change to unified sampling rate mode, the unified sampling rate is %d Hz!\n",
 					UniSampRate
+				);
+			}
+			else if( k_its("UpdateInterval") ) {
+				UpdateInterval = k_long();
+				logit(
+					"o", "palert2ew: Change to auto updating mode, the updating interval is %d seconds!\n",
+					UpdateInterval
 				);
 			}
 		/* 6 */
@@ -628,7 +646,7 @@ static void palert2ew_end( void )
 /*
  *
  */
-static void check_receiver_client( const int wait_msec  )
+static void check_receiver_client( const int wait_msec )
 {
 	if ( MessageReceiverStatus[0] != THREAD_ALIVE ) {
 		if ( StartThread(receiver_client_thread, (uint32_t)THREAD_STACK, ReceiverThreadID) == -1 ) {
@@ -698,21 +716,19 @@ static thr_ret receiver_client_thread( void *dummy )
 	MessageReceiverStatus[0] = THREAD_ALIVE;
 /* Main service loop */
 	do {
-		if ( (ret = pa2ew_client_stream()) != 0 ) {
-			if ( ret == -1 ) {
+		if ( (ret = pa2ew_client_stream()) ) {
+			if ( ret == PA2EW_RECV_NEED_UPDATE ) {
 				if ( UpdateFlag == 0 )
 					UpdateFlag = 1;
+				continue;
 			}
-			else if ( ret == -2 ) {
-				logit("e", "palert2ew: Can't connect to the Palert server!\n");
-				break;
-			}
+			break;
 		}
 	} while ( Finish );
-
 /* we're quitting */
 	if ( Finish )
-		MessageReceiverStatus[0] = THREAD_ERR; /* file a complaint to the main thread */
+		MessageReceiverStatus[0] = THREAD_ERR;
+
 	KillSelfThread(); /* main thread will restart us */
 
 	return NULL;
@@ -731,14 +747,15 @@ static thr_ret receiver_server_thread( void *arg )
 	MessageReceiverStatus[countindex] = THREAD_ALIVE;
 /* Main service loop */
 	do {
-		if ( (ret = pa2ew_server_stream(countindex, 1000)) != 0 )
-			if ( ret == -1 )
+		if ( (ret = pa2ew_server_stream(countindex, 1000)) )
+			if ( ret == PA2EW_RECV_NEED_UPDATE )
 				if ( UpdateFlag == 0 )
 					UpdateFlag = 1;
 	} while ( Finish );
 /* file a complaint to the main thread */
 	if ( Finish )
 		MessageReceiverStatus[countindex] = THREAD_ERR;
+
 	KillSelfThread();
 
 	return NULL;
@@ -773,7 +790,6 @@ static thr_ret update_list_thread( void *arg )
 			}
 		}
 	}
-
 /* Just exit this thread */
 	KillSelfThread();
 

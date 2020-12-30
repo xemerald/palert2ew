@@ -20,6 +20,7 @@
 #include <palert2ew_msg_queue.h>
 
 #define FORWARD_PACKET_HEADER_LENGTH  4
+#define RECONNECT_TIMES               10
 #define RECONNECT_INTERVAL_MSEC       15000
 
 /* */
@@ -62,7 +63,7 @@ void pa2ew_client_end( void )
 int pa2ew_client_stream( void )
 {
 	static uint8_t buffer[PA2EW_PREPACKET_LENGTH] = { 0 };
-	static uint8_t sync_errors              = 0;
+	static uint8_t sync_errors = 0;
 
 	int        ret       = 0;
 	int        data_read = 0;
@@ -77,14 +78,19 @@ int pa2ew_client_stream( void )
 				continue;
 			}
 			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ) {
-				logit("e", "palert2ew: Connection to Palert server is timeout, reconnect!\n");
+				logit("e", "palert2ew: Connection to Palert server is timeout, reconnect...\n");
 			}
 			else if ( ret == 0 ) {
-				logit("e", "palert2ew: Connection to Palert server is closed, reconnect!\n");
+				logit("e", "palert2ew: Connection to Palert server is closed, reconnect...\n");
 			}
-
+			else {
+				logit("e", "palert2ew: Fatal error on Palert server, exiting!\n");
+				return PA2EW_RECV_FATAL_ERROR;
+			}
+		/* Wait for additional time, then do the reconnection */
+			sleep_ew(RECONNECT_INTERVAL_MSEC);
 			if ( reconstruct_connect_sock() < 0 )
-				return -2;
+				return PA2EW_RECV_CONNECT_ERROR;
 
 			data_read = 0;
 			data_req  = FORWARD_PACKET_HEADER_LENGTH;
@@ -102,7 +108,7 @@ int pa2ew_client_stream( void )
 	/* Serial should always larger than 0, if so send the update request */
 		if ( serial > 0 ) {
 			printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", serial);
-			return -1;
+			return PA2EW_RECV_NEED_UPDATE;
 		}
 		else {
 			/* printf("palert2ew: Recieve keep alive packet!\n"); */ /* Debug */
@@ -115,7 +121,7 @@ int pa2ew_client_stream( void )
 					sync_errors = 0;
 					logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
 					if ( reconstruct_connect_sock() < 0 )
-						return -2;
+						return PA2EW_RECV_CONNECT_ERROR;
 				}
 			}
 			else {
@@ -127,7 +133,7 @@ int pa2ew_client_stream( void )
 		}
 	}
 
-	return 0;
+	return PA2EW_RECV_NORMAL;
 }
 
 /*
@@ -135,15 +141,15 @@ int pa2ew_client_stream( void )
  */
 static int reconstruct_connect_sock( void )
 {
-	int count = 0;
+	static uint8_t count = 0;
 
 /* */
 	if ( ClientSocket != -1 )
 		close(ClientSocket);
 /* Do until we success getting socket or exceed 100 times */
 	while ( (ClientSocket = construct_connect_sock( _ServerIP, _ServerPort )) == -1 ) {
-	/* Try 100 times */
-		if ( ++count > 100 ) {
+	/* Try 10 times */
+		if ( ++count > RECONNECT_TIMES ) {
 			logit("e", "palert2ew: Reconstruct socket failed; exiting!\n");
 			return -1;
 		}
@@ -151,6 +157,7 @@ static int reconstruct_connect_sock( void )
 		sleep_ew(RECONNECT_INTERVAL_MSEC);
 	}
 	logit("t", "palert2ew: Reconstruct socket success!\n");
+	count = 0;
 
 	return ClientSocket;
 }

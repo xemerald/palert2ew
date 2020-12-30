@@ -208,10 +208,7 @@ int pa2ew_server_stream( const int countindex, const int msec )
 		}
 	}
 /* */
-	if ( need_update )
-		return -1;
-	else
-		return 0;
+	return need_update ? PA2EW_RECV_NEED_UPDATE : PA2EW_RECV_NORMAL;
 }
 
 /*
