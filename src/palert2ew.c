@@ -100,9 +100,14 @@ static uint8_t TypePalertRaw = 0;
 #define  ERR_NOTRACK       2   /* msg retreived; tracking limit exceeded */
 #define  ERR_QUEUE         3   /* error queueing message for sending      */
 
+/* Update flag used by palert2ew */
+#define  LIST_IS_UPDATED      0
+#define  LIST_NEED_UPDATED    1
+#define  LIST_UNDER_UPDATE    2
+
 static volatile void   *_Root  = NULL;
 static volatile _Bool   Finish = 0;
-static volatile uint8_t UpdateFlag = 0;
+static volatile uint8_t UpdateFlag = LIST_IS_UPDATED;
 
 static int64_t LocalTimeShift = 0;            /* Time difference between UTC & local timezone */
 
@@ -138,7 +143,7 @@ int main ( int argc, char **argv )
 		exit(0);
 	}
 	Finish = 1;
-	UpdateFlag = 0;
+	UpdateFlag = LIST_IS_UPDATED;
 
 /* Initialize name of log-file & open it */
 	logit_init(argv[1], 0, 256, 1);
@@ -235,7 +240,10 @@ int main ( int argc, char **argv )
 			palert2ew_status( TypeHeartBeat, 0, "" );
 		}
 	/* Start the check of updating list thread */
-		if ( UpdateInterval && UpdateFlag && (timeNow - timeLastUpd >= (int64_t)UpdateInterval) ) {
+		if ( UpdateInterval &&
+			UpdateFlag == LIST_NEED_UPDATED &&
+			timeNow - timeLastUpd >= (int64_t)UpdateInterval
+		) {
 			timeLastUpd = timeNow;
 			if ( StartThreadWithArg(update_list_thread, argv[1], (uint32_t)THREAD_STACK, &UpdateThreadID) == -1 )
 				logit("e", "palert2ew: Error starting update_list thread, just skip it!\n");
@@ -404,10 +412,11 @@ static void palert2ew_config( char *configfile )
 			}
 			else if( k_its("UpdateInterval") ) {
 				UpdateInterval = k_long();
-				logit(
-					"o", "palert2ew: Change to auto updating mode, the updating interval is %d seconds!\n",
-					UpdateInterval
-				);
+				if ( UpdateInterval )
+					logit(
+						"o", "palert2ew: Change to auto updating mode, the updating interval is %d seconds!\n",
+						UpdateInterval
+					);
 			}
 		/* 6 */
 			else if( k_its("ServerSwitch") ) {
@@ -718,8 +727,8 @@ static thr_ret receiver_client_thread( void *dummy )
 	do {
 		if ( (ret = pa2ew_client_stream()) ) {
 			if ( ret == PA2EW_RECV_NEED_UPDATE ) {
-				if ( UpdateFlag == 0 )
-					UpdateFlag = 1;
+				if ( UpdateFlag == LIST_IS_UPDATED )
+					UpdateFlag = LIST_NEED_UPDATED;
 				continue;
 			}
 			break;
@@ -749,8 +758,8 @@ static thr_ret receiver_server_thread( void *arg )
 	do {
 		if ( (ret = pa2ew_server_stream(countindex, 1000)) )
 			if ( ret == PA2EW_RECV_NEED_UPDATE )
-				if ( UpdateFlag == 0 )
-					UpdateFlag = 1;
+				if ( UpdateFlag == LIST_IS_UPDATED )
+					UpdateFlag = LIST_NEED_UPDATED;
 	} while ( Finish );
 /* file a complaint to the main thread */
 	if ( Finish )
@@ -769,6 +778,7 @@ static thr_ret update_list_thread( void *arg )
 	void *root = NULL;
 
 	logit("o", "palert2ew: Updating the Palert list...\n");
+	UpdateFlag = LIST_UNDER_UPDATE;
 /* */
 	if ( load_list_configfile( &root, (char *)arg ) ) {
 		logit("e", "palert2ew: Fetching Palert list from local file error!\n");
@@ -790,6 +800,8 @@ static thr_ret update_list_thread( void *arg )
 			}
 		}
 	}
+/* */
+	UpdateFlag = LIST_IS_UPDATED;
 /* Just exit this thread */
 	KillSelfThread();
 

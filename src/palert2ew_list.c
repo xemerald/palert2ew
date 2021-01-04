@@ -107,15 +107,16 @@ int pa2ew_list_station_line_parse( void **root, const char *line )
 	char  loc[TRACE2_LOC_LEN] = { 0 };
 	char *chan[PALERTMODE1_CHAN_COUNT] = { NULL };
 	char *sub_line = malloc(strlen(line) + 1);
-	char *str_start, *str_end;
+	char *str_start, *str_end, *str_limit;
 
 /* */
 	if ( sscanf(line, "%d %s %s %s %d %[^\n]", &serial, sta, net, loc, &nchannel, sub_line) >= 5 ) {
 		str_start = str_end = sub_line;
+		str_limit = sub_line + strlen(sub_line) + 1;
 		for ( i = 0; i < nchannel && i < PALERTMODE1_CHAN_COUNT; i++ ) {
 		/* */
-			for ( str_start = str_end; isspace(*str_start); str_start++ );
-			for ( str_end = str_start; !isspace(*str_end); str_end++ );
+			for ( str_start = str_end; isspace(*str_start) && str_start < str_limit; str_start++ );
+			for ( str_end = str_start; !isspace(*str_end) && str_end <= str_limit; str_end++ );
 			*str_end++ = '\0';
 		/* */
 			if ( strlen(str_start) ) {
@@ -325,7 +326,7 @@ static _STAINFO *add_new_station(
 			}
 		}
 		else {
-			logit("o", "palert2ew: Station %s is already in the list, skip it!\n");
+			logit("o", "palert2ew: Serial %d is already in the list, skip it!\n", serial);
 			result = *(_STAINFO **)result;
 		}
 	/* */
