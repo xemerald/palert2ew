@@ -25,7 +25,7 @@ static int       compare_serial( const void *, const void * );	/* The compare fu
 static void      cal_total_stations( const void *, const VISIT, const int );
 static void      free_stainfo( void * );
 #if defined( _USE_SQL )
-static void extract_stainfo_mysql( int *, char *, char *, char *, const MYSQL_ROW );
+static void extract_stainfo_mysql( int *, char *, char *, char *, const MYSQL_ROW, const unsigned long * );
 static int  extract_chainfo_mysql( char *[], MYSQL_RES * );
 #endif
 
@@ -207,9 +207,9 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 /* Start the SQL server connection for channel */
 	stalist_start_persistent_sql( dbinfo );
 /* Read station list from query result */
-	while ( (sql_row = stalist_fetch_row_sql(sql_res)) != NULL ) {
+	while ( (sql_row = stalist_fetch_row_sql( sql_res )) != NULL ) {
 	/* */
-		extract_stainfo_mysql( &serial, sta, net, loc, sql_row );
+		extract_stainfo_mysql( &serial, sta, net, loc, sql_row, stalist_fetch_lengths_sql( sql_res ) );
 	/* */
 		nchannel = 0;
 		if ( table_chan != NULL && strlen(table_chan) )
@@ -227,7 +227,7 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 	}
 /* Close the connection for channel */
 	stalist_close_persistent_sql();
-	stalist_free_result_sql(sql_res);
+	stalist_free_result_sql( sql_res );
 
 	if ( result > 0 ) {
 		logit("o", "palert2ew: Read %d stations information from MySQL server success!\n", result);
@@ -245,14 +245,17 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 /*
  * extract_stainfo_mysql() -
  */
-static void extract_stainfo_mysql( int *serial, char *sta, char *net, char *loc, const MYSQL_ROW sql_row )
-{
+static void extract_stainfo_mysql(
+	int *serial, char *sta, char *net, char *loc,
+	const MYSQL_ROW sql_row, const unsigned long *row_lengths
+) {
 	char _str[16] = { 0 };
 
-	*serial = atoi(sql_row[0]);
-	strcpy(sta, sql_row[1]);
-	strcpy(net, sql_row[2]);
-	strcpy(loc, sql_row[3]);
+/* */
+	*serial = atoi(stalist_field_extract_sql( _str, sizeof(_str), sql_row[0], row_lengths[0] ));
+	stalist_field_extract_sql( sta, TRACE2_STA_LEN, sql_row[1], row_lengths[1] );
+	stalist_field_extract_sql( net, TRACE2_NET_LEN, sql_row[2], row_lengths[2] );
+	stalist_field_extract_sql( loc, TRACE2_LOC_LEN, sql_row[3], row_lengths[3] );
 
 	return;
 }
@@ -265,6 +268,7 @@ static int extract_chainfo_mysql( char *chan[], MYSQL_RES *sql_res )
 /* */
 	int i, result = 0;
 	MYSQL_ROW sql_row;
+	unsigned long *row_lengths;
 
 /* */
 	if ( sql_res != NULL ) {
@@ -272,8 +276,10 @@ static int extract_chainfo_mysql( char *chan[], MYSQL_RES *sql_res )
 		i = 0;
 		result = stalist_num_rows_sql( sql_res );
 		if ( result > 0 && result <= PALERTMODE1_CHAN_COUNT ) {
-			while ( (sql_row = stalist_fetch_row_sql( sql_res )) != NULL )
-				strcpy(chan[i++], sql_row[0]);
+			while ( (sql_row = stalist_fetch_row_sql( sql_res )) != NULL ) {
+				row_lengths = stalist_fetch_lengths_sql( sql_res );
+				stalist_field_extract_sql( chan[i++], TRACE2_LOC_LEN, sql_row[0], row_lengths[0] );
+			}
 		}
 		stalist_free_result_sql( sql_res );
 	}

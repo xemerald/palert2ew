@@ -81,11 +81,40 @@ MYSQL_ROW stalist_fetch_row_sql( MYSQL_RES *res )
 }
 
 /*
+ * stalist_fetch_lengths_sql() -
+ */
+unsigned long *stalist_fetch_lengths_sql( MYSQL_RES *res )
+{
+	return mysql_fetch_lengths(res);
+}
+
+/*
  * stalist_num_rows_sql() -
  */
 int stalist_num_rows_sql( MYSQL_RES *res )
 {
 	return mysql_num_rows(res);
+}
+
+/*
+ * stalist_num_fields_sql() -
+ */
+unsigned int stalist_num_fields_sql( MYSQL_RES *res )
+{
+	return mysql_num_fields(res);
+}
+
+/*
+ *
+ */
+char *stalist_field_extract_sql( char *dest, const unsigned int dest_len, const void *src, const unsigned int src_len )
+{
+	unsigned int _rlen = src_len < dest_len ? src_len : (dest_len - 1);
+
+	strncpy(dest, src, _rlen);
+	dest[_rlen] = '\0';
+
+	return dest;
 }
 
 /*

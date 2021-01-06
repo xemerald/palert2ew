@@ -60,8 +60,11 @@ MYSQL_RES *stalist_sta_query_sql( const DBINFO *, const char *, const int, ... )
 MYSQL_RES *stalist_chan_query_sql(
 	const DBINFO *, const char *, const char *, const char *, const char *, const int, ...
 );
-MYSQL_ROW  stalist_fetch_row_sql( MYSQL_RES * );
-int        stalist_num_rows_sql( MYSQL_RES * );
-void       stalist_free_result_sql( MYSQL_RES * );
-MYSQL     *stalist_start_persistent_sql( const DBINFO * );
-void       stalist_close_persistent_sql( void );
+MYSQL_ROW      stalist_fetch_row_sql( MYSQL_RES * );
+unsigned long *stalist_fetch_lengths_sql( MYSQL_RES * );
+int            stalist_num_rows_sql( MYSQL_RES * );
+unsigned int   stalist_num_fields_sql( MYSQL_RES * );
+char          *stalist_field_extract_sql( char *, const unsigned int, const void *, const unsigned int );
+void           stalist_free_result_sql( MYSQL_RES * );
+MYSQL         *stalist_start_persistent_sql( const DBINFO * );
+void           stalist_close_persistent_sql( void );

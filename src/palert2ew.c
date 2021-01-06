@@ -39,6 +39,7 @@ static thr_ret receiver_server_thread( void * );  /* Read messages from the sock
 static thr_ret update_list_thread( void * );
 static int     load_list_configfile( void **, char * );
 
+static void           process_packet_pm1( PalertPacket *, _STAINFO * );
 static int            examine_ntp_sync_pm1( _STAINFO *, const PALERTMODE1_HEADER * );
 static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
 
@@ -120,22 +121,18 @@ static int64_t LocalTimeShift = 0;            /* Time difference between UTC & l
  */
 int main ( int argc, char **argv )
 {
-	int        i;
-	time_t     timeNow;          /* current time                    */
-	time_t     timeLastBeat;     /* time last heartbeat was sent    */
-	time_t     timeLastUpd;      /* time last checked updating list */
-	char      *lockfile;
-	int32_t    lockfile_fd;
-	uint32_t   count    = 0;
-	size_t     msg_size = 0;
+	int      i;
+	time_t   timeNow;          /* current time                    */
+	time_t   timeLastBeat;     /* time last heartbeat was sent    */
+	time_t   timeLastUpd;      /* time last checked updating list */
+	char    *lockfile;
+	int32_t  lockfile_fd;
+	uint32_t count    = 0;
+	size_t   msg_size = 0;
+	PACKET   packet = { 0 };
 
-	TracePacket         tracebuf;  /* message which is sent to share ring    */
-	PACKET              packet = { 0 };
-	PALERTMODE1_HEADER *pah    = (PALERTMODE1_HEADER *)packet.data;
-
-	void    (*check_receiver_func)( const int ) = NULL;
-	_STAINFO *staptr = NULL;
-	_CHAINFO *chaptr = NULL;
+	PALERTMODE1_HEADER * const pah1 = (PALERTMODE1_HEADER *)packet.data;
+	void (*check_receiver_func)( const int ) = NULL;
 
 /* Check command line arguments */
 	if ( argc != 2 ) {
@@ -283,22 +280,8 @@ int main ( int argc, char **argv )
 			}
 
 		/* Process the message */
-			if ( PALERT_IS_MODE1_HEADER( pah ) ) {
-				staptr = (_STAINFO *)packet.sptr;
-				chaptr = (_CHAINFO *)staptr->chaptr;
-			/* Examine the NTP sync. status */
-				if ( !examine_ntp_sync_pm1( staptr, pah ) )
-					continue;
-			/* Common part */
-				enrich_trh2_pm1( &tracebuf.trh2, staptr, pah );
-				msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
-			/* Each channel part */
-				for ( i = 0; i < staptr->nchannel; i++, chaptr++ ) {
-					strcpy(tracebuf.trh2.chan, chaptr->chan);
-					COPYDATA_TRACEBUF_PM1( &tracebuf, (PalertPacket *)packet.data, chaptr->seq );
-					if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
-						logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
-				}
+			if ( PALERT_IS_MODE1_HEADER( pah1 ) ) {
+				process_packet_pm1( (PalertPacket *)packet.data, (_STAINFO *)packet.sptr );
 			}
 		} while ( count < MaxStationNum );  /* end of message-processing-loop */
 	}
@@ -867,6 +850,32 @@ static int load_list_configfile( void **root, char *configfile )
 	}
 
 	return 0;
+}
+
+/*
+ *
+ */
+static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
+{
+	int             i, msg_size;
+	TracePacket     tracebuf;  /* message which is sent to share ring    */
+	const _CHAINFO *chaptr = (_CHAINFO *)stainfo->chaptr;
+
+/* Examine the NTP sync. status */
+	if ( examine_ntp_sync_pm1( stainfo, &packet->pah ) ) {
+	/* Common part */
+		enrich_trh2_pm1( &tracebuf.trh2, stainfo, &packet->pah );
+		msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
+	/* Each channel part */
+		for ( i = 0; i < stainfo->nchannel; i++, chaptr++ ) {
+			strcpy(tracebuf.trh2.chan, chaptr->chan);
+			COPYDATA_TRACEBUF_PM1( &tracebuf, packet, chaptr->seq );
+			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
+			logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
+		}
+	}
+
+	return;
 }
 
 /*
