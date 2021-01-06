@@ -871,7 +871,7 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 			strcpy(tracebuf.trh2.chan, chaptr->chan);
 			COPYDATA_TRACEBUF_PM1( &tracebuf, packet, chaptr->seq );
 			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
-			logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
+				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
 		}
 	}
 
