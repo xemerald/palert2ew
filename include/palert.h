@@ -338,6 +338,14 @@ typedef struct {
 		PALERTMODE1_HEADER_GET_WORD((PAM1H)->firmware)
 
 /*
+ * PALERTMODE1_HEADER_GET_DIO_STATUS() -
+ */
+#define PALERTMODE1_HEADER_GET_DIO_STATUS(PAM1H, DIO_NUMBER) \
+		((DIO_NUMBER) < 8 ? \
+		((PAM1H)->dio_status[0] & (0x01 << (DIO_NUMBER))) : \
+		((PAM1H)->dio_status[1] & (0x01 << (DIO_NUMBER) - 8)))
+
+/*
  * PALERTMODE1_HEADER_GET_SAMPRATE() - Parse the palert sampling rate
  */
 #define PALERTMODE1_HEADER_GET_SAMPRATE(PAM1H) \
