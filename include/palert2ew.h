@@ -64,6 +64,8 @@ typedef struct {
 /* */
 	PACKET      packet;
 	PACKETPARAM param;
+/* */
+	void    *extptr;
 } _STAINFO;
 
 /* */

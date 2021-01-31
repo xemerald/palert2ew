@@ -27,6 +27,7 @@
 /* Connection descriptors struct */
 typedef struct {
 	int       sock;
+	int       port;
 	char      ip[INET6_ADDRSTRLEN];
 	uint8_t   sync_errors;
 	time_t    last_act;
@@ -41,7 +42,9 @@ typedef struct {
 } PALERT_THREAD_SET;
 
 /* Internal function prototype */
+static int  init_palert_server_common( const int, const char *, const int, CONNDESCRIP **, int (*)( void ) );
 static int  construct_listen_sock( const char * );
+static CONNDESCRIP real_accept_connection( const int );
 static int  real_accept_palert( void );
 static int  eval_threadnum( int );
 static void close_palert_connect( CONNDESCRIP *, unsigned int );
@@ -49,10 +52,12 @@ static void close_palert_connect( CONNDESCRIP *, unsigned int );
 /* Define global variables */
 static volatile int       AcceptEpoll      = 0;
 static volatile int       AcceptSocket     = -1;
+static volatile int       AcceptSocketRt   = -1;
 static volatile int       MaxStationNum    = 0;
 static volatile int       ThreadsNumber    = 0;
 static PALERT_THREAD_SET *PalertThreadSets = NULL;
 static CONNDESCRIP       *PalertConns      = NULL;
+static CONNDESCRIP       *PalertConnsRt    = NULL;
 
 /* Macro */
 #define RESET_CONNDESCRIP(CONN) \
@@ -66,36 +71,35 @@ static CONNDESCRIP       *PalertConns      = NULL;
  * pa2ew_server_init() - Initialize the independent Palert server &
  *                       return the needed threads number.
  */
-int pa2ew_server_init( const int max_stations )
+int pa2ew_server_init( const int max_stations, const char *port, const char *rt_port )
 {
 	int i;
 	struct epoll_event connevt;
 
 /* Setup constants */
-	AcceptEpoll      = epoll_create(1);
+	AcceptEpoll      = epoll_create(2);
 	MaxStationNum    = max_stations;
 	ThreadsNumber    = eval_threadnum( max_stations );
 	PalertThreadSets = calloc(ThreadsNumber, sizeof(PALERT_THREAD_SET));
 /* Create epoll sets */
 	for ( i = 0; i < ThreadsNumber; i++ )
 		PalertThreadSets[i].epoll_fd = epoll_create(PA2EW_MAX_PALERTS_PER_THREAD);
-/* Allocating Palerts' connection descriptors */
-	if ( (PalertConns = calloc(max_stations, sizeof(CONNDESCRIP))) == NULL ) {
-		logit("e", "palert2ew: Error allocating connection descriptors!\n");
-		return -1;
+/* Construct the accept socket for normal stream */
+	if ( port != NULL && strlen(port) ) {
+		AcceptSocket = init_palert_server_common(
+			max_stations, port, AcceptEpoll, &PalertConns, accept_palert_normal
+		);
+		if ( AcceptSocket <= 0 )
+			return -1;
 	}
-	else {
-		logit("", "palert2ew: %d connection descriptors allocated!\n", max_stations);
-		for ( i = 0; i < max_stations; i++ )
-			RESET_CONNDESCRIP( PalertConns + i );
+/* Construct the accept socket for retransmission */
+	if ( rt_port != NULL && strlen(rt_port) ) {
+		AcceptSocketRt = init_palert_server_common(
+			max_stations, rt_port, AcceptEpoll, &PalertConnsRt, accept_palert_rt
+		);
+		if ( AcceptSocketRt <= 0 )
+			return -2;
 	}
-/* Construct the accept socket */
-	if ( (AcceptSocket = construct_listen_sock( PA2EW_PALERT_PORT )) == -1 )
-		return -2;
-/* */
-	connevt.events   = EPOLLIN | EPOLLERR;
-	connevt.data.ptr = real_accept_palert;
-	epoll_ctl(AcceptEpoll, EPOLL_CTL_ADD, AcceptSocket, &connevt);
 
 	return ThreadsNumber;
 }
@@ -109,11 +113,20 @@ void pa2ew_server_end( void )
 
 /* */
 	logit("o", "palert2ew: Closing all the connections of Palerts!\n");
-	close(AcceptSocket);
+	if ( AcceptSocket != -1 ) close(AcceptSocket);
+	if ( AcceptSocketRt != -1 ) close(AcceptSocketRt);
 	close(AcceptEpoll);
 /* Closing connections of Palerts */
-	for ( i = 0; i < MaxStationNum; i++ ) close_palert_connect( (PalertConns + i), i % 2 );
-	free(PalertConns);
+	if ( PalertConns != NULL ) {
+		for ( i = 0; i < MaxStationNum; i++ )
+			close_palert_connect( (PalertConns + i), i % 2 );
+		free(PalertConns);
+	}
+	if ( PalertConnsRt != NULL ) {
+		for ( i = 0; i < MaxStationNum; i++ )
+			close_palert_connect( (PalertConnsRt + i), 2 );
+		free(PalertConnsRt);
+	}
 /* Free epoll & readevts */
 	for ( i = 0; i < ThreadsNumber; i++ )
 		close(PalertThreadSets[i].epoll_fd);
@@ -257,6 +270,37 @@ int pa2ew_server_palert_accept( const int msec )
 }
 
 /*
+ *
+ */
+static int init_palert_server_common(
+	const int max_stations, const char *port, const int epoll, CONNDESCRIP **conn, int (*accept_func)( void )
+) {
+	int                i;
+	int                result;
+	struct epoll_event connevt;
+
+/* Allocating Palerts' connection descriptors */
+	if ( (*conn = calloc(max_stations, sizeof(CONNDESCRIP))) == NULL ) {
+		logit("e", "palert2ew: Error allocating connection descriptors for port: %s!\n", port);
+		return -1;
+	}
+	else {
+		logit("", "palert2ew: %d connection descriptors allocated for port: %s!\n", max_stations, port);
+		for ( i = 0; i < max_stations; i++ )
+			RESET_CONNDESCRIP( *conn + i );
+	}
+/* Construct the accept socket */
+	if ( (result = construct_listen_sock( port )) == -1 )
+		return -2;
+/* */
+	connevt.events   = EPOLLIN | EPOLLERR;
+	connevt.data.ptr = accept_func;
+	epoll_ctl(epoll, EPOLL_CTL_ADD, result, &connevt);
+
+	return result;
+}
+
+/*
  * construct_listen_sock() - Construct Palert listening connection socket.
  */
 static int construct_listen_sock( const char *port )
@@ -322,70 +366,122 @@ static int construct_listen_sock( const char *port )
 
 
 /*
- * real_accept_palert() - Accept the connection of Palerts then add it
- *                        into connection descriptor and EpollFd.
+ * accept_palert_normal() - Accept the connection of Palerts then add it
+ *                          into connection descriptor and EpollFd.
  */
-static int real_accept_palert( void )
+static int accept_palert_normal( void )
 {
-	int  i;
-	int  cliport;
-	int  connsd;
-	char connip[INET6_ADDRSTRLEN];
-
-	struct epoll_event      acceptevt;
-	struct sockaddr_storage cliaddr;
-	struct sockaddr_in     *cli4_ptr = (struct sockaddr_in *)&cliaddr;
-	struct sockaddr_in6    *cli6_ptr = (struct sockaddr_in6 *)&cliaddr;
-	unsigned int            clilen   = sizeof(cliaddr);
-	CONNDESCRIP            *conn     = PalertConns;
+	int                i;
+	CONNDESCRIP       *conn = NULL;
+	CONNDESCRIP        tmpconn;
+	struct epoll_event acceptevt;
 
 /* */
 	acceptevt.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLET;
 	acceptevt.data.ptr = NULL;
-	if ( (connsd = accept(AcceptSocket, (struct sockaddr *)&cliaddr, &clilen)) == -1 ) {
-		printf("palert2ew: Accepted new Palert's connection error!\n");
+/* */
+	tmpconn = real_accept_connection( AcceptSocket );
+	if ( tmpconn.sock < 0 )
 		return -1;
-	}
-
-	switch ( cliaddr.ss_family ) {
-	case AF_INET:
-		inet_ntop(cliaddr.ss_family, &cli4_ptr->sin_addr, connip, sizeof(connip));
-		cliport = (int)cli4_ptr->sin_port;
-		break;
-	case AF_INET6:
-		inet_ntop(cliaddr.ss_family, &cli6_ptr->sin6_addr, connip, sizeof(connip));
-		cliport = (int)cli6_ptr->sin6_port;
-		break;
-	default:
-		printf("palert2ew: Accept socket internet type unknown, drop it!\n");
-		return -1;
-		break;
-	}
-
 /* Find and save to an empty Palert connection */
-	for ( i = 0; i < MaxStationNum; i++, conn++ ) {
+	for ( i = 0, conn = PalertConns; i < MaxStationNum; i++, conn++ ) {
 		if ( conn->sock == -1 ) {
-			int tmp = i % ThreadsNumber;
-			RESET_CONNDESCRIP( conn );
-
-			conn->sock = connsd;
-			strcpy(conn->ip, connip);
-			time(&conn->last_act);
-
+			*conn = tmpconn;
 			acceptevt.data.ptr = conn;
-			epoll_ctl(PalertThreadSets[tmp].epoll_fd, EPOLL_CTL_ADD, conn->sock, &acceptevt);
-			printf("palert2ew: New Palert connection from %s:%d.\n", connip, cliport);
+			epoll_ctl(PalertThreadSets[i % ThreadsNumber].epoll_fd, EPOLL_CTL_ADD, conn->sock, &acceptevt);
+			printf("palert2ew: New Palert connection from %s:%d.\n", conn->ip, conn->port);
 			break;
 		}
 	}
 
 	if ( i == MaxStationNum ) {
-		printf("palert2ew: Palert connection is full. Drop connection from %s:%d.\n", connip, cliport);
-		close(connsd);
+		printf("palert2ew: Palert connection is full. Drop connection from %s:%d.\n", tmpconn.ip, tmpconn.port);
+		close(tmpconn.sock);
 		return -2;
 	}
 
 	return 0;
+}
+
+/*
+ * accept_palert_rt() - Accept the connection of Palerts then add it
+ *                      into connection descriptor and EpollFd.
+ */
+static int accept_palert_rt( void )
+{
+	int                i;
+	CONNDESCRIP       *conn = NULL;
+	CONNDESCRIP        tmpconn;
+	struct epoll_event acceptevt;
+
+/* */
+	acceptevt.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLET;
+	acceptevt.data.ptr = NULL;
+/* */
+	tmpconn = real_accept_connection( AcceptSocketRt );
+	if ( tmpconn.sock < 0 )
+		return -1;
+/* Find and save to an empty Palert connection */
+	for ( i = 0, conn = PalertConnsRt; i < MaxStationNum; i++, conn++ ) {
+		if ( conn->sock == -1 ) {
+			*conn = tmpconn;
+			acceptevt.data.ptr = conn;
+			epoll_ctl(AcceptEpoll, EPOLL_CTL_ADD, conn->sock, &acceptevt);
+			printf("palert2ew: New Palert retransmission connection from %s:%d.\n", conn->ip, conn->port);
+			break;
+		}
+	}
+
+	if ( i == MaxStationNum ) {
+		printf(
+			"palert2ew: Palert retransmission connection is full. Drop connection from %s:%d.\n",
+			tmpconn.ip, tmpconn.port
+		);
+		close(tmpconn.sock);
+		return -2;
+	}
+
+	return 0;
+}
+
+/*
+ *
+ */
+static CONNDESCRIP real_accept_connection( const int sock )
+{
+	CONNDESCRIP             result;
+	struct sockaddr_storage cliaddr;
+	struct sockaddr_in     *cli4_ptr = (struct sockaddr_in *)&cliaddr;
+	struct sockaddr_in6    *cli6_ptr = (struct sockaddr_in6 *)&cliaddr;
+	unsigned int            clilen   = sizeof(cliaddr);
+
+/* */
+	RESET_CONNDESCRIP( &result );
+/* */
+	if ( (result.sock = accept(sock, (struct sockaddr *)&cliaddr, &clilen)) == -1 ) {
+		printf("palert2ew: Accepted new Palert's connection from socket: %d error!\n", sock);
+		return result;
+	}
+
+	switch ( cliaddr.ss_family ) {
+	case AF_INET:
+		inet_ntop(cliaddr.ss_family, &cli4_ptr->sin_addr, result.ip, INET6_ADDRSTRLEN);
+		result.port = (int)cli4_ptr->sin_port;
+		break;
+	case AF_INET6:
+		inet_ntop(cliaddr.ss_family, &cli6_ptr->sin6_addr, result.ip, INET6_ADDRSTRLEN);
+		result.port = (int)cli6_ptr->sin6_port;
+		break;
+	default:
+		printf("palert2ew: Accept socket internet type unknown, drop it!\n");
+		result.sock = -1;
+		return result;
+		break;
+	}
+/* */
+	time(&result.last_act);
+
+	return result;
 }
 
 /*
