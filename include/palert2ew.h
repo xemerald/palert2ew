@@ -70,4 +70,5 @@ typedef struct {
 typedef struct {
 	uint8_t seq;
 	char    chan[TRACE2_CHAN_LEN];
+	double  last_endtime;
 } _CHAINFO;
