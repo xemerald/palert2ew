@@ -55,8 +55,26 @@ typedef struct {
 
 /* */
 typedef struct {
-
+	uint16_t serial;
+	int32_t  timestamp;
+	uint16_t samprate;
+	uint8_t  packet_mode;
 } RT_HEARTBEAT;
+
+/* */
+typedef struct {
+	int16_t sensor_status;
+	int16_t cpu_temp;
+	int16_t ext_volt;
+	int16_t int_volt;
+	int16_t rtc_battery;
+	uint8_t ntp_status;
+	uint8_t gnss_status;
+	uint8_t gps_lock;
+	int16_t satellite_num;
+	double  latitude;
+	double  longitude;
+} SOH_PACKET;
 
 /* Station info related struct */
 typedef struct {

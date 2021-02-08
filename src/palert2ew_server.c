@@ -51,12 +51,12 @@ static void close_palert_connect( CONNDESCRIP *, unsigned int );
 
 /* Define global variables */
 static volatile int       AcceptEpoll      = 0;
-static volatile int       RetransEpoll     = 0;
 static volatile int       AcceptSocket     = -1;
 static volatile int       AcceptSocketRt   = -1;
 static volatile int       MaxStationNum    = 0;
 static volatile int       ThreadsNumber    = 0;
 static PALERT_THREAD_SET *PalertThreadSets = NULL;
+static PALERT_THREAD_SET *PalertRetranSet  = NULL;
 static CONNDESCRIP       *PalertConns      = NULL;
 static CONNDESCRIP       *PalertConnsRt    = NULL;
 
@@ -79,7 +79,6 @@ int pa2ew_server_init( const int max_stations, const char *port, const char *rt_
 
 /* Setup constants */
 	AcceptEpoll      = epoll_create(2);
-	RetransEpoll     = epoll_create(max_stations);
 	MaxStationNum    = max_stations;
 	ThreadsNumber    = eval_threadnum( max_stations );
 	PalertThreadSets = calloc(ThreadsNumber, sizeof(PALERT_THREAD_SET));
@@ -96,6 +95,9 @@ int pa2ew_server_init( const int max_stations, const char *port, const char *rt_
 	}
 /* Construct the accept socket for retransmission */
 	if ( rt_port != NULL && strlen(rt_port) ) {
+		PalertRetranSet = calloc(1, sizeof(PALERT_THREAD_SET));
+		PalertRetranSet->epoll_fd = epoll_create(max_stations);
+	/* */
 		AcceptSocketRt = init_palert_server_common(
 			max_stations, rt_port, AcceptEpoll, &PalertConnsRt, accept_palert_rt
 		);
@@ -130,8 +132,15 @@ void pa2ew_server_end( void )
 		free(PalertConnsRt);
 	}
 /* Free epoll & readevts */
-	for ( i = 0; i < ThreadsNumber; i++ )
-		close(PalertThreadSets[i].epoll_fd);
+	if ( PalertThreadSets != NULL ) {
+		for ( i = 0; i < ThreadsNumber; i++ )
+			close(PalertThreadSets[i].epoll_fd);
+		free(PalertThreadSets);
+	}
+	if ( PalertRetranSet != NULL ) {
+		close(PalertRetranSet->epoll_fd);
+		free(PalertRetranSet);
+	}
 
 	return;
 }
@@ -236,10 +245,13 @@ int pa2ew_server_rt( const int msec )
 	time_t time_now;
 	_Bool  need_update = 0;
 /* */
-	struct epoll_event readevts[MaxStationNum];
+	int                 readepoll = PalertRetranSet->epoll_fd;
+	PREPACKET          *readptr   = (PREPACKET *)PalertRetranSet->buffer;
+	struct epoll_event *readevts  = PalertRetranSet->evts;
+
 
 /* Wait the epoll for msec minisec */
-	if ( (nready = epoll_wait(RetransEpoll, readevts, MaxStationNum, msec)) ) {
+	if ( (nready = epoll_wait(readepoll, readevts, MaxStationNum, msec)) ) {
 		time(&time_now);
 	/* There is some incoming data from socket */
 		for ( i = 0; i < nready; i++ ) {
@@ -256,12 +268,12 @@ int pa2ew_server_rt( const int msec )
 					close_palert_connect(conn, countindex);
 				}
 				else {
-					if ( conn->staptr ) {
+					if (  ) {
 					/* Process message */
 
 					}
-					else if ( ret >= 200 ) {
-						
+					else if ( ret >=  ) {
+
 					}
 					else {
 					/* Receive data not enough, close connection */
@@ -481,7 +493,7 @@ static int accept_palert_rt( void )
 		if ( conn->sock == -1 ) {
 			*conn = tmpconn;
 			acceptevt.data.ptr = conn;
-			epoll_ctl(RetransEpoll, EPOLL_CTL_ADD, conn->sock, &acceptevt);
+			epoll_ctl(PalertRetranSet->epoll_fd, EPOLL_CTL_ADD, conn->sock, &acceptevt);
 			printf("palert2ew: New Palert retransmission connection from %s:%d.\n", conn->ip, conn->port);
 			break;
 		}
