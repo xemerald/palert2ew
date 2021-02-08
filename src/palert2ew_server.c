@@ -44,13 +44,14 @@ typedef struct {
 /* Internal function prototype */
 static int  init_palert_server_common( const int, const char *, const int, CONNDESCRIP **, int (*)( void ) );
 static int  construct_listen_sock( const char * );
-static CONNDESCRIP real_accept_connection( const int );
 static int  real_accept_palert( void );
+static CONNDESCRIP real_accept_connection( const int );
 static int  eval_threadnum( int );
 static void close_palert_connect( CONNDESCRIP *, unsigned int );
 
 /* Define global variables */
 static volatile int       AcceptEpoll      = 0;
+static volatile int       RetransEpoll     = 0;
 static volatile int       AcceptSocket     = -1;
 static volatile int       AcceptSocketRt   = -1;
 static volatile int       MaxStationNum    = 0;
@@ -78,6 +79,7 @@ int pa2ew_server_init( const int max_stations, const char *port, const char *rt_
 
 /* Setup constants */
 	AcceptEpoll      = epoll_create(2);
+	RetransEpoll     = epoll_create(max_stations);
 	MaxStationNum    = max_stations;
 	ThreadsNumber    = eval_threadnum( max_stations );
 	PalertThreadSets = calloc(ThreadsNumber, sizeof(PALERT_THREAD_SET));
@@ -207,6 +209,59 @@ int pa2ew_server_stream( const int countindex, const int msec )
 								printf("palert2ew: Palert %s now online.\n", conn->staptr->sta);
 							}
 						}
+					}
+					else {
+					/* Receive data not enough, close connection */
+						printf(
+							"palert2ew: Palert IP:%s send data not enough to check, close connection!\n",
+							conn->ip
+						);
+						close_palert_connect(conn, countindex);
+					}
+				}
+			}
+		}
+	}
+/* */
+	return need_update ? PA2EW_RECV_NEED_UPDATE : PA2EW_RECV_NORMAL;
+}
+
+/*
+ * pa2ew_server_rt() - Read the retransmission data from each Palert and put it
+ *                     into queue.
+ */
+int pa2ew_server_rt( const int msec )
+{
+	int    i, nready;
+	time_t time_now;
+	_Bool  need_update = 0;
+/* */
+	struct epoll_event readevts[MaxStationNum];
+
+/* Wait the epoll for msec minisec */
+	if ( (nready = epoll_wait(RetransEpoll, readevts, MaxStationNum, msec)) ) {
+		time(&time_now);
+	/* There is some incoming data from socket */
+		for ( i = 0; i < nready; i++ ) {
+			if ( readevts[i].events & EPOLLIN || readevts[i].events & EPOLLRDHUP || readevts[i].events & EPOLLERR ) {
+				int          ret  = 0;
+				CONNDESCRIP *conn = (CONNDESCRIP *)readevts[i].data.ptr;
+			/* */
+				conn->last_act = time_now;
+				if ( (ret = recv(conn->sock, readptr->data, PA2EW_RECV_BUFFER_LENGTH, 0)) <= 0 ) {
+					printf(
+						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
+						conn->ip, ret, errno, strerror(errno)
+					);
+					close_palert_connect(conn, countindex);
+				}
+				else {
+					if ( conn->staptr ) {
+					/* Process message */
+
+					}
+					else if ( ret >= 200 ) {
+						
 					}
 					else {
 					/* Receive data not enough, close connection */
@@ -426,7 +481,7 @@ static int accept_palert_rt( void )
 		if ( conn->sock == -1 ) {
 			*conn = tmpconn;
 			acceptevt.data.ptr = conn;
-			epoll_ctl(AcceptEpoll, EPOLL_CTL_ADD, conn->sock, &acceptevt);
+			epoll_ctl(RetransEpoll, EPOLL_CTL_ADD, conn->sock, &acceptevt);
 			printf("palert2ew: New Palert retransmission connection from %s:%d.\n", conn->ip, conn->port);
 			break;
 		}

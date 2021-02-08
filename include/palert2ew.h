@@ -53,6 +53,11 @@ typedef struct {
 	uint16_t packet_rear;
 } PACKETPARAM;
 
+/* */
+typedef struct {
+
+} RT_HEARTBEAT;
+
 /* Station info related struct */
 typedef struct {
 	uint16_t serial;
