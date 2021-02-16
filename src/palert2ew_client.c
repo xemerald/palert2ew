@@ -19,9 +19,15 @@
 #include <palert2ew_list.h>
 #include <palert2ew_msg_queue.h>
 
-#define FORWARD_PACKET_HEADER_LENGTH  4
-#define RECONNECT_TIMES               10
-#define RECONNECT_INTERVAL_MSEC       15000
+#define FW_PCK_HEADER_LENGTH    4
+#define RECONNECT_TIMES         10
+#define RECONNECT_INTERVAL_MSEC 15000
+
+/* */
+typedef struct {
+	uint16_t serial;
+	uint16_t length;
+} FW_PCK_HEADER;
 
 /* */
 static int reconstruct_connect_sock( void );
@@ -62,15 +68,16 @@ void pa2ew_client_end( void )
  */
 int pa2ew_client_stream( void )
 {
-	static uint8_t buffer[PA2EW_PREPACKET_LENGTH] = { 0 };
+	static uint8_t buffer[PA2EW_RECV_BUFFER_LENGTH] = { 0 };
 	static uint8_t sync_errors = 0;
 
-	int        ret       = 0;
-	int        data_read = 0;
-	int        data_req  = FORWARD_PACKET_HEADER_LENGTH;
-	PREPACKET *readptr   = (PREPACKET *)buffer;
+	int            ret       = 0;
+	int            data_read = 0;
+	int            data_req  = FW_PCK_HEADER_LENGTH;
+	FW_PCK_HEADER *header    = (FW_PCK_HEADER *)buffer;
+	_STAINFO      *staptr    = NULL;
 
-	memset(buffer, 0, PA2EW_PREPACKET_LENGTH);
+	memset(buffer, 0, PA2EW_RECV_BUFFER_LENGTH);
 	do {
 		if ( (ret = recv(ClientSocket, buffer + data_read, data_req, 0)) <= 0 ) {
 			if ( errno == EINTR ) {
@@ -93,21 +100,19 @@ int pa2ew_client_stream( void )
 				return PA2EW_RECV_CONNECT_ERROR;
 
 			data_read = 0;
-			data_req  = FORWARD_PACKET_HEADER_LENGTH;
+			data_req  = FW_PCK_HEADER_LENGTH;
 			continue;
 		}
 	/* */
-		if ( (data_read += ret) >= FORWARD_PACKET_HEADER_LENGTH )
-			data_req = readptr->len + FORWARD_PACKET_HEADER_LENGTH - data_read;
+		if ( (data_read += ret) >= FW_PCK_HEADER_LENGTH )
+			data_req = header->length + FW_PCK_HEADER_LENGTH - data_read;
 	} while ( data_req );
 
 /* Find which one palert */
-	uint16_t  serial = readptr->serial;
-	_STAINFO *staptr = pa2ew_list_find( serial );
-	if ( staptr == NULL ) {
+	if ( (staptr = pa2ew_list_find( header->serial )) == NULL ) {
 	/* Serial should always larger than 0, if so send the update request */
-		if ( serial > 0 ) {
-			printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", serial);
+		if ( header->serial > 0 ) {
+			printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", header->serial);
 			return PA2EW_RECV_NEED_UPDATE;
 		}
 		else {
@@ -115,7 +120,7 @@ int pa2ew_client_stream( void )
 		}
 	}
 	else {
-		if ( (ret = pa2ew_msgqueue_prequeue( staptr, readptr )) ) {
+		if ( (ret = pa2ew_msgqueue_rawpacket( staptr, header + 1, header->length )) ) {
 			if ( ret == 1 ) {
 				if ( ++sync_errors >= 10 ) {
 					sync_errors = 0;

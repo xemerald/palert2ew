@@ -42,7 +42,9 @@ static int     load_list_configfile( void **, char * );
 static void           process_packet_pm1( PalertPacket *, _STAINFO * );
 static int            examine_ntp_sync_pm1( _STAINFO *, const PALERTMODE1_HEADER * );
 static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
-
+static TRACE2_HEADER *enrich_trh2(
+	TRACE2_HEADER *, const char *, const char *, const char *, const int, const double, const double
+);
 /* Ring messages things */
 #define WAVE_MSG_LOGO  0
 #define RAW_MSG_LOGO   1
@@ -77,7 +79,8 @@ static uint64_t QueueSize;                  /* max messages in output circular b
 static uint8_t  ServerSwitch;               /* 0 connect to Palert server; 1 as the server of Palert */
 static uint8_t  RawOutputSwitch = 0;
 static char     ServerIP[INET6_ADDRSTRLEN];
-static char     ServerPort[8];
+static char     ServerPort[8] = { 0 };
+static char     ExtendPort[8] = { 0 };
 static uint64_t MaxStationNum;
 static uint32_t UniSampRate = 0;
 static DBINFO   DBInfo;
@@ -93,6 +96,7 @@ static uint8_t TypeHeartBeat;
 static uint8_t TypeError;
 static uint8_t TypeTracebuf2 = 0;
 static uint8_t TypePalertRaw = 0;
+static uint8_t TypePalertExt = 0;
 
 /* Error messages used by palert2ew
  *********************************/
@@ -127,11 +131,13 @@ int main ( int argc, char **argv )
 	time_t   timeLastUpd;      /* time last checked updating list */
 	char    *lockfile;
 	int32_t  lockfile_fd;
+
+	uint8_t *buffer   = NULL;
 	uint32_t count    = 0;
 	size_t   msg_size = 0;
-	PACKET   packet = { 0 };
+	MSG_LOGO msg_logo = { 0 };
 
-	PALERTMODE1_HEADER * const pah1 = (PALERTMODE1_HEADER *)packet.data;
+	LABELED_DATA *data_ptr = NULL;
 	void (*check_receiver_func)( const int ) = NULL;
 
 /* Check command line arguments */
@@ -141,6 +147,7 @@ int main ( int argc, char **argv )
 	}
 	Finish = 1;
 	UpdateFlag = LIST_IS_UPDATED;
+	TypePalertExt = ~TypePalertRaw;
 
 /* Initialize name of log-file & open it */
 	logit_init(argv[1], 0, 256, 1);
@@ -187,7 +194,11 @@ int main ( int argc, char **argv )
 		check_receiver_func = check_receiver_client;
 	}
 	else {
-		if ( (ReceiverThreadsNum = pa2ew_server_init( MaxStationNum )) < 1 ) {
+		msg_logo.instid = InstId;
+		msg_logo.mod    = MyModId;
+		msg_logo.type   = TypePalertExt;
+		ReceiverThreadsNum = pa2ew_server_init( MaxStationNum, PA2EW_PALERT_PORT, ExtendPort, msg_logo );
+		if ( ReceiverThreadsNum < 1 ) {
 			logit("e","palert2ew: Cannot initialize the connection server process. Exiting!\n");
 			pa2ew_list_end();
 			exit(-1);
@@ -214,7 +225,10 @@ int main ( int argc, char **argv )
 		}
 	}
 /* Initialize the message queue */
-	pa2ew_msgqueue_init( (unsigned long)QueueSize );
+	pa2ew_msgqueue_init( (unsigned long)QueueSize, sizeof(LABELED_DATA),	Putlogo[RAW_MSG_LOGO] );
+/* */
+	buffer   = calloc(1, sizeof(LABELED_DATA));
+	data_ptr = (LABELED_DATA *)buffer;
 
 /* Initialize the threads' parameters */
 	MessageReceiverStatus = calloc(ReceiverThreadsNum, sizeof(int8_t));
@@ -268,20 +282,23 @@ int main ( int argc, char **argv )
 				exit(0);
 			}
 
-			if ( pa2ew_msgqueue_dequeue( &packet, &msg_size ) < 0 ) {
+		/* */
+			if ( pa2ew_msgqueue_dequeue( buffer, &msg_size, &msg_logo ) < 0 )
 				break;
-			}
-			else {
+		/* Process the raw packet */
+			if ( msg_logo.type == TypePalertRaw ) {
 				count++;
 			/* Put the raw data to the raw ring */
-				if ( RawOutputSwitch )
-					if ( tport_putmsg(&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO], PALERTMODE1_PACKET_LENGTH, (char *)packet.data ) != PUT_OK )
+				if ( RawOutputSwitch ) {
+					if ( tport_putmsg(&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO], PALERTMODE1_PACKET_LENGTH, (char *)(data_ptr->data) ) != PUT_OK )
 						logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[RAW_MSG_LOGO]);
+				}
+			/* Parse the raw packet to trace buffer */
+				if ( PALERT_IS_MODE1_HEADER( pah1 ) )
+					process_packet_pm1( data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
 			}
-
-		/* Process the message */
-			if ( PALERT_IS_MODE1_HEADER( pah1 ) ) {
-				process_packet_pm1( (PalertPacket *)packet.data, (_STAINFO *)packet.sptr );
+			else if ( msg_logo.type == TypePalertExt ) {
+			/* */
 			}
 		} while ( count < MaxStationNum );  /* end of message-processing-loop */
 	}
@@ -879,6 +896,30 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 }
 
 /*
+ *
+ */
+static void process_packet_rt( PalertExtPacket *packet, _STAINFO *stainfo )
+{
+	int             i, msg_size;
+	TracePacket     tracebuf;  /* message which is sent to share ring    */
+	const int       chan_seq = packet->rt.rt_packet.chan_seq
+	const _CHAINFO *chaptr   = ((_CHAINFO *)stainfo->chaptr) + chan_seq;
+
+/* Common part */
+	enrich_trh2_rt( &tracebuf.trh2, stainfo, &packet->rt.rt_packet );
+	msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
+/* Channel part */
+	strcpy(tracebuf.trh2.chan, chaptr->chan);
+	for ( i = 0; i < tracebuf.trh2.nsamp; i++ ) {
+		;
+	}
+	if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
+		logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
+
+	return;
+}
+
+/*
  * examine_ntp_sync_pm1() -
  */
 static int examine_ntp_sync_pm1( _STAINFO *stainfo, const PALERTMODE1_HEADER *pah )
@@ -916,22 +957,50 @@ static int examine_ntp_sync_pm1( _STAINFO *stainfo, const PALERTMODE1_HEADER *pa
 static TRACE2_HEADER *enrich_trh2_pm1(
 	TRACE2_HEADER *trh2, const _STAINFO *staptr, const PALERTMODE1_HEADER *pah
 ) {
+	return enrich_trh2(
+		trh2, staptr->sta, staptr->net, staptr->loc,
+		PALERTMODE1_SAMPLE_NUMBER,
+		UniSampRate ? (double)UniSampRate : (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah ),
+		palert_get_systime( pah, LocalTimeShift )
+	);
+}
+
+/*
+ * enrich_trh2_rt() -
+ */
+static TRACE2_HEADER *enrich_trh2_rt(
+	TRACE2_HEADER *trh2, const _STAINFO *staptr, const EXT_RT_PACKET *rt_packet
+) {
+	return enrich_trh2(
+		trh2, staptr->sta, staptr->net, staptr->loc, rt_packet->nsamp,
+		UniSampRate ? (double)UniSampRate : (double)rt_packet->samprate,
+		rt_packet->timestamp
+	);
+}
+
+/*
+ * enrich_trh2() -
+ */
+static TRACE2_HEADER *enrich_trh2(
+	TRACE2_HEADER *trh2, const char *sta, const char *net, const char *loc,
+	const int nsamp, const double samprate, const double starttime
+) {
 /* */
 	trh2->pinno     = 0;
-	trh2->nsamp     = PALERTMODE1_SAMPLE_NUMBER;
-	trh2->samprate  = UniSampRate ? (double)UniSampRate : (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah );
-	trh2->starttime = palert_get_systime( pah, LocalTimeShift );
-	trh2->endtime   = trh2->starttime + (trh2->nsamp - 1) * 1.0 / trh2->samprate;
+	trh2->nsamp     = nsamp;
+	trh2->samprate  = samprate;
+	trh2->starttime = starttime;
+	trh2->endtime   = trh2->starttime + (trh2->nsamp - 1) / trh2->samprate;
 /* */
-	strcpy(trh2->sta, staptr->sta);
-	strcpy(trh2->net, staptr->net);
-	strcpy(trh2->loc, staptr->loc);
+	strcpy(trh2->sta, sta);
+	strcpy(trh2->net, net);
+	strcpy(trh2->loc, loc);
 /* */
 	trh2->version[0] = TRACE2_VERSION0;
 	trh2->version[1] = TRACE2_VERSION1;
 
-	strcpy(trh2->quality , TRACE2_NO_QUALITY);
-	strcpy(trh2->pad     , TRACE2_NO_PAD    );
+	strcpy(trh2->quality, TRACE2_NO_QUALITY);
+	strcpy(trh2->pad    , TRACE2_NO_PAD    );
 
 #if defined( _SPARC )
 	strcpy(trh2->datatype, "s4");   /* SUN IEEE integer */

@@ -12,7 +12,8 @@
 
 /* Define global variables */
 static pthread_mutex_t QueueMutex;
-static QUEUE           MsgQueue;    /* from queue.h, queue.c; sets up linked */
+static QUEUE           MsgQueue;         /* from queue.h, queue.c; sets up linked */
+static MSG_LOGO        RawLogo = { 0 };  /* Raw packet logo for module, type, instid */
 
 /* */
 static int validate_serial_pah1( const PALERTMODE1_HEADER *, const int );
@@ -20,12 +21,14 @@ static int validate_serial_pah1( const PALERTMODE1_HEADER *, const int );
 /*
  * pa2ew_msgqueue_init() - Initialization function of message queue and mutex.
  */
-int pa2ew_msgqueue_init( const unsigned long queue_size )
+int pa2ew_msgqueue_init( const unsigned long queue_size, const unsigned long element_size, const MSG_LOGO raw_logo )
 {
 /* Create a Mutex to control access to queue */
 	CreateSpecificMutex(&QueueMutex);
 /* Initialize the message queue */
-	initqueue( &MsgQueue, queue_size, (unsigned long)sizeof(PACKET) + 1 );
+	initqueue( &MsgQueue, queue_size, element_size + 1 );
+/* */
+	RawLogo = raw_logo;
 
 	return 0;
 }
@@ -44,14 +47,13 @@ void pa2ew_msgqueue_end( void )
 /*
  * pa2ew_msgqueue_dequeue() - Pop-out received message from main queue.
  */
-int pa2ew_msgqueue_dequeue( PACKET *packet, size_t *size )
+int pa2ew_msgqueue_dequeue( void *buffer, size_t *size, MSG_LOGO *logo )
 {
 	int      result;
 	long int _size;
-	MSG_LOGO dummy;
 
 	RequestSpecificMutex(&QueueMutex);
-	result = dequeue(&MsgQueue, (char *)packet, &_size, &dummy);
+	result = dequeue(&MsgQueue, (char *)buffer, &_size, logo);
 	ReleaseSpecificMutex(&QueueMutex);
 	*size = _size;
 
@@ -61,13 +63,13 @@ int pa2ew_msgqueue_dequeue( PACKET *packet, size_t *size )
 /*
  * pa2ew_msgqueue_enqueue() - Put the compelete packet into the main queue.
  */
-int pa2ew_msgqueue_enqueue( PACKET *packet, size_t size )
+int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 {
 	int result = 0;
 
 /* put it into the main queue */
 	RequestSpecificMutex(&QueueMutex);
-	result = enqueue(&MsgQueue, (char *)packet, size, (MSG_LOGO){ 0 });
+	result = enqueue(&MsgQueue, (char *)buffer, size, logo);
 	ReleaseSpecificMutex(&QueueMutex);
 
 	if ( result != 0 ) {
@@ -83,9 +85,9 @@ int pa2ew_msgqueue_enqueue( PACKET *packet, size_t size )
 }
 
 /*
- * pa2ew_msgqueue_prequeue() - Stack received message into queue of station.
+ * pa2ew_msgqueue_rawpacket() - Stack received message into queue of station.
  */
-/* Internal macro for pa2ew_msgqueue_prequeue() */
+/* Internal macro for pa2ew_msgqueue_rawpacket() */
 #define RESET_BUFFER_IN_STA(STAINFO) \
 		((STAINFO)->param.packet_rear = 0)
 
@@ -121,13 +123,13 @@ int pa2ew_msgqueue_enqueue( PACKET *packet, size_t size )
 			} \
 		})
 
-/* Real function for pa2ew_msgqueue_prequeue() */
-int pa2ew_msgqueue_prequeue( _STAINFO *stainfo, const PREPACKET *pre_packet )
+/* Real function for pa2ew_msgqueue_rawpacket() */
+int pa2ew_msgqueue_rawpacket( _STAINFO *stainfo, const void *raw_packet, const size_t packet_len )
 {
-	const uint8_t            *src = pre_packet->data;
+	const uint8_t            *src = raw_packet;
 	const PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)src;
 
-	size_t data_remain = pre_packet->len;
+	size_t data_remain = packet_len;
 	size_t data_in     = 0;
 	int    result      = 0;
 
@@ -157,7 +159,7 @@ int pa2ew_msgqueue_prequeue( _STAINFO *stainfo, const PREPACKET *pre_packet )
 				if ( stainfo->param.header_ready ) {
 					if ( stainfo->param.packet_rear == PALERTMODE1_PACKET_LENGTH ) {
 					/* Put it into the main queue */
-						result = pa2ew_msgqueue_enqueue( &stainfo->packet, sizeof(PACKET) );
+						result = pa2ew_msgqueue_enqueue( &stainfo->packet, sizeof(PACKET), RawLogo );
 					/* Flush the queue of station */
 						RESET_BUFFER_IN_STA( stainfo );
 						stainfo->param.header_ready = 0;

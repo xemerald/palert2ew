@@ -20,9 +20,7 @@
 #define PA2EW_PALERT_PORT            "502"
 #define PA2EW_MAX_PALERTS_PER_THREAD  512
 /* */
-#define PA2EW_RECV_BUFFER_LENGTH  12000
-#define PA2EW_PREPACKET_LENGTH    (PA2EW_RECV_BUFFER_LENGTH + 4)
-/* */
+#define PA2EW_RECV_BUFFER_LENGTH  16384
 #define PA2EW_RECV_NORMAL         0
 #define PA2EW_RECV_NEED_UPDATE   -1
 #define PA2EW_RECV_CONNECT_ERROR -2
@@ -32,13 +30,6 @@
 #include <trace_buf.h>
 /* */
 #include <palert.h>
-
-/* */
-typedef struct {
-	uint16_t serial;
-	uint16_t len;
-	uint8_t  data[PA2EW_RECV_BUFFER_LENGTH];
-} PREPACKET;
 
 /* Internal stack related struct */
 typedef struct {
@@ -54,12 +45,30 @@ typedef struct {
 } PACKETPARAM;
 
 /* */
+#define PA2EW_EXT_HEADER_SIZE      8
+#define PA2EW_EXT_MAX_PACKET_SIZE  4096
+/* */
+#define PA2EW_EXT_TYPE_HEARTBEAT   0
+#define PA2EW_EXT_TYPE_RT_PACKET   1
+#define PA2EW_EXT_TYPE_SOH_PACKET  2
+/* */
 typedef struct {
 	uint16_t serial;
+	uint16_t ext_type;
+	uint32_t length;
+} EXT_HEADER;
+
+/* */
+typedef struct {
+	char     request[32];
 	int32_t  timestamp;
 	uint16_t samprate;
-	uint8_t  packet_mode;
-} RT_HEARTBEAT;
+	uint16_t nsamp;
+	uint8_t  data_bytes;
+	uint8_t  chan_seq;
+	uint8_t  padding[6];
+	uint8_t  data[0];
+} EXT_RT_PACKET;
 
 /* */
 typedef struct {
@@ -71,10 +80,38 @@ typedef struct {
 	uint8_t ntp_status;
 	uint8_t gnss_status;
 	uint8_t gps_lock;
+	uint8_t padding;
 	int16_t satellite_num;
 	double  latitude;
 	double  longitude;
-} SOH_PACKET;
+} EXT_SOH_PACKET;
+
+/* */
+typedef union {
+/* */
+	struct {
+		EXT_HEADER    header;
+		EXT_RT_PACKET rt_packet;
+	} rt;
+/* */
+	struct {
+		EXT_HEADER    header;
+		EXT_RT_PACKET soh_packet;
+	} soh;
+/* */
+	uint8_t buffer[PA2EW_EXT_MAX_PACKET_SIZE];
+} PalertExtPacket;
+
+/* Internal stack related struct */
+typedef struct {
+/* */
+	void *sptr;
+/* */
+	union {
+		PalertPacket    palert_pck;
+		PalertExtPacket palert_ext_pck;
+	} data;
+} LABELED_DATA;
 
 /* Station info related struct */
 typedef struct {
@@ -87,8 +124,6 @@ typedef struct {
 /* */
 	PACKET      packet;
 	PACKETPARAM param;
-/* */
-	void    *extptr;
 } _STAINFO;
 
 /* */

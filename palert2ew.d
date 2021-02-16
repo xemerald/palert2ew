@@ -37,7 +37,7 @@ ServerPort        23000           # Server port of P-alert Core server
 # Palert retransmission setup:
 #
 #
-RetransPort       24000           # Listen port for the retransmission function
+ExtendPort        24000           # Listen port for the retransmission function
 
 # MySQL server information:
 #
