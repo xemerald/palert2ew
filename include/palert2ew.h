@@ -60,7 +60,6 @@ typedef struct {
 
 /* */
 typedef struct {
-	char     request[32];
 	int32_t  timestamp;
 	uint16_t samprate;
 	uint16_t nsamp;
@@ -88,6 +87,8 @@ typedef struct {
 
 /* */
 typedef union {
+/* */
+	EXT_HEADER header;
 /* */
 	struct {
 		EXT_HEADER    header;

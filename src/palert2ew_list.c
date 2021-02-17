@@ -388,6 +388,7 @@ static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, cons
 		for ( i = 0; i < nchannel; i++ ) {
 			chainfo[i].seq = i;
 			strcpy(chainfo[i].chan, chan[i]);
+			chainfo[i].last_endtime = 0.0;
 		}
 	}
 

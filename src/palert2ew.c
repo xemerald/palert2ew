@@ -41,6 +41,7 @@ static int     load_list_configfile( void **, char * );
 
 static void           process_packet_pm1( PalertPacket *, _STAINFO * );
 static int            examine_ntp_sync_pm1( _STAINFO *, const PALERTMODE1_HEADER * );
+static int32_t       *copydata_tracebuf_rt( const EXT_RT_PACKET *, int32_t * );
 static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
 static TRACE2_HEADER *enrich_trh2(
 	TRACE2_HEADER *, const char *, const char *, const char *, const int, const double, const double
@@ -135,7 +136,7 @@ int main ( int argc, char **argv )
 	uint8_t *buffer   = NULL;
 	uint32_t count    = 0;
 	size_t   msg_size = 0;
-	MSG_LOGO msg_logo = { 0 };
+	MSG_LOGO msg_logo = { 0 };get_rt
 
 	LABELED_DATA *data_ptr = NULL;
 	void (*check_receiver_func)( const int ) = NULL;
@@ -295,10 +296,16 @@ int main ( int argc, char **argv )
 				}
 			/* Parse the raw packet to trace buffer */
 				if ( PALERT_IS_MODE1_HEADER( pah1 ) )
-					process_packet_pm1( data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
+					process_packet_pm1( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
+				else if ( PALERT_IS_MODE4_HEADER( pah1 ) )
+					process_packet_pm4( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
 			}
 			else if ( msg_logo.type == TypePalertExt ) {
 			/* */
+				if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_RT_PACKET )
+					process_packet_rt( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
+				else if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_SOH_PACKET )
+					process_packet_soh( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
 			}
 		} while ( count < MaxStationNum );  /* end of message-processing-loop */
 	}
@@ -889,6 +896,8 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 			COPYDATA_TRACEBUF_PM1( &tracebuf, packet, chaptr->seq );
 			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
 				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
+			else
+				chaptr->last_endtime = tracebuf.trh2.endtime;
 		}
 	}
 
@@ -902,17 +911,15 @@ static void process_packet_rt( PalertExtPacket *packet, _STAINFO *stainfo )
 {
 	int             i, msg_size;
 	TracePacket     tracebuf;  /* message which is sent to share ring    */
-	const int       chan_seq = packet->rt.rt_packet.chan_seq
-	const _CHAINFO *chaptr   = ((_CHAINFO *)stainfo->chaptr) + chan_seq;
+	const _CHAINFO *chaptr = ((_CHAINFO *)stainfo->chaptr) + packet->rt.rt_packet.chan_seq;
 
 /* Common part */
 	enrich_trh2_rt( &tracebuf.trh2, stainfo, &packet->rt.rt_packet );
-	msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
+	msg_size = tracebuf.trh2.nsamp << 2 + sizeof(TRACE2_HEADER);
 /* Channel part */
 	strcpy(tracebuf.trh2.chan, chaptr->chan);
-	for ( i = 0; i < tracebuf.trh2.nsamp; i++ ) {
-		;
-	}
+	copydata_tracebuf_rt( &packet->rt.rt_packet, (int32_t *)(tracebuf.trh2 + 1) );
+/* */
 	if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
 		logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
 
@@ -949,6 +956,27 @@ static int examine_ntp_sync_pm1( _STAINFO *stainfo, const PALERTMODE1_HEADER *pa
 	}
 
 	return 1;
+}
+
+/*
+ * copydata_tracebuf_rt() -
+ */
+static int32_t *copydata_tracebuf_rt( const EXT_RT_PACKET *rt_packet, int32_t *buffer )
+{
+	int      i;
+	int16_t *sdata_in = (int16_t *)rt_packet->data;
+
+	switch ( rt_packet->data_bytes ) {
+	case 2:
+		for ( i = 0; i < rt_packet->nsamp; i++, sdata_in++, buffer++ )
+			*buffer = *sdata_in;
+		break;
+	case 4: default:
+		memcpy(buffer, rt_packet->data, rt_packet->nsamp << 2);
+		break;
+	}
+
+	return buffer;
 }
 
 /*
