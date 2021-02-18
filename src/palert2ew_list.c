@@ -368,6 +368,8 @@ static _STAINFO *enrich_stainfo_raw(
 	strcpy(stainfo->net, net);
 	strcpy(stainfo->loc, loc);
 	stainfo->packet.sptr = stainfo;
+	stainfo->normal_conn = NULL;
+	stainfo->ext_conn    = NULL;
 
 	return stainfo;
 }
@@ -388,7 +390,7 @@ static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, cons
 		for ( i = 0; i < nchannel; i++ ) {
 			chainfo[i].seq = i;
 			strcpy(chainfo[i].chan, chan[i]);
-			chainfo[i].last_endtime = 0.0;
+			chainfo[i].last_endtime = -1.0;
 		}
 	}
 

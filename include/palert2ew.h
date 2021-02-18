@@ -18,6 +18,7 @@
 #define PA2EW_NTP_SYNC_ERR_LIMIT  30
 /* */
 #define PA2EW_PALERT_PORT            "502"
+#define PA2EW_PALERT_EXT_PORT        "24000"
 #define PA2EW_MAX_PALERTS_PER_THREAD  512
 /* */
 #define PA2EW_RECV_BUFFER_LENGTH  16384
@@ -51,6 +52,8 @@ typedef struct {
 #define PA2EW_EXT_TYPE_HEARTBEAT   0
 #define PA2EW_EXT_TYPE_RT_PACKET   1
 #define PA2EW_EXT_TYPE_SOH_PACKET  2
+/* */
+#define PA2EW_EXT_RT_COMMAND_FORMAT "%d:%d:%ld"
 /* */
 typedef struct {
 	uint16_t serial;
@@ -125,6 +128,9 @@ typedef struct {
 /* */
 	PACKET      packet;
 	PACKETPARAM param;
+/* */
+	void *normal_conn;
+	void *ext_conn;
 } _STAINFO;
 
 /* */

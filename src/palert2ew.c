@@ -25,6 +25,14 @@
 #include <palert2ew_server.h>
 #include <palert2ew_msg_queue.h>
 
+/* */
+typedef struct {
+	_STAINFO *staptr;
+	_CHAINFO *chaptr;
+	double    starttime;
+	double    endtime;
+} __EXT_COMMAND_ARG;
+
 /* Functions prototype in this source file
  *******************************/
 static void palert2ew_config( char * );
@@ -37,21 +45,28 @@ static void    check_receiver_server( const int );
 static thr_ret receiver_client_thread( void * );  /* Read messages from the socket of forward server */
 static thr_ret receiver_server_thread( void * );  /* Read messages from the socket of Palerts */
 static thr_ret update_list_thread( void * );
+static thr_ret request_rt_thread( void * );
 static int     load_list_configfile( void **, char * );
 
 static void           process_packet_pm1( PalertPacket *, _STAINFO * );
+static void           process_packet_rt( PalertExtPacket *, _STAINFO * );
 static int            examine_ntp_sync_pm1( _STAINFO *, const PALERTMODE1_HEADER * );
 static int32_t       *copydata_tracebuf_rt( const EXT_RT_PACKET *, int32_t * );
 static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
+static TRACE2_HEADER *enrich_trh2_rt( TRACE2_HEADER *, const _STAINFO *, const EXT_RT_PACKET * );
 static TRACE2_HEADER *enrich_trh2(
 	TRACE2_HEADER *, const char *, const char *, const char *, const int, const double, const double
 );
+
+static __EXT_COMMAND_ARG *create_ext_command_arg( _STAINFO *, _CHAINFO *, double, double );
+
 /* Ring messages things */
 #define WAVE_MSG_LOGO  0
 #define RAW_MSG_LOGO   1
+#define EXT_MSG_LOGO   2
 
-static SHM_INFO Region[2];      /* shared memory region to use for i/o    */
-static MSG_LOGO Putlogo[2];     /* array for requesting module, type, instid */
+static SHM_INFO Region[3];      /* shared memory region to use for i/o    */
+static MSG_LOGO Putlogo[3];     /* array for requesting module, type, instid */
 static pid_t    MyPid;          /* for restarts by startstop               */
 
 /* Thread things */
@@ -62,16 +77,16 @@ static pid_t    MyPid;          /* for restarts by startstop               */
 static volatile int     ReceiverThreadsNum = 0;
 static volatile int8_t *MessageReceiverStatus = NULL;
 #if defined( _V710 )
-static ew_thread_t      UpdateThreadID   = 0;          /* Thread id for updating the Palert list */
-static ew_thread_t     *ReceiverThreadID = NULL;       /* Thread id for receiving messages from TCP/IP */
+static ew_thread_t      UpdateThreadID      = 0;          /* Thread id for updating the Palert list */
+static ew_thread_t     *ReceiverThreadID    = NULL;       /* Thread id for receiving messages from TCP/IP */
 #else
-static unsigned         UpdateThreadID   = 0;          /* Thread id for updating the Palert list */
-static unsigned        *ReceiverThreadID = NULL;       /* Thread id for receiving messages from TCP/IP */
+static unsigned         UpdateThreadID      = 0;          /* Thread id for updating the Palert list */
+static unsigned        *ReceiverThreadID    = NULL;       /* Thread id for receiving messages from TCP/IP */
 #endif
 
 /* Things to read or derive from configuration file
  **************************************************/
-static char     RingName[2][MAX_RING_STR];  /* name of transport ring for i/o    */
+static char     RingName[3][MAX_RING_STR];  /* name of transport ring for i/o    */
 static char     MyModName[MAX_MOD_STR];     /* speak as this module name/id      */
 static uint8_t  LogSwitch;                  /* 0 if no logfile should be written */
 static uint64_t HeartBeatInterval;          /* seconds between heartbeats        */
@@ -79,9 +94,9 @@ static uint64_t UpdateInterval = 0;         /* seconds between updating check   
 static uint64_t QueueSize;                  /* max messages in output circular buffer */
 static uint8_t  ServerSwitch;               /* 0 connect to Palert server; 1 as the server of Palert */
 static uint8_t  RawOutputSwitch = 0;
+static uint8_t  ExtFuncSwitch   = 0;
 static char     ServerIP[INET6_ADDRSTRLEN];
 static char     ServerPort[8] = { 0 };
-static char     ExtendPort[8] = { 0 };
 static uint64_t MaxStationNum;
 static uint32_t UniSampRate = 0;
 static DBINFO   DBInfo;
@@ -90,7 +105,7 @@ static char     SQLChannelTable[MAX_TABLE_LEGTH];
 
 /* Things to look up in the earthworm.h tables with getutil.c functions
  **********************************************************************/
-static int64_t RingKey[2];      /* key of transport ring for i/o     */
+static int64_t RingKey[3];      /* key of transport ring for i/o     */
 static uint8_t InstId;          /* local installation id             */
 static uint8_t MyModId;         /* Module Id for this program        */
 static uint8_t TypeHeartBeat;
@@ -121,6 +136,8 @@ static int64_t LocalTimeShift = 0;            /* Time difference between UTC & l
 #define COPYDATA_TRACEBUF_PM1(TBUF, PM1, SEQ) \
 		(palert_get_data( (PM1), (SEQ), (int32_t *)((&(TBUF)->trh2) + 1) ))
 
+#define IS_GAP_BETWEEN_LAST_TRACE(TRH2, LAST_END) \
+		((LAST_END) > 0.0 && ((TRH2)->starttime - (LAST_END)) > (2.0 / (TRH2)->samprate))
 /*
  *
  */
@@ -136,7 +153,7 @@ int main ( int argc, char **argv )
 	uint8_t *buffer   = NULL;
 	uint32_t count    = 0;
 	size_t   msg_size = 0;
-	MSG_LOGO msg_logo = { 0 };get_rt
+	MSG_LOGO msg_logo = { 0 };
 
 	LABELED_DATA *data_ptr = NULL;
 	void (*check_receiver_func)( const int ) = NULL;
@@ -148,7 +165,6 @@ int main ( int argc, char **argv )
 	}
 	Finish = 1;
 	UpdateFlag = LIST_IS_UPDATED;
-	TypePalertExt = ~TypePalertRaw;
 
 /* Initialize name of log-file & open it */
 	logit_init(argv[1], 0, 256, 1);
@@ -184,9 +200,20 @@ int main ( int argc, char **argv )
 		exit(-1);
 	}
 
+/* Build the message */
+	Putlogo[WAVE_MSG_LOGO].instid = InstId;
+	Putlogo[WAVE_MSG_LOGO].mod    = MyModId;
+	Putlogo[WAVE_MSG_LOGO].type   = TypeTracebuf2;
+	Putlogo[RAW_MSG_LOGO].instid  = InstId;
+	Putlogo[RAW_MSG_LOGO].mod     = MyModId;
+	Putlogo[RAW_MSG_LOGO].type    = TypePalertRaw;
+	Putlogo[EXT_MSG_LOGO].instid  = InstId;
+	Putlogo[EXT_MSG_LOGO].mod     = MyModId;
+	Putlogo[EXT_MSG_LOGO].type    = TypePalertExt;
+
 /* Initialize the connection process either server or client */
 	if ( ServerSwitch == 0 ) {
-		ReceiverThreadsNum  = 1;
+		ReceiverThreadsNum = ExtFuncSwitch ? 2 : 1;
 		if ( pa2ew_client_init( ServerIP, ServerPort ) < 0 ) {
 			logit("e","palert2ew: Cannot initialize the connection client process. Exiting!\n");
 			pa2ew_list_end();
@@ -195,10 +222,9 @@ int main ( int argc, char **argv )
 		check_receiver_func = check_receiver_client;
 	}
 	else {
-		msg_logo.instid = InstId;
-		msg_logo.mod    = MyModId;
-		msg_logo.type   = TypePalertExt;
-		ReceiverThreadsNum = pa2ew_server_init( MaxStationNum, PA2EW_PALERT_PORT, ExtendPort, msg_logo );
+		ReceiverThreadsNum = pa2ew_server_init(
+			MaxStationNum, PA2EW_PALERT_PORT, ExtFuncSwitch ? PA2EW_PALERT_EXT_PORT : NULL, Putlogo[EXT_MSG_LOGO]
+		);
 		if ( ReceiverThreadsNum < 1 ) {
 			logit("e","palert2ew: Cannot initialize the connection server process. Exiting!\n");
 			pa2ew_list_end();
@@ -207,16 +233,8 @@ int main ( int argc, char **argv )
 		check_receiver_func = check_receiver_server;
 	}
 
-/* Build the message */
-	Putlogo[WAVE_MSG_LOGO].instid = InstId;
-	Putlogo[WAVE_MSG_LOGO].mod    = MyModId;
-	Putlogo[WAVE_MSG_LOGO].type   = TypeTracebuf2;
-	Putlogo[RAW_MSG_LOGO].instid  = InstId;
-	Putlogo[RAW_MSG_LOGO].mod     = MyModId;
-	Putlogo[RAW_MSG_LOGO].type    = TypePalertRaw;
-
 /* Attach to Output shared memory ring */
-	for ( i = 0; i < 2; i++ ) {
+	for ( i = 0; i < 3; i++ ) {
 		if ( RingKey[i] == -1 ) {
 			Region[i].key = RingKey[i];
 		}
@@ -226,7 +244,7 @@ int main ( int argc, char **argv )
 		}
 	}
 /* Initialize the message queue */
-	pa2ew_msgqueue_init( (unsigned long)QueueSize, sizeof(LABELED_DATA),	Putlogo[RAW_MSG_LOGO] );
+	pa2ew_msgqueue_init( (unsigned long)QueueSize, sizeof(LABELED_DATA), Putlogo[RAW_MSG_LOGO] );
 /* */
 	buffer   = calloc(1, sizeof(LABELED_DATA));
 	data_ptr = (LABELED_DATA *)buffer;
@@ -291,21 +309,38 @@ int main ( int argc, char **argv )
 				count++;
 			/* Put the raw data to the raw ring */
 				if ( RawOutputSwitch ) {
-					if ( tport_putmsg(&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO], PALERTMODE1_PACKET_LENGTH, (char *)(data_ptr->data) ) != PUT_OK )
+					if (
+						tport_putmsg(
+							&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO],
+							PALERTMODE1_PACKET_LENGTH, (char *)(&data_ptr->data)
+						) != PUT_OK
+					) {
 						logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[RAW_MSG_LOGO]);
+					}
 				}
 			/* Parse the raw packet to trace buffer */
-				if ( PALERT_IS_MODE1_HEADER( pah1 ) )
+				if ( PALERT_IS_MODE1_HEADER( &data_ptr->data.palert_pck.pah ) )
 					process_packet_pm1( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
-				else if ( PALERT_IS_MODE4_HEADER( pah1 ) )
-					process_packet_pm4( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
+				//else if ( PALERT_IS_MODE4_HEADER( &data_ptr->data.palert_pck.pah ) )
+					//process_packet_pm4( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
 			}
 			else if ( msg_logo.type == TypePalertExt ) {
 			/* */
-				if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_RT_PACKET )
-					process_packet_rt( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
-				else if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_SOH_PACKET )
-					process_packet_soh( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
+				if ( ExtFuncSwitch ) {
+					if (
+						tport_putmsg(
+							&Region[EXT_MSG_LOGO], &Putlogo[EXT_MSG_LOGO],
+							data_ptr->data.palert_ext_pck.header.length, (char *)(&data_ptr->data)
+						) != PUT_OK
+					) {
+						logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
+					}
+				/* */
+					if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_RT_PACKET )
+						process_packet_rt( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
+					//else if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_SOH_PACKET )
+						//process_packet_soh( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
+				}
 			}
 		} while ( count < MaxStationNum );  /* end of message-processing-loop */
 	}
@@ -381,19 +416,24 @@ static void palert2ew_config( char *configfile )
 		/* 1 */
 			else if( k_its("MyModuleId") ) {
 				str = k_str();
-				if(str) strcpy( MyModName, str );
+				if ( str ) strcpy(MyModName, str);
 				init[1] = 1;
 			}
 		/* 2 */
 			else if( k_its("OutWaveRing") ) {
 				str = k_str();
-				if(str) strcpy( &RingName[WAVE_MSG_LOGO][0], str );
+				if ( str ) strcpy(&RingName[WAVE_MSG_LOGO][0], str);
 				init[2] = 1;
 			}
 			else if( k_its("OutRawRing") ) {
 				str = k_str();
-				if(str) strcpy( &RingName[RAW_MSG_LOGO][0], str );
+				if ( str ) strcpy(&RingName[RAW_MSG_LOGO][0], str);
 				RawOutputSwitch = 1;
+			}
+			else if( k_its("OutExtendRing") ) {
+				str = k_str();
+				if(str) strcpy(&RingName[EXT_MSG_LOGO][0], str);
+				ExtFuncSwitch = 1;
 			}
 		/* 3 */
 			else if( k_its("HeartBeatInterval") ) {
@@ -560,7 +600,20 @@ static void palert2ew_lookup( void )
 			exit(-1);
 		}
 	}
-	else RingKey[RAW_MSG_LOGO] = -1;
+	else {
+		RingKey[RAW_MSG_LOGO] = -1;
+	}
+	if ( ExtFuncSwitch ) {
+		if ( (RingKey[EXT_MSG_LOGO] = GetKey(&RingName[EXT_MSG_LOGO][0])) == -1 ) {
+			fprintf(
+				stderr, "palert2ew: Invalid ring name <%s>; exiting!\n", &RingName[EXT_MSG_LOGO][0]
+			);
+			exit(-1);
+		}
+	}
+	else {
+		RingKey[EXT_MSG_LOGO] = -1;
+	}
 
 /* Look up installations of interest */
 	if ( GetLocalInst( &InstId ) != 0 ) {
@@ -590,6 +643,12 @@ static void palert2ew_lookup( void )
 	if ( RawOutputSwitch ) {
 		if ( GetType( "TYPE_PALERTRAW", &TypePalertRaw ) != 0 ) {
 			fprintf(stderr, "palert2ew: Invalid message type <TYPE_PALERTRAW>; exiting!\n");
+			exit(-1);
+		}
+	}
+	if ( ExtFuncSwitch ) {
+		if ( GetType( "TYPE_PALERTEXT", &TypePalertExt ) != 0 ) {
+			fprintf(stderr, "palert2ew: Invalid message type <TYPE_PALERTEXT>; exiting!\n");
 			exit(-1);
 		}
 	}
@@ -645,6 +704,8 @@ static void palert2ew_end( void )
 	tport_detach( &Region[WAVE_MSG_LOGO] );
 	if ( RawOutputSwitch )
 		tport_detach( &Region[RAW_MSG_LOGO] );
+	if ( ExtFuncSwitch )
+		tport_detach( &Region[EXT_MSG_LOGO] );
 
 	pa2ew_msgqueue_end();
 	pa2ew_list_end();
@@ -671,6 +732,13 @@ static void check_receiver_client( const int wait_msec )
 			exit(-1);
 		}
 		MessageReceiverStatus[0] = THREAD_ALIVE;
+	}
+/* */
+	if ( ExtFuncSwitch ) {
+		if ( MessageReceiverStatus[1] != THREAD_ALIVE ) {
+			/* Placeholder */
+			MessageReceiverStatus[1] = THREAD_ALIVE;
+		}
 	}
 	sleep_ew(wait_msec);
 
@@ -700,7 +768,8 @@ static void check_receiver_server( const int wait_msec )
 /* */
 	for ( i = 0; i < ReceiverThreadsNum; i++ ) {
 		if ( MessageReceiverStatus[i] != THREAD_ALIVE ) {
-			if ( StartThreadWithArg(
+			if (
+				StartThreadWithArg(
 					receiver_server_thread, number + i, (uint32_t)THREAD_STACK, ReceiverThreadID + i
 				) == -1
 			) {
@@ -763,7 +832,7 @@ static thr_ret receiver_server_thread( void *arg )
 	MessageReceiverStatus[countindex] = THREAD_ALIVE;
 /* Main service loop */
 	do {
-		if ( (ret = pa2ew_server_stream(countindex, 1000)) )
+		if ( (ret = pa2ew_server_proc(countindex, 1000)) )
 			if ( ret == PA2EW_RECV_NEED_UPDATE )
 				if ( UpdateFlag == LIST_IS_UPDATED )
 					UpdateFlag = LIST_NEED_UPDATED;
@@ -883,7 +952,12 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 {
 	int             i, msg_size;
 	TracePacket     tracebuf;  /* message which is sent to share ring    */
-	const _CHAINFO *chaptr = (_CHAINFO *)stainfo->chaptr;
+	_CHAINFO *chaptr = (_CHAINFO *)stainfo->chaptr;
+#if defined( _V710 )
+	static ew_thread_t req_thr_id = 0;
+#else
+	static unsigned    req_thr_id = 0;
+#endif
 
 /* Examine the NTP sync. status */
 	if ( examine_ntp_sync_pm1( stainfo, &packet->pah ) ) {
@@ -894,10 +968,27 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 		for ( i = 0; i < stainfo->nchannel; i++, chaptr++ ) {
 			strcpy(tracebuf.trh2.chan, chaptr->chan);
 			COPYDATA_TRACEBUF_PM1( &tracebuf, packet, chaptr->seq );
-			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
+			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
 				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
-			else
-				chaptr->last_endtime = tracebuf.trh2.endtime;
+			}
+			else if ( ExtFuncSwitch ) {
+			/* */
+				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) ) {
+				/* */
+					if (
+						StartThreadWithArg(
+							request_rt_thread,
+							create_ext_command_arg( stainfo, chaptr, tracebuf.trh2.starttime, tracebuf.trh2.endtime ),
+							(uint32_t)THREAD_STACK, &req_thr_id
+						) == -1
+					) {
+						logit("e", "palert2ew: Error starting receiver_server thread(%d); exiting!\n", i);
+					}
+				}
+				else {
+					chaptr->last_endtime = tracebuf.trh2.endtime;
+				}
+			}
 		}
 	}
 
@@ -907,18 +998,45 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 /*
  *
  */
+static thr_ret request_rt_thread( void *arg )
+{
+	__EXT_COMMAND_ARG *ext_arg = (__EXT_COMMAND_ARG *)arg;
+/* */
+	char   request[32] = { 0 };
+	time_t timestamp = (time_t)ext_arg->chaptr->last_endtime;
+
+/* */
+	ext_arg->chaptr->last_endtime = ext_arg->endtime;
+/* */
+	for ( ; (double)timestamp < ext_arg->starttime; timestamp++ ) {
+		sprintf(request, PA2EW_EXT_RT_COMMAND_FORMAT, ext_arg->staptr->serial, ext_arg->chaptr->seq, timestamp);
+		printf("%s\n", request);
+		if ( pa2ew_server_ext_req_send( ext_arg->staptr, request, strlen(request) + 1 ) )
+			break;
+		sleep_ew(50);
+	}
+/* Just exit this thread */
+	free(arg);
+	KillSelfThread();
+
+	return NULL;
+}
+
+/*
+ *
+ */
 static void process_packet_rt( PalertExtPacket *packet, _STAINFO *stainfo )
 {
-	int             i, msg_size;
+	int             msg_size;
 	TracePacket     tracebuf;  /* message which is sent to share ring    */
 	const _CHAINFO *chaptr = ((_CHAINFO *)stainfo->chaptr) + packet->rt.rt_packet.chan_seq;
 
 /* Common part */
 	enrich_trh2_rt( &tracebuf.trh2, stainfo, &packet->rt.rt_packet );
-	msg_size = tracebuf.trh2.nsamp << 2 + sizeof(TRACE2_HEADER);
+	msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
 /* Channel part */
 	strcpy(tracebuf.trh2.chan, chaptr->chan);
-	copydata_tracebuf_rt( &packet->rt.rt_packet, (int32_t *)(tracebuf.trh2 + 1) );
+	copydata_tracebuf_rt( &packet->rt.rt_packet, (int32_t *)(&tracebuf.trh2 + 1) );
 /* */
 	if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
 		logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
@@ -977,6 +1095,21 @@ static int32_t *copydata_tracebuf_rt( const EXT_RT_PACKET *rt_packet, int32_t *b
 	}
 
 	return buffer;
+}
+
+/*
+ *
+ */
+static __EXT_COMMAND_ARG *create_ext_command_arg( _STAINFO *staptr, _CHAINFO *chaptr, double start, double end )
+{
+	__EXT_COMMAND_ARG *result = malloc(sizeof(__EXT_COMMAND_ARG));
+
+	result->staptr    = staptr;
+	result->chaptr    = chaptr;
+	result->starttime = start;
+	result->endtime   = end;
+
+	return result;
 }
 
 /*

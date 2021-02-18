@@ -7,9 +7,9 @@ MyModuleId         MOD_PALERT2EW  # module id for this instance of template
 OutWaveRing        WAVE_RING      # shared memory ring for output wave trace
 OutRawRing         RPALERT_RING   # shared memory ring for output raw packet;
                                   # if not define, it will close this function
-OutRetransRing     RTRANS_RING    # shared memory ring for output retransmissioned
-                                  # wave trace, if not define, it will close this
-								  # function
+OutExtendRing      PEXTEND_RING   # shared memory ring for output extension messages
+                                  # like, retransmissioned wave trace, if not define,
+                                  # it will close this function
 LogFile            1              # 0 to turn off disk log file; 1 to turn it on
                                   # to log to module log but not stderr/stdout
 HeartBeatInterval  15             # seconds between heartbeats
@@ -33,11 +33,6 @@ UpdateInterval     0              # setting for automatical updating interval (s
 ServerSwitch      0               # 0 connect to Palert server; 1 as the server of Palert
 ServerIP          127.0.0.1       # Server IP address of P-alert Core server
 ServerPort        23000           # Server port of P-alert Core server
-
-# Palert retransmission setup:
-#
-#
-ExtendPort        24000           # Listen port for the retransmission function
 
 # MySQL server information:
 #
