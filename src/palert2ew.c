@@ -24,13 +24,18 @@
 #include <palert2ew_client.h>
 #include <palert2ew_server.h>
 #include <palert2ew_msg_queue.h>
+/* */
+typedef struct ecc {
+	_CHAINFO   *chaptr;
+	double      starttime;
+	double      endtime;
+	struct ecc *next;
+} __EXT_COMMAND_CHAN;
 
 /* */
 typedef struct {
-	_STAINFO *staptr;
-	_CHAINFO *chaptr;
-	double    starttime;
-	double    endtime;
+	_STAINFO           *staptr;
+	__EXT_COMMAND_CHAN *channels;
 } __EXT_COMMAND_ARG;
 
 /* Functions prototype in this source file
@@ -974,22 +979,23 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 			else if ( ExtFuncSwitch ) {
 			/* */
 				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) ) {
-				/* */
-					if (
-						StartThreadWithArg(
-							request_rt_thread,
-							create_ext_command_arg( stainfo, chaptr, tracebuf.trh2.starttime, tracebuf.trh2.endtime ),
-							(uint32_t)THREAD_STACK, &req_thr_id
-						) == -1
-					) {
-						logit("e", "palert2ew: Error starting receiver_server thread(%d); exiting!\n", i);
-					}
+
 				}
 				else {
 					chaptr->last_endtime = tracebuf.trh2.endtime;
 				}
 			}
 		}
+		/* */
+			if (
+				StartThreadWithArg(
+					request_rt_thread,
+					create_ext_command_arg( stainfo, chaptr, tracebuf.trh2.starttime, tracebuf.trh2.endtime ),
+					(uint32_t)THREAD_STACK, &req_thr_id
+				) == -1
+			) {
+				logit("e", "palert2ew: Error starting request_rt thread; exiting!\n");
+			}
 	}
 
 	return;

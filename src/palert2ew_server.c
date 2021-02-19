@@ -573,14 +573,14 @@ static int accept_palert_ext( void )
 			*conn = tmpconn;
 			acceptevt.data.ptr = conn;
 			epoll_ctl(PalertExtThreadSet->epoll_fd, EPOLL_CTL_ADD, conn->sock, &acceptevt);
-			printf("palert2ew: New Palert retransmission connection from %s:%d.\n", conn->ip, conn->port);
+			printf("palert2ew: New Palert extension connection from %s:%d.\n", conn->ip, conn->port);
 			break;
 		}
 	}
 
 	if ( i == MaxStationNum ) {
 		printf(
-			"palert2ew: Palert retransmission connection is full. Drop connection from %s:%d.\n",
+			"palert2ew: Palert extension connection is full. Drop connection from %s:%d.\n",
 			tmpconn.ip, tmpconn.port
 		);
 		close(tmpconn.sock);
