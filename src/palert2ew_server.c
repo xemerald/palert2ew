@@ -103,7 +103,7 @@ int pa2ew_server_init( const int max_stations, const char *port, const char *rt_
 	if ( rt_port != NULL && strlen(rt_port) ) {
 		PalertExtThreadSet = calloc(1, sizeof(PALERT_THREAD_SET));
 		PalertExtThreadSet->epoll_fd = epoll_create(max_stations);
-		PalertExtThreadSet->buffer   = calloc(PA2EW_EXT_MAX_PACKET_SIZE, 1);
+		PalertExtThreadSet->buffer   = calloc(PA2EW_RECV_BUFFER_LENGTH, 1);
 		PalertExtThreadSet->evts     = calloc(max_stations, sizeof(struct epoll_event));
 	/* */
 		AcceptSocketRt = init_palert_server_common(
@@ -188,8 +188,14 @@ int pa2ew_server_ext_req_send( const _STAINFO *staptr, const char *request, cons
 		if ( conn != NULL && conn->sock > 0 ) {
 			if ( send(conn->sock, request, req_length, 0) == req_length )
 				result = 0;
-			else
+			else {
+				logit(
+					"e", "palert2ew: Error sending the extension request to station %s; close connection!\n",
+					staptr->sta
+				);
 				result = -2;
+				close_palert_connect( conn, ThreadsNumber );
+			}
 		}
 	}
 
@@ -356,21 +362,22 @@ static int proc_server_ext( const int countindex, const int msec )
 	time_t time_now;
 	_Bool  need_update = 0;
 /* */
-	int                 readepoll = PalertExtThreadSet->epoll_fd;
-	EXT_HEADER         *readptr   = (EXT_HEADER *)PalertExtThreadSet->buffer;
-	struct epoll_event *readevts  = PalertExtThreadSet->evts;
+	int                 epoll  = PalertExtThreadSet->epoll_fd;
+	LABELED_DATA       *buffer = (LABELED_DATA *)PalertExtThreadSet->buffer;
+	EXT_HEADER         *exth   = &buffer->data;
+	struct epoll_event *evts   = PalertExtThreadSet->evts;
 
 /* Wait the epoll for msec minisec */
-	if ( (nready = epoll_wait(readepoll, readevts, MaxStationNum, msec)) ) {
+	if ( (nready = epoll_wait(epoll, evts, MaxStationNum, msec)) ) {
 		time(&time_now);
 	/* There is some incoming data from socket */
 		for ( i = 0; i < nready; i++ ) {
-			if ( readevts[i].events & EPOLLIN || readevts[i].events & EPOLLRDHUP || readevts[i].events & EPOLLERR ) {
+			if ( evts[i].events & EPOLLIN || evts[i].events & EPOLLRDHUP || evts[i].events & EPOLLERR ) {
 				int          ret  = 0;
-				CONNDESCRIP *conn = (CONNDESCRIP *)readevts[i].data.ptr;
+				CONNDESCRIP *conn = (CONNDESCRIP *)evts[i].data.ptr;
 			/* */
 				conn->last_act = time_now;
-				if ( (ret = recv(conn->sock, readptr, PA2EW_EXT_MAX_PACKET_SIZE, 0)) <= 0 ) {
+				if ( (ret = recv(conn->sock, &buffer->data, PA2EW_EXT_MAX_PACKET_SIZE, 0)) <= 0 ) {
 					printf(
 						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
 						conn->ip, ret, errno, strerror(errno)
@@ -379,14 +386,15 @@ static int proc_server_ext( const int countindex, const int msec )
 				}
 				else {
 					if ( conn->staptr ) {
-						if ( readptr->ext_type != PA2EW_EXT_TYPE_HEARTBEAT && ret == (int)readptr->length ) {
-							if ( pa2ew_msgqueue_enqueue( readptr, readptr->length, ExtLogo ) )
+						if ( exth->ext_type != PA2EW_EXT_TYPE_HEARTBEAT && ret == (int)exth->length ) {
+							buffer->sptr = conn->staptr;
+							if ( pa2ew_msgqueue_enqueue( buffer, exth->length, ExtLogo ) )
 								sleep_ew(100);
 						}
 					}
 					else if ( ret >= PA2EW_EXT_HEADER_SIZE ) {
 					/* Find which Palert */
-						uint16_t serial = readptr->serial;
+						uint16_t serial = exth->serial;
 						if ( (conn->staptr = pa2ew_list_find( serial )) == NULL ) {
 						/* Not found in Palert table */
 							printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", serial);

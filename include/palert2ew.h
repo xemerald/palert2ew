@@ -11,6 +11,10 @@
  *
  */
 #pragma once
+/* */
+#include <trace_buf.h>
+/* */
+#include <palert.h>
 
 /* */
 #define PA2EW_INFO_FROM_SQL       4
@@ -26,25 +30,6 @@
 #define PA2EW_RECV_NEED_UPDATE   -1
 #define PA2EW_RECV_CONNECT_ERROR -2
 #define PA2EW_RECV_FATAL_ERROR   -3
-
-/* */
-#include <trace_buf.h>
-/* */
-#include <palert.h>
-
-/* Internal stack related struct */
-typedef struct {
-	void    *sptr;
-	uint8_t  data[PALERTMODE1_PACKET_LENGTH];
-} PACKET;
-
-/* */
-typedef struct {
-	uint8_t  header_ready;
-	uint8_t  ntp_errors;
-	uint16_t packet_rear;
-} PACKETPARAM;
-
 /* */
 #define PA2EW_EXT_HEADER_SIZE      8
 #define PA2EW_EXT_MAX_PACKET_SIZE  4096
@@ -54,6 +39,7 @@ typedef struct {
 #define PA2EW_EXT_TYPE_SOH_PACKET  2
 /* */
 #define PA2EW_EXT_RT_COMMAND_FORMAT "%d:%d:%ld"
+
 /* */
 typedef struct {
 	uint16_t serial;
@@ -119,16 +105,16 @@ typedef struct {
 
 /* Station info related struct */
 typedef struct {
-	uint16_t serial;
-	uint16_t nchannel;
+	uint8_t  ntp_errors;;
 	char     sta[TRACE2_STA_LEN];
 	char     net[TRACE2_NET_LEN];
 	char     loc[TRACE2_LOC_LEN];
-	void    *chaptr;
+	uint16_t serial;
+	uint16_t nchannel;
 /* */
-	PACKET      packet;
-	PACKETPARAM param;
-/* */
+	void *chaptr;
+	void *msg_buffer;
+	void *req_queue;
 	void *normal_conn;
 	void *ext_conn;
 } _STAINFO;

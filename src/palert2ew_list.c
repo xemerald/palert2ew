@@ -367,9 +367,11 @@ static _STAINFO *enrich_stainfo_raw(
 	strcpy(stainfo->sta, sta);
 	strcpy(stainfo->net, net);
 	strcpy(stainfo->loc, loc);
-	stainfo->packet.sptr = stainfo;
+	stainfo->msg_buffer  = NULL;
+	stainfo->req_queue   = NULL;
 	stainfo->normal_conn = NULL;
 	stainfo->ext_conn    = NULL;
+
 
 	return stainfo;
 }

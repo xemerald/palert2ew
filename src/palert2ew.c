@@ -24,18 +24,12 @@
 #include <palert2ew_client.h>
 #include <palert2ew_server.h>
 #include <palert2ew_msg_queue.h>
-/* */
-typedef struct ecc {
-	_CHAINFO   *chaptr;
-	double      starttime;
-	double      endtime;
-	struct ecc *next;
-} __EXT_COMMAND_CHAN;
 
 /* */
 typedef struct {
-	_STAINFO           *staptr;
-	__EXT_COMMAND_CHAN *channels;
+	_CHAINFO   *chaptr;
+	double      starttime;
+	double      endtime;
 } __EXT_COMMAND_ARG;
 
 /* Functions prototype in this source file
@@ -63,7 +57,7 @@ static TRACE2_HEADER *enrich_trh2(
 	TRACE2_HEADER *, const char *, const char *, const char *, const int, const double, const double
 );
 
-static __EXT_COMMAND_ARG *create_ext_command_arg( _STAINFO *, _CHAINFO *, double, double );
+static __EXT_COMMAND_ARG *enrich_ext_command_arg( __EXT_COMMAND_ARG *, _STAINFO *, _CHAINFO *, double, double );
 
 /* Ring messages things */
 #define WAVE_MSG_LOGO  0
@@ -979,23 +973,20 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 			else if ( ExtFuncSwitch ) {
 			/* */
 				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) ) {
-
+					insert_request_queue( stainfo, chaptr, tracebuf.trh2.starttime, tracebuf.trh2.endtime );
 				}
 				else {
 					chaptr->last_endtime = tracebuf.trh2.endtime;
 				}
 			}
 		}
-		/* */
-			if (
-				StartThreadWithArg(
-					request_rt_thread,
-					create_ext_command_arg( stainfo, chaptr, tracebuf.trh2.starttime, tracebuf.trh2.endtime ),
-					(uint32_t)THREAD_STACK, &req_thr_id
-				) == -1
-			) {
-				logit("e", "palert2ew: Error starting request_rt thread; exiting!\n");
+	/* */
+		if ( stainfo->req_queue != NULL ) {
+			if ( StartThreadWithArg( request_rt_thread, stainfo, (uint32_t)THREAD_STACK, &req_thr_id ) == -1 ) {
+				logit("e", "palert2ew: Error starting request_rt thread; skip it!\n");
+				free(stainfo->req_queue);
 			}
+		}
 	}
 
 	return;
@@ -1006,23 +997,27 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
  */
 static thr_ret request_rt_thread( void *arg )
 {
-	__EXT_COMMAND_ARG *ext_arg = (__EXT_COMMAND_ARG *)arg;
+	_STAINFO          *staptr  = (_STAINFO *)arg;
+	__EXT_COMMAND_ARG *ext_arg = (__EXT_COMMAND_ARG *)staptr->req_queue;
 /* */
+	int    i;
 	char   request[32] = { 0 };
-	time_t timestamp = (time_t)ext_arg->chaptr->last_endtime;
+	time_t timestamp   = 0.0;
 
 /* */
-	ext_arg->chaptr->last_endtime = ext_arg->endtime;
-/* */
-	for ( ; (double)timestamp < ext_arg->starttime; timestamp++ ) {
-		sprintf(request, PA2EW_EXT_RT_COMMAND_FORMAT, ext_arg->staptr->serial, ext_arg->chaptr->seq, timestamp);
-		printf("%s\n", request);
-		if ( pa2ew_server_ext_req_send( ext_arg->staptr, request, strlen(request) + 1 ) )
-			break;
-		sleep_ew(50);
+	for ( ; ext_arg->chaptr != NULL; ext_arg++ ) {
+		timestamp = (time_t)ext_arg->chaptr->last_endtime;
+		ext_arg->chaptr->last_endtime = ext_arg->endtime;
+	/* */
+		for ( ; (double)timestamp < ext_arg->starttime; timestamp++ ) {
+			sprintf(request, PA2EW_EXT_RT_COMMAND_FORMAT, staptr->serial, ext_arg->chaptr->seq, timestamp);
+			if ( pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) )
+				break;
+			sleep_ew(50);
+		}
 	}
 /* Just exit this thread */
-	free(arg);
+	free(staptr->req_queue);
 	KillSelfThread();
 
 	return NULL;
@@ -1055,7 +1050,7 @@ static void process_packet_rt( PalertExtPacket *packet, _STAINFO *stainfo )
  */
 static int examine_ntp_sync_pm1( _STAINFO *stainfo, const PALERTMODE1_HEADER *pah )
 {
-	uint8_t *ntp_errors = &stainfo->param.ntp_errors;
+	uint8_t *ntp_errors = &stainfo->ntp_errors;
 
 /* Check NTP SYNC. */
 	if ( PALERTMODE1_HEADER_CHECK_NTP( pah ) ) {
@@ -1106,16 +1101,67 @@ static int32_t *copydata_tracebuf_rt( const EXT_RT_PACKET *rt_packet, int32_t *b
 /*
  *
  */
-static __EXT_COMMAND_ARG *create_ext_command_arg( _STAINFO *staptr, _CHAINFO *chaptr, double start, double end )
+static __EXT_COMMAND_ARG *insert_request_queue( _STAINFO *staptr, _CHAINFO *chaptr, double start, double end )
 {
-	__EXT_COMMAND_ARG *result = malloc(sizeof(__EXT_COMMAND_ARG));
+	int i;
+	__EXT_COMMAND_ARG *result = (__EXT_COMMAND_ARG *)staptr->req_queue;
 
-	result->staptr    = staptr;
-	result->chaptr    = chaptr;
-	result->starttime = start;
-	result->endtime   = end;
+/* First time */
+	if ( result == NULL )
+		result = init_request_queue( stainfo );
+
+	if ( result != NULL ) {
+		for ( i = 0; i < staptr->nchannel; i++, result++ ) {
+			if ( result->chaptr == NULL ) {
+				enrich_ext_command_arg( result, chaptr, start, end );
+				break;
+			}
+		}
+		if ( i == staptr->nchannel )
+			logit("e", "palert2ew: Too much request in the queue of station %s; skip it!\n", staptr->sta);
+	}
+	else {
+		logit("e", "palert2ew: Error inserting the extension request for station %s; skip it!\n", staptr->sta);
+	}
 
 	return result;
+}
+
+/*
+ *
+ */
+static __EXT_COMMAND_ARG *init_request_queue( _STAINFO *staptr )
+{
+	int i;
+	__EXT_COMMAND_ARG *result = NULL;
+
+	staptr->req_queue = malloc(staptr->nchannel + 1, sizeof(__EXT_COMMAND_ARG));
+	result            = (__EXT_COMMAND_ARG *)staptr->req_queue;
+
+	if ( result != NULL ) {
+		for ( i = 0; i <= staptr->nchannel; i++, result++ ) {
+			result->chaptr    = NULL;
+			result->starttime = -1.0;
+			result->endtime   = -1.0;
+		}
+	}
+
+	return result;
+}
+
+/*
+ *
+ */
+static __EXT_COMMAND_ARG *enrich_ext_command_arg(
+	__EXT_COMMAND_ARG *dest, _CHAINFO *chaptr, double start, double end
+) {
+	if ( dest != NULL ) {
+		dest->chaptr    = chaptr;
+		dest->starttime = start;
+		dest->endtime   = end;
+	}
+
+	return dest;
 }
 
 /*
