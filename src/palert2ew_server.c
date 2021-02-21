@@ -42,11 +42,11 @@ typedef struct {
 } PALERT_THREAD_SET;
 
 /* Internal function prototype */
-static int  proc_server_normal( const int, const int );
+static int  proc_server_raw( const int, const int );
 static int  proc_server_ext( const int, const int );
 static int  init_palert_server_common( const int, const char *, const int, CONNDESCRIP **, int (*)( void ) );
 static int  construct_listen_sock( const char * );
-static int  accept_palert_normal( void );
+static int  accept_palert_raw( void );
 static int  accept_palert_ext( void );
 static CONNDESCRIP real_accept_connection( const int );
 static int  eval_threadnum( int );
@@ -88,13 +88,13 @@ int pa2ew_server_init( const int max_stations, const char *port, const char *rt_
 /* Create epoll sets */
 	for ( i = 0; i < ThreadsNumber; i++ ) {
 		PalertThreadSets[i].epoll_fd = epoll_create(PA2EW_MAX_PALERTS_PER_THREAD);
-		PalertThreadSets[i].buffer   = calloc(PA2EW_RECV_BUFFER_LENGTH, 1);
+		PalertThreadSets[i].buffer   = calloc(1, sizeof(LABELED_RECV_BUFFER));
 		PalertThreadSets[i].evts     = calloc(PA2EW_MAX_PALERTS_PER_THREAD, sizeof(struct epoll_event));
 	}
 /* Construct the accept socket for normal stream */
 	if ( port != NULL && strlen(port) ) {
 		AcceptSocket = init_palert_server_common(
-			max_stations, port, AcceptEpoll, &PalertConns, accept_palert_normal
+			max_stations, port, AcceptEpoll, &PalertConns, accept_palert_raw
 		);
 		if ( AcceptSocket <= 0 )
 			return -1;
@@ -103,7 +103,7 @@ int pa2ew_server_init( const int max_stations, const char *port, const char *rt_
 	if ( rt_port != NULL && strlen(rt_port) ) {
 		PalertExtThreadSet = calloc(1, sizeof(PALERT_THREAD_SET));
 		PalertExtThreadSet->epoll_fd = epoll_create(max_stations);
-		PalertExtThreadSet->buffer   = calloc(PA2EW_RECV_BUFFER_LENGTH, 1);
+		PalertExtThreadSet->buffer   = calloc(1, sizeof(LABELED_RECV_BUFFER));
 		PalertExtThreadSet->evts     = calloc(max_stations, sizeof(struct epoll_event));
 	/* */
 		AcceptSocketRt = init_palert_server_common(
@@ -169,7 +169,7 @@ void pa2ew_server_end( void )
 int pa2ew_server_proc( const int countindex, const int msec )
 {
 	if ( countindex < ThreadsNumber )
-		return proc_server_normal( countindex, msec );
+		return proc_server_raw( countindex, msec );
 	else
 		return proc_server_ext( countindex, msec );
 }
@@ -263,18 +263,19 @@ int pa2ew_server_palert_accept( const int msec )
 }
 
 /*
- * proc_server_normal() - Read the streaming data from each Palert and put it
+ * proc_server_raw() - Read the streaming data from each Palert and put it
  *                        into queue.
  */
-static int proc_server_normal( const int countindex, const int msec )
+static int proc_server_raw( const int countindex, const int msec )
 {
 	int    i, nready;
 	time_t time_now;
 	_Bool  need_update = 0;
 /* */
-	int                 epoll  = PalertThreadSets[countindex].epoll_fd;
-	uint8_t            *buffer = PalertThreadSets[countindex].buffer;
-	struct epoll_event *evts   = PalertThreadSets[countindex].evts;
+	int                  epoll  = PalertThreadSets[countindex].epoll_fd;
+	LABELED_RECV_BUFFER *buffer = PalertThreadSets[countindex].buffer;
+	struct epoll_event  *evts   = PalertThreadSets[countindex].evts;
+	const size_t         offset = buffer->recv_buffer - (uint8_t *)buffer;
 
 /* Wait the epoll for msec minisec */
 	if ( (nready = epoll_wait(epoll, evts, PA2EW_MAX_PALERTS_PER_THREAD, msec)) ) {
@@ -286,7 +287,7 @@ static int proc_server_normal( const int countindex, const int msec )
 				CONNDESCRIP *conn = (CONNDESCRIP *)evts[i].data.ptr;
 			/* */
 				conn->last_act = time_now;
-				if ( (ret = recv(conn->sock, buffer, PA2EW_RECV_BUFFER_LENGTH, 0)) <= 0 ) {
+				if ( (ret = recv(conn->sock, buffer->recv_buffer, PA2EW_RECV_BUFFER_LENGTH, 0)) <= 0 ) {
 					printf(
 						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
 						conn->ip, ret, errno, strerror(errno)
@@ -296,7 +297,8 @@ static int proc_server_normal( const int countindex, const int msec )
 				else {
 					if ( conn->staptr ) {
 					/* Process message */
-						if ( (ret = pa2ew_msgqueue_rawpacket( conn->staptr, buffer, ret )) ) {
+						buffer->sptr = conn->staptr;
+						if ( (ret = pa2ew_msgqueue_rawpacket( conn->staptr, buffer, ret + offset )) ) {
 							if ( ret == 1 ) {
 								if ( ++(conn->sync_errors) >= 10 ) {
 									logit(
@@ -315,7 +317,7 @@ static int proc_server_normal( const int countindex, const int msec )
 						}
 					}
 					else if ( ret >= 200 ) {
-						PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)buffer;
+						PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)buffer->recv_buffer;
 						if ( !PALERTMODE1_HEADER_CHECK_SYNC( pah ) ) {
 							printf("palert2ew: Palert IP:%s sync failure, close connection!\n", conn->ip);
 							close_palert_connect( conn, countindex );
@@ -331,7 +333,7 @@ static int proc_server_normal( const int countindex, const int msec )
 								close_palert_connect( conn, countindex );
 							}
 							else {
-								conn->staptr->normal_conn = conn;
+								conn->staptr->raw_conn = conn;
 								printf("palert2ew: Palert %s now online.\n", conn->staptr->sta);
 							}
 						}
@@ -362,10 +364,11 @@ static int proc_server_ext( const int countindex, const int msec )
 	time_t time_now;
 	_Bool  need_update = 0;
 /* */
-	int                 epoll  = PalertExtThreadSet->epoll_fd;
-	LABELED_DATA       *buffer = (LABELED_DATA *)PalertExtThreadSet->buffer;
-	EXT_HEADER         *exth   = &buffer->data;
-	struct epoll_event *evts   = PalertExtThreadSet->evts;
+	int                  epoll  = PalertExtThreadSet->epoll_fd;
+	LABELED_RECV_BUFFER *buffer = (LABELED_DATA *)PalertExtThreadSet->buffer;
+	EXT_HEADER          *exth   = &buffer->recv_buffer;
+	struct epoll_event  *evts   = PalertExtThreadSet->evts;
+	const size_t         offset = buffer->recv_buffer - (uint8_t *)buffer;
 
 /* Wait the epoll for msec minisec */
 	if ( (nready = epoll_wait(epoll, evts, MaxStationNum, msec)) ) {
@@ -377,7 +380,7 @@ static int proc_server_ext( const int countindex, const int msec )
 				CONNDESCRIP *conn = (CONNDESCRIP *)evts[i].data.ptr;
 			/* */
 				conn->last_act = time_now;
-				if ( (ret = recv(conn->sock, &buffer->data, PA2EW_EXT_MAX_PACKET_SIZE, 0)) <= 0 ) {
+				if ( (ret = recv(conn->sock, &buffer->recv_buffer, PA2EW_EXT_MAX_PACKET_SIZE, 0)) <= 0 ) {
 					printf(
 						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
 						conn->ip, ret, errno, strerror(errno)
@@ -388,7 +391,7 @@ static int proc_server_ext( const int countindex, const int msec )
 					if ( conn->staptr ) {
 						if ( exth->ext_type != PA2EW_EXT_TYPE_HEARTBEAT && ret == (int)exth->length ) {
 							buffer->sptr = conn->staptr;
-							if ( pa2ew_msgqueue_enqueue( buffer, exth->length, ExtLogo ) )
+							if ( pa2ew_msgqueue_enqueue( buffer, ret + offset, ExtLogo ) )
 								sleep_ew(100);
 						}
 					}
@@ -520,10 +523,10 @@ static int construct_listen_sock( const char *port )
 
 
 /*
- * accept_palert_normal() - Accept the connection of Palerts then add it
+ * accept_palert_raw() - Accept the connection of Palerts then add it
  *                          into connection descriptor and EpollFd.
  */
-static int accept_palert_normal( void )
+static int accept_palert_raw( void )
 {
 	int                i;
 	CONNDESCRIP       *conn = NULL;

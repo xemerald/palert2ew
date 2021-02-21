@@ -12,20 +12,11 @@
 
 
 /* Internal stack related struct */
-struct sta_buffer {
+struct last_buffer {
 	void    *sptr;
-	uint8_t  data[PALERTMODE1_PACKET_LENGTH];
-};
-/* */
-struct sta_buffer_param {
-	uint8_t  header_ready;
+	uint8_t  buffer[PALERTMODE1_PACKET_LENGTH];
 	uint16_t buffer_rear;
 };
-/* */
-typedef struct {
-	struct sta_buffer       buf;
-	struct sta_buffer_param param;
-} STA_BUFFER;
 
 /* Define global variables */
 static pthread_mutex_t QueueMutex;
@@ -142,20 +133,97 @@ int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 		})
 
 /* Real function for pa2ew_msgqueue_rawpacket() */
-int pa2ew_msgqueue_rawpacket( _STAINFO *stainfo, const void *raw_packet, const size_t packet_len )
+int pa2ew_msgqueue_rawpacket( _STAINFO *stainfo, const void *label_buf, const size_t buf_len )
 {
-	const uint8_t            *src  = raw_packet;
-	const PALERTMODE1_HEADER *pah  = (PALERTMODE1_HEADER *)src;
-	STA_BUFFER               *sbuf = (STA_BUFFER *)stainfo->msg_buffer;
+	LABELED_RECV_BUFFER *lbuf = (LABELED_RECV_BUFFER *)label_buf;
+	PALERTMODE1_HEADER  *pah  = NULL;
+	const size_t         offset = lbuf->recv_buffer - (uint8_t *)lbuf;
+	struct last_buffer  *last_buffer = (struct last_buffer *)stainfo->msg_buffer;
+/* */
+	int     ret          = 0;
+	uint8_t header_ready = 0;
+	size_t  buf_remain   = buf_len - offset;
 
-	size_t data_remain = packet_len;
-	size_t data_in     = 0;
-	int    result      = 0;
+/* */
+	if ( last_buffer != NULL && last_buffer->buffer_rear ) {
+		size_t buf_req = PALERTMODE1_PACKET_LENGTH - last_buffer->buffer_rear;
 
-/* Create the buffer for ezch station */
-	if ( sbuf == NULL ) {
-		stainfo->msg_buffer = (STA_BUFFER *)calloc(1, sizeof(STA_BUFFER));
-		sbuf = (STA_BUFFER *)stainfo->msg_buffer;
+		if ( buf_req > 0 ) {
+			memcpy(last_buffer->buffer + last_buffer->buffer_rear, lbuf->recv_buffer, buf_req);
+			for (
+				pah = (PALERTMODE1_HEADER *)last_buffer->buffer;
+				pah < (PALERTMODE1_HEADER *)(last_buffer->buffer + PALERTMODE1_PACKET_LENGTH);
+				pah++
+			) {
+				if ( ret = validate_serial_pah1( pah, stainfo->serial ) ) {
+					if ( ret == PALERTMODE1_PACKET_LENGTH )
+						header_ready = 1;
+					else
+						break;
+				}
+				else if ( header_ready ) {
+					if ( (uint8_t *)(pah + 1) - last_buffer->buffer == PALERTMODE1_PACKET_LENGTH ) {
+						ret = pa2ew_msgqueue_enqueue( last_buffer, PALERTMODE1_PACKET_LENGTH + offset, RawLogo );
+						buf_remain -= buf_req;
+						memmove(lbuf->recv_buffer, lbuf->recv_buffer + buf_req, buf_remain);
+						header_ready = 0;
+					}
+				}
+				else {
+					break;
+				}
+			}
+		}
+		last_buffer->buffer_rear = 0;
+	}
+	else if ( last_buffer != NULL && !last_buffer->buffer_rear ) {
+		free(stainfo->msg_buffer);
+		stainfo->msg_buffer = NULL;
+	}
+
+/* */
+	for (
+		pah = (PALERTMODE1_HEADER *)lbuf->recv_buffer;
+		buf_remain >= PALERTMODE1_HEADER_LENGTH;
+		buf_remain -= PALERTMODE1_HEADER_LENGTH, pah++
+	) {
+		if ( ret = validate_serial_pah1( pah, stainfo->serial ) ) {
+			if ( ret == PALERTMODE1_PACKET_LENGTH ) {
+				if ( (uint8_t *)pah != lbuf->recv_buffer ) {
+					memmove(lbuf->recv_buffer, pah, buf_remain);
+					pah = (PALERTMODE1_HEADER *)lbuf->recv_buffer;
+				}
+				header_ready = 1;
+			}
+			else if ( header_ready ) {
+				memmove(pah, pah + 1, buf_remain);
+				pah--;
+			}
+		}
+		else if ( header_ready ) {
+			if ( (uint8_t *)(pah + 1) - lbuf->recv_buffer == PALERTMODE1_PACKET_LENGTH ) {
+				ret = pa2ew_msgqueue_enqueue( lbuf, PALERTMODE1_PACKET_LENGTH + offset, RawLogo );
+				header_ready = 0;
+			}
+		}
+		else {
+			goto tcp_error;
+		}
+	}
+/* */
+	if ( header_ready ) {
+		buf_remain += (uint8_t *)pah - lbuf->recv_buffer;
+		pah = (PALERTMODE1_HEADER *)lbuf->recv_buffer;
+	}
+/* */
+	if ( buf_remain ) {
+		struct last_buffer *last_buffer;
+	/* */
+		stainfo->msg_buffer = calloc(1, sizeof(struct last_buffer));
+		last_buffer = (struct last_buffer *)stainfo->msg_buffer;
+		last_buffer->sptr = stainfo;
+		last_buffer->buffer_rear = buf_remain;
+		memcpy(last_buffer->buffer, pah, buf_remain);
 	}
 /* */
 	while ( data_remain >= PALERTMODE1_HEADER_LENGTH ) {

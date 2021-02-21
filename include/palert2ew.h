@@ -103,6 +103,13 @@ typedef struct {
 	} data;
 } LABELED_DATA;
 
+/* */
+typedef struct {
+/* */
+	void   *sptr;
+	uint8_t recv_buffer[PA2EW_RECV_BUFFER_LENGTH];
+} LABELED_RECV_BUFFER;
+
 /* Station info related struct */
 typedef struct {
 	uint8_t  ntp_errors;;
@@ -115,7 +122,7 @@ typedef struct {
 	void *chaptr;
 	void *msg_buffer;
 	void *req_queue;
-	void *normal_conn;
+	void *raw_conn;
 	void *ext_conn;
 } _STAINFO;
 
