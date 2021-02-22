@@ -27,7 +27,8 @@
 typedef struct {
 	uint16_t serial;
 	uint16_t length;
-} FW_PCK_HEADER;
+	uint8_t  recv_buffer[PA2EW_RECV_BUFFER_LENGTH];
+} FW_PCK;
 
 /* */
 static int reconstruct_connect_sock( void );
@@ -37,6 +38,8 @@ static int construct_connect_sock( const char *, const char * );
 static volatile int  ClientSocket = -1;
 static const char   *_ServerIP    = NULL;
 static const char   *_ServerPort  = NULL;
+static uint8_t      *Buffer       = NULL;
+static size_t        BufferSize   = 0;
 
 /*
  * pa2ew_client_init() - Initialize the dependent Palert client.
@@ -48,6 +51,15 @@ int pa2ew_client_init( const char *ip, const char *port )
 	_ServerPort = port;
 /* Construct the accept socket */
 	ClientSocket = construct_connect_sock( ip, port );
+/* Initialize the receiving buffer */
+	if ( Buffer == NULL && !BufferSize ) {
+		if ( sizeof(LABELED_RECV_BUFFER) > sizeof(FW_PCK) )
+			BufferSize = sizeof(LABELED_RECV_BUFFER);
+		else
+			BufferSize = sizeof(FW_PCK);
+	/* */
+		Buffer = (uint8_t *)malloc(BufferSize);
+	}
 
 	return ClientSocket;
 }
@@ -58,6 +70,9 @@ int pa2ew_client_init( const char *ip, const char *port )
 void pa2ew_client_end( void )
 {
 	close(ClientSocket);
+/* */
+	if ( Buffer != NULL )
+		free(Buffer);
 
 	return;
 }
@@ -68,18 +83,33 @@ void pa2ew_client_end( void )
  */
 int pa2ew_client_stream( void )
 {
-	static uint8_t buffer[PA2EW_RECV_BUFFER_LENGTH] = { 0 };
-	static uint8_t sync_errors = 0;
+	static LABELED_RECV_BUFFER *lrbuf  = NULL;
+	static FW_PCK              *fwptr  = NULL;
+	static size_t               offset = 0;
 
-	int            ret       = 0;
-	int            data_read = 0;
-	int            data_req  = FW_PCK_HEADER_LENGTH;
-	FW_PCK_HEADER *header    = (FW_PCK_HEADER *)buffer;
-	_STAINFO      *staptr    = NULL;
+	int       ret       = 0;
+	int       data_read = 0;
+	int       data_req  = FW_PCK_HEADER_LENGTH;
+	_STAINFO *staptr    = NULL;
 
-	memset(buffer, 0, PA2EW_RECV_BUFFER_LENGTH);
+/* Try to align the two different data structure pointer */
+	if ( lrbuf == NULL || fwptr == NULL ) {
+	/* */
+		lrbuf  = (LABELED_RECV_BUFFER *)Buffer;
+		fwptr  = (FW_PCK *)Buffer;
+	/* */
+		if ( lrbuf->recv_buffer > fwptr->recv_buffer )
+			fwptr = (FW_PCK *)(Buffer + (lrbuf->recv_buffer - fwptr->recv_buffer));
+		else
+			lrbuf = (LABELED_RECV_BUFFER *)(Buffer + (fwptr->recv_buffer - lrbuf->recv_buffer));
+	/* */
+		offset = lrbuf->recv_buffer - (uint8_t *)lrbuf;
+	}
+
+/* */
+	memset(Buffer, 0, BufferSize);
 	do {
-		if ( (ret = recv(ClientSocket, buffer + data_read, data_req, 0)) <= 0 ) {
+		if ( (ret = recv(ClientSocket, (uint8_t *)fwptr + data_read, data_req, 0)) <= 0 ) {
 			if ( errno == EINTR ) {
 				sleep_ew(100);
 				continue;
@@ -105,14 +135,14 @@ int pa2ew_client_stream( void )
 		}
 	/* */
 		if ( (data_read += ret) >= FW_PCK_HEADER_LENGTH )
-			data_req = header->length + FW_PCK_HEADER_LENGTH - data_read;
+			data_req = fwptr->length + FW_PCK_HEADER_LENGTH - data_read;
 	} while ( data_req );
 
 /* Find which one palert */
-	if ( (staptr = pa2ew_list_find( header->serial )) == NULL ) {
+	if ( (staptr = pa2ew_list_find( fwptr->serial )) == NULL ) {
 	/* Serial should always larger than 0, if so send the update request */
-		if ( header->serial > 0 ) {
-			printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", header->serial);
+		if ( fwptr->serial > 0 ) {
+			printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", fwptr->serial);
 			return PA2EW_RECV_NEED_UPDATE;
 		}
 		else {
@@ -120,21 +150,12 @@ int pa2ew_client_stream( void )
 		}
 	}
 	else {
-		if ( (ret = pa2ew_msgqueue_rawpacket( staptr, header + 1, header->length )) ) {
-			if ( ret == 1 ) {
-				if ( ++sync_errors >= 10 ) {
-					sync_errors = 0;
-					logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
-					if ( reconstruct_connect_sock() < 0 )
-						return PA2EW_RECV_CONNECT_ERROR;
-				}
-			}
-			else {
-				sleep_ew(100);
-			}
-		}
-		else {
-			sync_errors = 0;
+		ret         = fwptr->length + offset;
+		lrbuf->sptr = staptr;
+		if ( pa2ew_msgqueue_rawpacket( lrbuf, ret ) ) {
+			logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
+			if ( reconstruct_connect_sock() < 0 )
+				return PA2EW_RECV_CONNECT_ERROR;
 		}
 	}
 

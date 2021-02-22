@@ -27,7 +27,9 @@
 
 /* */
 typedef struct {
+	_STAINFO   *staptr;
 	_CHAINFO   *chaptr;
+	double      lastend;
 	double      starttime;
 	double      endtime;
 } __EXT_COMMAND_ARG;
@@ -45,19 +47,25 @@ static thr_ret receiver_client_thread( void * );  /* Read messages from the sock
 static thr_ret receiver_server_thread( void * );  /* Read messages from the socket of Palerts */
 static thr_ret update_list_thread( void * );
 static thr_ret request_rt_thread( void * );
+static thr_ret request_soh_thread( void * );
 static int     load_list_configfile( void **, char * );
 
 static void           process_packet_pm1( PalertPacket *, _STAINFO * );
 static void           process_packet_rt( PalertExtPacket *, _STAINFO * );
+static void           process_packet_soh( PalertExtPacket *, _STAINFO * );
 static int            examine_ntp_sync_pm1( _STAINFO *, const PALERTMODE1_HEADER * );
 static int32_t       *copydata_tracebuf_rt( const EXT_RT_PACKET *, int32_t * );
+static void           request_soh_stations( const void *, const VISIT, const int );
 static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
 static TRACE2_HEADER *enrich_trh2_rt( TRACE2_HEADER *, const _STAINFO *, const EXT_RT_PACKET * );
 static TRACE2_HEADER *enrich_trh2(
 	TRACE2_HEADER *, const char *, const char *, const char *, const int, const double, const double
 );
-
-static __EXT_COMMAND_ARG *enrich_ext_command_arg( __EXT_COMMAND_ARG *, _STAINFO *, _CHAINFO *, double, double );
+static __EXT_COMMAND_ARG *insert_request_queue(
+	__EXT_COMMAND_ARG **, _STAINFO *, _CHAINFO *, double, double, double
+);
+static __EXT_COMMAND_ARG *create_request_queue( const int );
+static __EXT_COMMAND_ARG *enrich_ext_command_arg( __EXT_COMMAND_ARG *, _STAINFO *, _CHAINFO *, double, double, double );
 
 /* Ring messages things */
 #define WAVE_MSG_LOGO  0
@@ -77,9 +85,11 @@ static volatile int     ReceiverThreadsNum = 0;
 static volatile int8_t *MessageReceiverStatus = NULL;
 #if defined( _V710 )
 static ew_thread_t      UpdateThreadID      = 0;          /* Thread id for updating the Palert list */
+static ew_thread_t      ReqSOHThreadID      = 0;          /* Thread id for requesting SOH */
 static ew_thread_t     *ReceiverThreadID    = NULL;       /* Thread id for receiving messages from TCP/IP */
 #else
 static unsigned         UpdateThreadID      = 0;          /* Thread id for updating the Palert list */
+static unsigned         ReqSOHThreadID      = 0;          /* Thread id for requesting SOH */
 static unsigned        *ReceiverThreadID    = NULL;       /* Thread id for receiving messages from TCP/IP */
 #endif
 
@@ -90,6 +100,7 @@ static char     MyModName[MAX_MOD_STR];     /* speak as this module name/id     
 static uint8_t  LogSwitch;                  /* 0 if no logfile should be written */
 static uint64_t HeartBeatInterval;          /* seconds between heartbeats        */
 static uint64_t UpdateInterval = 0;         /* seconds between updating check    */
+static uint64_t ReqSOHInterval = PA2EW_EXT_REQUEST_SOH_INTERVAL; /* seconds between requesting SOH    */
 static uint64_t QueueSize;                  /* max messages in output circular buffer */
 static uint8_t  ServerSwitch;               /* 0 connect to Palert server; 1 as the server of Palert */
 static uint8_t  RawOutputSwitch = 0;
@@ -143,9 +154,10 @@ static int64_t LocalTimeShift = 0;            /* Time difference between UTC & l
 int main ( int argc, char **argv )
 {
 	int      i;
-	time_t   timeNow;          /* current time                    */
-	time_t   timeLastBeat;     /* time last heartbeat was sent    */
-	time_t   timeLastUpd;      /* time last checked updating list */
+	time_t   timeNow;          /* current time                              */
+	time_t   timeLastBeat;     /* time last heartbeat was sent              */
+	time_t   timeLastUpd;      /* time last checked updating list           */
+	time_t   timeLastReqSOH;   /* time last checked the SOH of all stations */
 	char    *lockfile;
 	int32_t  lockfile_fd;
 
@@ -257,8 +269,9 @@ int main ( int argc, char **argv )
 #endif
 
 /* Force a heartbeat to be issued in first pass thru main loop */
-	timeLastBeat = time(&timeNow) - HeartBeatInterval - 1;
-	timeLastUpd  = timeNow;
+	timeLastBeat   = time(&timeNow) - HeartBeatInterval - 1;
+	timeLastUpd    = timeNow;
+	timeLastReqSOH = timeNow;
 /* Initialize the timezone shift */
 	LocalTimeShift = -(localtime(&timeNow)->tm_gmtoff);
 /*----------------------- setup done; start main loop -------------------------*/
@@ -276,6 +289,12 @@ int main ( int argc, char **argv )
 			timeLastUpd = timeNow;
 			if ( StartThreadWithArg(update_list_thread, argv[1], (uint32_t)THREAD_STACK, &UpdateThreadID) == -1 )
 				logit("e", "palert2ew: Error starting update_list thread, just skip it!\n");
+		}
+	/* Start the request of SOH thread */
+		if ( ExtFuncSwitch && ReqSOHInterval && timeNow - timeLastReqSOH >= (int64_t)ReqSOHInterval ) {
+			timeLastReqSOH = timeNow;
+			if ( StartThread(request_soh_thread, (uint32_t)THREAD_STACK, &ReqSOHThreadID) == -1 )
+				logit("e", "palert2ew: Error starting request_soh thread, just skip it!\n");
 		}
 	/* Start the message receiving thread if it isn't running. */
 		check_receiver_func( 50 );
@@ -337,8 +356,8 @@ int main ( int argc, char **argv )
 				/* */
 					if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_RT_PACKET )
 						process_packet_rt( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
-					//else if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_SOH_PACKET )
-						//process_packet_soh( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
+					else if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_SOH_PACKET )
+						process_packet_soh( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
 				}
 			}
 		} while ( count < MaxStationNum );  /* end of message-processing-loop */
@@ -463,6 +482,13 @@ static void palert2ew_config( char *configfile )
 						"o", "palert2ew: Change to auto updating mode, the updating interval is %d seconds!\n",
 						UpdateInterval
 					);
+			}
+			else if( k_its("ReqSOHInterval") ) {
+				ReqSOHInterval = k_int();
+				logit(
+					"o", "palert2ew: Change the interval of requesting SOH to %d seconds, default is %d seconds!\n",
+					ReqSOHInterval, PA2EW_EXT_REQUEST_SOH_INTERVAL
+				);
 			}
 		/* 6 */
 			else if( k_its("ServerSwitch") ) {
@@ -952,6 +978,8 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 	int             i, msg_size;
 	TracePacket     tracebuf;  /* message which is sent to share ring    */
 	_CHAINFO *chaptr = (_CHAINFO *)stainfo->chaptr;
+	__EXT_COMMAND_ARG *req_queue = NULL;
+
 #if defined( _V710 )
 	static ew_thread_t req_thr_id = 0;
 #else
@@ -972,19 +1000,19 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 			}
 			else if ( ExtFuncSwitch ) {
 			/* */
-				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) ) {
-					insert_request_queue( stainfo, chaptr, tracebuf.trh2.starttime, tracebuf.trh2.endtime );
-				}
-				else {
-					chaptr->last_endtime = tracebuf.trh2.endtime;
-				}
+				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) )
+					insert_request_queue(
+						&req_queue, stainfo, chaptr,
+						chaptr->last_endtime, tracebuf.trh2.starttime, tracebuf.trh2.endtime
+					);
 			}
+			chaptr->last_endtime = tracebuf.trh2.endtime;
 		}
 	/* */
-		if ( stainfo->req_queue != NULL ) {
-			if ( StartThreadWithArg( request_rt_thread, stainfo, (uint32_t)THREAD_STACK, &req_thr_id ) == -1 ) {
+		if ( req_queue != NULL ) {
+			if ( StartThreadWithArg( request_rt_thread, req_queue, (uint32_t)THREAD_STACK, &req_thr_id ) == -1 ) {
 				logit("e", "palert2ew: Error starting request_rt thread; skip it!\n");
-				free(stainfo->req_queue);
+				free(req_queue);
 			}
 		}
 	}
@@ -997,27 +1025,50 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
  */
 static thr_ret request_rt_thread( void *arg )
 {
-	_STAINFO          *staptr  = (_STAINFO *)arg;
-	__EXT_COMMAND_ARG *ext_arg = (__EXT_COMMAND_ARG *)staptr->req_queue;
+	__EXT_COMMAND_ARG *_req_queue = (__EXT_COMMAND_ARG *)arg;
+	__EXT_COMMAND_ARG *ext_arg    = NULL;
+	_STAINFO          *staptr     = NULL;
 /* */
-	int    i;
+	int    retry_times = 0;
 	char   request[32] = { 0 };
 	time_t timestamp   = 0.0;
 
 /* */
-	for ( ; ext_arg->chaptr != NULL; ext_arg++ ) {
-		timestamp = (time_t)ext_arg->chaptr->last_endtime;
-		ext_arg->chaptr->last_endtime = ext_arg->endtime;
+	for ( ext_arg = _req_queue; ext_arg->chaptr != NULL; ext_arg++ ) {
+		timestamp = (time_t)ext_arg->lastend;
+		staptr    = ext_arg->staptr;
 	/* */
 		for ( ; (double)timestamp < ext_arg->starttime; timestamp++ ) {
 			sprintf(request, PA2EW_EXT_RT_COMMAND_FORMAT, staptr->serial, ext_arg->chaptr->seq, timestamp);
-			if ( pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) )
-				break;
+			if ( pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) ) {
+			/* */
+				for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
+					sleep_ew(500);
+					if ( !pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) )
+						break;
+				}
+			/* */
+				if ( !retry_times )
+					break;
+			}
 			sleep_ew(50);
 		}
 	}
 /* Just exit this thread */
-	free(staptr->req_queue);
+	free(_req_queue);
+	KillSelfThread();
+
+	return NULL;
+}
+
+/*
+ *
+ */
+static thr_ret request_soh_thread( void *dummy )
+{
+/* */
+	pa2ew_list_walk( request_soh_stations );
+/* Just exit this thread */
 	KillSelfThread();
 
 	return NULL;
@@ -1039,8 +1090,35 @@ static void process_packet_rt( PalertExtPacket *packet, _STAINFO *stainfo )
 	strcpy(tracebuf.trh2.chan, chaptr->chan);
 	copydata_tracebuf_rt( &packet->rt.rt_packet, (int32_t *)(&tracebuf.trh2 + 1) );
 /* */
-	if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
-		logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
+	if ( tport_putmsg(&Region[EXT_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
+		logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
+
+	return;
+}
+
+/*
+ *
+ */
+static void process_packet_soh( PalertExtPacket *packet, _STAINFO *stainfo )
+{
+	EXT_SOH_PACKET *ext_soh = &packet->soh.soh_packet;
+
+/* Common part */
+	logit(
+		"", "%s: <sensor status: %d>, <cpu temp: %d>, <ext volt: %d>, <int volt: %d>, <rtc battery: %d>\n",
+		stainfo->sta,
+		ext_soh->sensor_status, ext_soh->cpu_temp, ext_soh->ext_volt, ext_soh->int_volt, ext_soh->rtc_battery
+	);
+	logit(
+		"", "%s: <ntp status: %d>, <gnss status: %d>, <gps lock: %d>, <satellite num: %d>, "
+		"<latitude: %f>, <longitude: %f>\n",
+		stainfo->sta,
+		ext_soh->ntp_status, ext_soh->gnss_status, ext_soh->gps_lock, ext_soh->satellite_num,
+		ext_soh->latitude, ext_soh->longitude
+	);
+/* */
+	if ( tport_putmsg(&Region[EXT_MSG_LOGO], &Putlogo[EXT_MSG_LOGO], packet->header.length, (char *)packet) != PUT_OK )
+		logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
 
 	return;
 }
@@ -1101,19 +1179,20 @@ static int32_t *copydata_tracebuf_rt( const EXT_RT_PACKET *rt_packet, int32_t *b
 /*
  *
  */
-static __EXT_COMMAND_ARG *insert_request_queue( _STAINFO *staptr, _CHAINFO *chaptr, double start, double end )
-{
+static __EXT_COMMAND_ARG *insert_request_queue(
+	__EXT_COMMAND_ARG **queue, _STAINFO *staptr, _CHAINFO *chaptr, double lastend, double start, double end
+) {
 	int i;
-	__EXT_COMMAND_ARG *result = (__EXT_COMMAND_ARG *)staptr->req_queue;
+	__EXT_COMMAND_ARG *result = NULL;
 
 /* First time */
-	if ( result == NULL )
-		result = init_request_queue( stainfo );
+	if ( *queue == NULL )
+		*queue = create_request_queue( staptr->nchannel );
 
-	if ( result != NULL ) {
-		for ( i = 0; i < staptr->nchannel; i++, result++ ) {
+	if ( *queue != NULL ) {
+		for ( i = 0, result = *queue; i < staptr->nchannel; i++, result++ ) {
 			if ( result->chaptr == NULL ) {
-				enrich_ext_command_arg( result, chaptr, start, end );
+				enrich_ext_command_arg( result, staptr, chaptr, lastend, start, end );
 				break;
 			}
 		}
@@ -1130,19 +1209,18 @@ static __EXT_COMMAND_ARG *insert_request_queue( _STAINFO *staptr, _CHAINFO *chap
 /*
  *
  */
-static __EXT_COMMAND_ARG *init_request_queue( _STAINFO *staptr )
+static __EXT_COMMAND_ARG *create_request_queue( const int queue_size )
 {
 	int i;
-	__EXT_COMMAND_ARG *result = NULL;
-
-	staptr->req_queue = malloc(staptr->nchannel + 1, sizeof(__EXT_COMMAND_ARG));
-	result            = (__EXT_COMMAND_ARG *)staptr->req_queue;
+	__EXT_COMMAND_ARG *result = (__EXT_COMMAND_ARG *)calloc(queue_size + 1, sizeof(__EXT_COMMAND_ARG));
 
 	if ( result != NULL ) {
-		for ( i = 0; i <= staptr->nchannel; i++, result++ ) {
-			result->chaptr    = NULL;
-			result->starttime = -1.0;
-			result->endtime   = -1.0;
+		for ( i = 0; i <= queue_size; i++ ) {
+			result[i].staptr    = NULL;
+			result[i].chaptr    = NULL;
+			result[i].lastend   = -1.0;
+			result[i].starttime = -1.0;
+			result[i].endtime   = -1.0;
 		}
 	}
 
@@ -1153,15 +1231,51 @@ static __EXT_COMMAND_ARG *init_request_queue( _STAINFO *staptr )
  *
  */
 static __EXT_COMMAND_ARG *enrich_ext_command_arg(
-	__EXT_COMMAND_ARG *dest, _CHAINFO *chaptr, double start, double end
+	__EXT_COMMAND_ARG *dest, _STAINFO *staptr, _CHAINFO *chaptr, double lastend, double start, double end
 ) {
 	if ( dest != NULL ) {
+		dest->staptr    = staptr;
 		dest->chaptr    = chaptr;
+		dest->lastend   = lastend;
 		dest->starttime = start;
 		dest->endtime   = end;
 	}
 
 	return dest;
+}
+
+/*
+ *
+ */
+static void request_soh_stations( const void *nodep, const VISIT which, const int depth )
+{
+	_STAINFO *staptr      = *(_STAINFO **)nodep;
+	int       retry_times = 0;
+	char      request[32] = { 0 };
+	time_t    timestamp   = 0.0;
+
+	switch ( which ) {
+	case postorder: case leaf:
+	/* */
+		if ( staptr->ext_conn != NULL ) {
+			time(&timestamp);
+			sprintf(request, PA2EW_EXT_SOH_COMMAND_FORMAT, staptr->serial, timestamp);
+			if ( pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) ) {
+			/* */
+				for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
+					sleep_ew(50);
+					if ( !pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) )
+						break;
+				}
+			}
+		}
+		break;
+	case preorder: case endorder:
+	default:
+		break;
+	}
+
+	return;
 }
 
 /*

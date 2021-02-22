@@ -31,14 +31,17 @@
 #define PA2EW_RECV_CONNECT_ERROR -2
 #define PA2EW_RECV_FATAL_ERROR   -3
 /* */
-#define PA2EW_EXT_HEADER_SIZE      8
-#define PA2EW_EXT_MAX_PACKET_SIZE  4096
+#define PA2EW_EXT_HEADER_SIZE           8
+#define PA2EW_EXT_REQUEST_RETRY_LIMIT   3
+#define PA2EW_EXT_REQUEST_SOH_INTERVAL  60
+#define PA2EW_EXT_MAX_PACKET_SIZE       4096
 /* */
 #define PA2EW_EXT_TYPE_HEARTBEAT   0
 #define PA2EW_EXT_TYPE_RT_PACKET   1
 #define PA2EW_EXT_TYPE_SOH_PACKET  2
 /* */
-#define PA2EW_EXT_RT_COMMAND_FORMAT "%d:%d:%ld"
+#define PA2EW_EXT_RT_COMMAND_FORMAT   "%d:%d:%ld"
+#define PA2EW_EXT_SOH_COMMAND_FORMAT  "%d:SOH:%ld"
 
 /* */
 typedef struct {
@@ -85,8 +88,8 @@ typedef union {
 	} rt;
 /* */
 	struct {
-		EXT_HEADER    header;
-		EXT_RT_PACKET soh_packet;
+		EXT_HEADER     header;
+		EXT_SOH_PACKET soh_packet;
 	} soh;
 /* */
 	uint8_t buffer[PA2EW_EXT_MAX_PACKET_SIZE];
@@ -121,7 +124,6 @@ typedef struct {
 /* */
 	void *chaptr;
 	void *msg_buffer;
-	void *req_queue;
 	void *raw_conn;
 	void *ext_conn;
 } _STAINFO;

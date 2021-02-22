@@ -29,7 +29,6 @@ typedef struct {
 	int       sock;
 	int       port;
 	char      ip[INET6_ADDRSTRLEN];
-	uint8_t   sync_errors;
 	time_t    last_act;
 	_STAINFO *staptr;
 } CONNDESCRIP;
@@ -273,7 +272,7 @@ static int proc_server_raw( const int countindex, const int msec )
 	_Bool  need_update = 0;
 /* */
 	int                  epoll  = PalertThreadSets[countindex].epoll_fd;
-	LABELED_RECV_BUFFER *buffer = PalertThreadSets[countindex].buffer;
+	LABELED_RECV_BUFFER *buffer = (LABELED_RECV_BUFFER *)PalertThreadSets[countindex].buffer;
 	struct epoll_event  *evts   = PalertThreadSets[countindex].evts;
 	const size_t         offset = buffer->recv_buffer - (uint8_t *)buffer;
 
@@ -298,22 +297,12 @@ static int proc_server_raw( const int countindex, const int msec )
 					if ( conn->staptr ) {
 					/* Process message */
 						buffer->sptr = conn->staptr;
-						if ( (ret = pa2ew_msgqueue_rawpacket( conn->staptr, buffer, ret + offset )) ) {
-							if ( ret == 1 ) {
-								if ( ++(conn->sync_errors) >= 10 ) {
-									logit(
-										"e","palert2ew: Palert %s TCP connection sync error, close connection!\n",
-										conn->staptr->sta
-									);
-									close_palert_connect( conn, countindex );
-								}
-							}
-							else {
-								sleep_ew(100);
-							}
-						}
-						else {
-							conn->sync_errors = 0;
+						if ( (ret = pa2ew_msgqueue_rawpacket( buffer, ret + offset )) ) {
+							logit(
+								"e","palert2ew: Palert %s TCP connection sync error, close connection!\n",
+								conn->staptr->sta
+							);
+							close_palert_connect( conn, countindex );
 						}
 					}
 					else if ( ret >= 200 ) {
@@ -365,8 +354,8 @@ static int proc_server_ext( const int countindex, const int msec )
 	_Bool  need_update = 0;
 /* */
 	int                  epoll  = PalertExtThreadSet->epoll_fd;
-	LABELED_RECV_BUFFER *buffer = (LABELED_DATA *)PalertExtThreadSet->buffer;
-	EXT_HEADER          *exth   = &buffer->recv_buffer;
+	LABELED_RECV_BUFFER *buffer = (LABELED_RECV_BUFFER *)PalertExtThreadSet->buffer;
+	EXT_HEADER          *exth   = (EXT_HEADER *)&buffer->recv_buffer;
 	struct epoll_event  *evts   = PalertExtThreadSet->evts;
 	const size_t         offset = buffer->recv_buffer - (uint8_t *)buffer;
 
@@ -648,12 +637,21 @@ static void close_palert_connect( CONNDESCRIP *conn, unsigned int index )
 {
 	if ( conn->sock != -1 ) {
 		struct epoll_event tmpev;
+		_STAINFO *staptr = (_STAINFO *)conn->staptr;
 		tmpev.events   = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLET;
 		tmpev.data.ptr = conn;
-		if ( (int)index < ThreadsNumber )
+	/* Raw connection */
+		if ( (int)index < ThreadsNumber ) {
 			epoll_ctl(PalertThreadSets[index].epoll_fd, EPOLL_CTL_DEL, conn->sock, &tmpev);
-		else if ( PalertExtThreadSet != NULL )
+			if ( staptr != NULL )
+				staptr->raw_conn = NULL;
+		}
+	/* Extension connection */
+		else if ( PalertExtThreadSet != NULL ) {
 			epoll_ctl(PalertExtThreadSet->epoll_fd, EPOLL_CTL_DEL, conn->sock, &tmpev);
+			if ( staptr != NULL )
+				staptr->ext_conn = NULL;
+		}
 		close(conn->sock);
 	/* */
 		RESET_CONNDESCRIP( conn );
