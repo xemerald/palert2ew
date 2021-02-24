@@ -224,7 +224,7 @@ int palert_check_sync_common( const void *header )
 /*
  *
  */
-int palert_check_sync_common( const void *header )
+int palert_check_ntp_common( const void *header )
 {
 	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)header;
 

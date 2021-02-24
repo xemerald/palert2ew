@@ -52,6 +52,7 @@ static thr_ret request_soh_thread( void * );
 static int     load_list_configfile( void **, char * );
 
 static void           process_packet_pm1( PalertPacket *, _STAINFO * );
+static void           process_packet_pm4( PalertPacket *, _STAINFO * );
 static void           process_packet_rt( PalertExtPacket *, _STAINFO * );
 static void           process_packet_soh( PalertExtPacket *, _STAINFO * );
 static int            examine_ntp_sync( _STAINFO *, const void * );
@@ -1039,7 +1040,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 	TracePacket         tracebuf;  /* message which is sent to share ring    */
 	_CHAINFO           *chaptr    = (_CHAINFO *)stainfo->chaptr;
 	__EXT_COMMAND_ARG  *req_queue = NULL;
-	PALERTMODE4_HEADER *pah4      = (PALERTMODE4_HEADER *)packet->pah;
+	PALERTMODE4_HEADER *pah4      = (PALERTMODE4_HEADER *)&packet->pah;
 	uint8_t            *dataptr   = (uint8_t *)(pah4 + 1);
 	uint8_t            *endptr    = (uint8_t *)pah4 + PALERTMODE4_HEADER_GET_PACKETLEN( pah4 );
 /* */
@@ -1067,7 +1068,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 			enrich_trh2(
 				&tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc,
 				msr->numsamples, msr->samprate, (double)(MS_HPTIME2EPOCH(msr->starttime))
-			)
+			);
 			strcpy(tracebuf.trh2.chan, chaptr->chan);
 
 			msg_size = tracebuf.trh2.nsamp * ms_samplesize(msr->sampletype);
