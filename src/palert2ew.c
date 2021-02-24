@@ -1036,7 +1036,7 @@ typedef struct {
  */
 static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 {
-	int                 i, msg_size;
+	int                 msg_size;
 	TracePacket         tracebuf;  /* message which is sent to share ring    */
 	_CHAINFO           *chaptr    = (_CHAINFO *)stainfo->chaptr;
 	__EXT_COMMAND_ARG  *req_queue = NULL;
@@ -1063,7 +1063,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 			msrlength = (smsr->smsrlength[0] << 8) + smsr->smsrlength[1];
 			memset(msbuffer, 0, sizeof(msbuffer));
 			memcpy(msbuffer, dataptr, msrlength);
-			msr_parse(msbuffer, msrlength, &msr, msrlength, 1, 0);
+			msr_parse((char *)msbuffer, msrlength, &msr, msrlength, 1, 0);
 
 			enrich_trh2(
 				&tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc,

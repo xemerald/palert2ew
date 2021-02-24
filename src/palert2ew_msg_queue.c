@@ -23,7 +23,10 @@ static QUEUE           MsgQueue;         /* from queue.h, queue.c; sets up linke
 static MSG_LOGO        RawLogo = { 0 };  /* Raw packet logo for module, type, instid */
 
 /* */
+static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t * )
+static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *, size_t * )
 static int validate_serial_pah1( const PALERTMODE1_HEADER *, const int );
+static int validate_serial_pah4( const PALERTMODE4_HEADER *, const int );
 
 /*
  * pa2ew_msgqueue_init() - Initialization function of message queue and mutex.
