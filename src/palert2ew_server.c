@@ -29,6 +29,7 @@ typedef struct {
 	int       sock;
 	int       port;
 	char      ip[INET6_ADDRSTRLEN];
+	uint8_t   sync_errors;
 	time_t    last_act;
 	_STAINFO *staptr;
 } CONNDESCRIP;
@@ -297,12 +298,17 @@ static int proc_server_raw( const int countindex, const int msec )
 					if ( conn->staptr ) {
 					/* Process message */
 						buffer->sptr = conn->staptr;
-						if ( (ret = pa2ew_msgqueue_rawpacket( buffer, ret + offset )) ) {
-							logit(
-								"e","palert2ew: Palert %s TCP connection sync error, close connection!\n",
-								conn->staptr->sta
-							);
-							close_palert_connect( conn, countindex );
+						if ( pa2ew_msgqueue_rawpacket( buffer, ret + offset ) ) {
+							if ( ++conn->sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
+								logit(
+									"e","palert2ew: Palert %s TCP connection sync error, close connection!\n",
+									conn->staptr->sta
+								);
+								close_palert_connect( conn, countindex );
+							}
+						}
+						else {
+							conn->sync_errors = 0;
 						}
 					}
 					else if ( ret >= 200 ) {

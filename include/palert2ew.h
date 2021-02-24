@@ -19,6 +19,7 @@
 /* */
 #define PA2EW_INFO_FROM_SQL       4
 #define PA2EW_DEF_CHAN_PER_STA    3
+#define PA2EW_TCP_SYNC_ERR_LIMIT  10
 #define PA2EW_NTP_SYNC_ERR_LIMIT  30
 /* */
 #define PA2EW_PALERT_PORT            "502"

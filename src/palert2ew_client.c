@@ -83,9 +83,10 @@ void pa2ew_client_end( void )
  */
 int pa2ew_client_stream( void )
 {
-	static LABELED_RECV_BUFFER *lrbuf  = NULL;
-	static FW_PCK              *fwptr  = NULL;
+	static LABELED_RECV_BUFFER *lrbuf = NULL;
+	static FW_PCK              *fwptr = NULL;
 	static size_t               offset = 0;
+	static uint8_t              sync_errors = 0;
 
 	int       ret       = 0;
 	int       data_read = 0;
@@ -153,9 +154,15 @@ int pa2ew_client_stream( void )
 		ret         = fwptr->length + offset;
 		lrbuf->sptr = staptr;
 		if ( pa2ew_msgqueue_rawpacket( lrbuf, ret ) ) {
-			logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
-			if ( reconstruct_connect_sock() < 0 )
-				return PA2EW_RECV_CONNECT_ERROR;
+			if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
+				logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
+				if ( reconstruct_connect_sock() < 0 )
+					return PA2EW_RECV_CONNECT_ERROR;
+				sync_errors = 0;
+			}
+		}
+		else {
+			sync_errors = 0;
 		}
 	}
 
