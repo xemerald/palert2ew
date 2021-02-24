@@ -104,6 +104,7 @@ typedef struct {
 	union {
 		PalertPacket    palert_pck;
 		PalertExtPacket palert_ext_pck;
+		uint8_t         buffer[4096];
 	} data;
 } LABELED_DATA;
 

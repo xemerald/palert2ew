@@ -296,7 +296,7 @@ typedef struct {
  * PALERT_IS_MODE4_HEADER()
  */
 #define PALERT_IS_MODE4_HEADER(PAH) \
-		(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] & 0x03)
+		(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] & 0x04)
 
 /*
  * PALERTMODE1_HEADER_GET_WORD()
@@ -359,6 +359,38 @@ typedef struct {
 		((PAM1H)->op_mode_x[0] & PALERTMODE1_HEADER_OPX_CWB2020_BIT)
 
 
+/*
+ * PALERTMODE4_HEADER_GET_WORD()
+ */
+#define PALERTMODE4_HEADER_GET_WORD(PAM4H_WORD) \
+		(((PAM4H_WORD)[1] << 8) + (PAM4H_WORD)[0])
+
+/*
+ *
+ */
+#define PALERTMODE4_HEADER_CHECK_SYNC(PAM4H) \
+		((PAM4H)->sync_char[0] == 0x03 && (PAM4H)->sync_char[1] == 0x05	&& \
+		(PAM4H)->sync_char[2] == 0x15 && (PAM4H)->sync_char[3] == 0x01)
+
+/*
+ * PALERTMODE4_HEADER_CHECK_NTP() -
+ */
+#define PALERTMODE4_HEADER_CHECK_NTP(PAM4H) \
+		((PAM4H)->connection_flag[0] & 0x01)
+
+/*
+ * PALERTMODE4_HEADER_GET_PACKETLEN() - Parse the palert packet length
+ */
+#define PALERTMODE4_HEADER_GET_PACKETLEN(PAM4H) \
+		PALERTMODE4_HEADER_GET_WORD((PAM4H)->packet_len)
+
+/*
+ * PALERTMODE4_HEADER_GET_SERIAL() - Parse the palert serial number
+ */
+#define PALERTMODE4_HEADER_GET_SERIAL(PAM4H) \
+		PALERTMODE4_HEADER_GET_WORD((PAM4H)->serial)
+
+
 /* Export functions's prototypes */
 double   palert_get_systime( const PALERTMODE1_HEADER *, long );
 double   palert_get_evtime( const PALERTMODE1_HEADER *, long );
@@ -368,3 +400,9 @@ double   palert_get_chan_unit( const PALERTMODE1_CHANNEL );
 char    *palert_get_ip( const PALERTMODE1_HEADER *, const int, char * );
 int32_t *palert_get_data( const PalertPacket *, const int, int32_t * );
 int      palert_translate_cwb2020_int( const int );
+/* */
+int      palert_check_sync_common( const void * );
+int      palert_check_ntp_common( const void * );
+int      palert_get_packet_type_common( const void * );
+int      palert_get_serial_common( const void * );
+int      palert_get_packet_len_common( const void * );

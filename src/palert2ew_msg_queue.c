@@ -94,20 +94,16 @@ int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 /*
  * pa2ew_msgqueue_rawpacket() - Stack received message into queue of station.
  */
-int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len )
+int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type )
 {
 	LABELED_RECV_BUFFER *lrbuf   = (LABELED_RECV_BUFFER *)label_buf;
 	_STAINFO            *stainfo = (_STAINFO *)lrbuf->sptr;
-	const size_t         offset  = lrbuf->recv_buffer - (uint8_t *)lrbuf;
 	struct last_buffer  *lastbuf = (struct last_buffer *)stainfo->msg_buffer;
-	PALERTMODE1_HEADER  *pah;
 /* */
-	int     ret           = 0;
-	int     sync_flag     = 0;
-	size_t  header_offset = 0;
+	int sync_flag = 0;
 
 /* */
-	buf_len -= offset;
+	buf_len -= lrbuf->recv_buffer - (uint8_t *)lrbuf;
 /* First, deal the remainder data from last packet */
 	if ( lastbuf != NULL && lastbuf->buffer_rear ) {
 		if ( lastbuf->buffer_rear + buf_len < PA2EW_RECV_BUFFER_LENGTH ) {
@@ -130,28 +126,64 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len )
 		free(stainfo->msg_buffer);
 		stainfo->msg_buffer = NULL;
 	}
+/* */
+	if ( packet_type == 1 )
+		sync_flag = pre_enqueue_check_pah1( lrbuf, &buf_len );
+	else if ( packet_type == 4 )
+		sync_flag = pre_enqueue_check_pah4( lrbuf, &buf_len );
+	else
+		buf_len = 0;
+/* */
+	if ( buf_len ) {
+	/* */
+		if ( lastbuf == NULL ) {
+			stainfo->msg_buffer = calloc(1, sizeof(struct last_buffer));
+			lastbuf = (struct last_buffer *)stainfo->msg_buffer;
+		}
+	/* */
+		lastbuf->buffer_rear = buf_len;
+		memcpy(lastbuf->buffer, lrbuf->recv_buffer, buf_len);
+	}
+/* */
+	if ( lrbuf != (LABELED_RECV_BUFFER *)label_buf )
+		free(lrbuf);
 
 /* */
-	header_offset = 0;
+	return sync_flag ? 0 : -1;
+}
+
+/*
+ *
+ */
+static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
+{
+	_STAINFO            *stainfo = (_STAINFO *)lrbuf->sptr;
+	const size_t         offset  = lrbuf->recv_buffer - (uint8_t *)lrbuf;
+	PALERTMODE1_HEADER  *pah;
+/* */
+	int     ret           = 0;
+	int     sync_flag     = 0;
+	size_t  header_offset = 0;
+
 /* */
 	for (
 		pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
-		buf_len >= PALERTMODE1_HEADER_LENGTH;
-		buf_len -= PALERTMODE1_HEADER_LENGTH, pah++
+		*buf_len >= PALERTMODE1_HEADER_LENGTH;
+		*buf_len -= PALERTMODE1_HEADER_LENGTH, pah++
 	) {
 	/* */
 		if ( (ret = validate_serial_pah1( pah, stainfo->serial )) > 0 ) {
 			if ( ret == PALERTMODE1_PACKET_LENGTH ) {
 			/* */
 				if ( (uint8_t *)pah != lrbuf->recv_buffer ) {
-					memmove(lrbuf->recv_buffer, pah, buf_len);
+					memmove(lrbuf->recv_buffer, pah, *buf_len);
 					pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
 				}
 				header_offset = PALERTMODE1_HEADER_LENGTH;
 			}
 		/* */
 			else if ( header_offset ) {
-				memmove(pah, pah + 1, buf_len - PALERTMODE1_HEADER_LENGTH);
+				memmove(pah, pah + 1, *buf_len - PALERTMODE1_HEADER_LENGTH);
 				pah--;
 			}
 			sync_flag = 1;
@@ -168,27 +200,58 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len )
 		}
 	}
 /* */
-	if ( header_offset ) {
-		buf_len += header_offset;
-		pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
-	}
+	if ( header_offset )
+		*buf_len += header_offset;
+	else
+		memmove(lrbuf->recv_buffer, pah, *buf_len);
+
+	return sync_flag;
+}
+
+/*
+ *
+ */
+static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
+{
+	_STAINFO           *stainfo = (_STAINFO *)lrbuf->sptr;
+	const size_t        offset  = lrbuf->recv_buffer - (uint8_t *)lrbuf;
+	PALERTMODE4_HEADER *pah4    = (PALERTMODE4_HEADER *)lrbuf->recv_buffer;
 /* */
-	if ( buf_len ) {
-	/* */
-		if ( lastbuf == NULL ) {
-			stainfo->msg_buffer = calloc(1, sizeof(struct last_buffer));
-			lastbuf = (struct last_buffer *)stainfo->msg_buffer;
-		}
-	/* */
-		lastbuf->buffer_rear = buf_len;
-		memcpy(lastbuf->buffer, pah, buf_len);
-	}
-/* */
-	if ( lrbuf != (LABELED_RECV_BUFFER *)label_buf )
-		free(lrbuf);
+	int ret       = 0;
+	int sync_flag = 0;
 
 /* */
-	return sync_flag ? 0 : -1;
+	do {
+		if ( (ret = validate_serial_pah4( pah4, stainfo->serial )) > 0 ) {
+		/* */
+			sync_flag = 1;
+		/* */
+			if ( (uint8_t *)pah4 != lrbuf->recv_buffer ) {
+				memmove(lrbuf->recv_buffer, pah4, *buf_len);
+				pah4 = (PALERTMODE4_HEADER *)lrbuf->recv_buffer;
+			}
+		/* */
+			if ( *buf_len >= ret ) {
+				if ( pa2ew_msgqueue_enqueue( lrbuf, ret + offset, RawLogo ) )
+					sleep_ew(100);
+			/* */
+				*buf_len -= ret;
+				pah4 = (PALERTMODE4_HEADER *)(lrbuf->recv_buffer + ret);
+			}
+			else {
+				break;
+			}
+		}
+		else {
+			pah4++;
+			*buf_len -= sizeof(PALERTMODE4_HEADER);
+		}
+	} while ( *buf_len > sizeof(PALERTMODE4_HEADER) );
+
+	if ( *buf_len && (uint8_t *)pah4 != lrbuf->recv_buffer )
+		memmove(lrbuf->recv_buffer, pah4, *buf_len);
+
+	return sync_flag;
 }
 
 /*
@@ -197,11 +260,26 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len )
 static int validate_serial_pah1( const PALERTMODE1_HEADER *pah, const int serial )
 {
 	if ( PALERTMODE1_HEADER_CHECK_SYNC( pah ) ) {
-		if ( PALERTMODE1_HEADER_GET_SERIAL(pah) == (uint16_t)serial ) {
+		if ( PALERTMODE1_HEADER_GET_SERIAL( pah ) == (uint16_t)serial ) {
 			if ( PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTMODE1_PACKET_LENGTH )
 				return PALERTMODE1_PACKET_LENGTH;
 			else if ( PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTMODE1_HEADER_LENGTH )
 				return PALERTMODE1_HEADER_LENGTH;
+		}
+	}
+
+	return -1;
+}
+
+/*
+ * validate_serial_pah4() -
+ */
+static int validate_serial_pah4( const PALERTMODE4_HEADER *pah4, const int serial )
+{
+	if ( PALERTMODE4_HEADER_CHECK_SYNC( pah4 ) ) {
+		if ( PALERTMODE4_HEADER_GET_SERIAL( pah4 ) == (uint16_t)serial ) {
+		/* Still need to check the CRC16 */
+			return PALERTMODE4_HEADER_GET_PACKETLEN( pah4 );
 		}
 	}
 

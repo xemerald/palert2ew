@@ -30,6 +30,7 @@ typedef struct {
 	int       port;
 	char      ip[INET6_ADDRSTRLEN];
 	uint8_t   sync_errors;
+	uint16_t  packet_type;
 	time_t    last_act;
 	_STAINFO *staptr;
 } CONNDESCRIP;
@@ -298,7 +299,7 @@ static int proc_server_raw( const int countindex, const int msec )
 					if ( conn->staptr ) {
 					/* Process message */
 						buffer->sptr = conn->staptr;
-						if ( pa2ew_msgqueue_rawpacket( buffer, ret + offset ) ) {
+						if ( pa2ew_msgqueue_rawpacket( buffer, ret + offset, conn->packet_type ) ) {
 							if ( ++conn->sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
 								logit(
 									"e","palert2ew: Palert %s TCP connection sync error, close connection!\n",
@@ -312,14 +313,13 @@ static int proc_server_raw( const int countindex, const int msec )
 						}
 					}
 					else if ( ret >= 200 ) {
-						PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)buffer->recv_buffer;
-						if ( !PALERTMODE1_HEADER_CHECK_SYNC( pah ) ) {
+						if ( !palert_check_sync_common( buffer->recv_buffer ) ) {
 							printf("palert2ew: Palert IP:%s sync failure, close connection!\n", conn->ip);
 							close_palert_connect( conn, countindex );
 						}
 						else {
 						/* Find which Palert */
-							uint16_t serial = PALERTMODE1_HEADER_GET_SERIAL( pah );
+							uint16_t serial = palert_get_serial_common( buffer->recv_buffer );
 							if ( (conn->staptr = pa2ew_list_find( serial )) == NULL ) {
 							/* Not found in Palert table */
 								printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", serial);
@@ -329,6 +329,7 @@ static int proc_server_raw( const int countindex, const int msec )
 							}
 							else {
 								conn->staptr->raw_conn = conn;
+								conn->packet_type = palert_get_packet_type_common( buffer->recv_buffer );
 								printf("palert2ew: Palert %s now online.\n", conn->staptr->sta);
 							}
 						}

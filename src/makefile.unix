@@ -10,7 +10,7 @@ L = $(EW_HOME)/$(EW_VERSION)/lib
 LL = ../lib
 
 EWLIBS = $(L)/lockfile_ew.o $(L)/lockfile.o \
-        $(L)/mem_circ_queue.o $(L)/libew_mt.a
+        $(L)/mem_circ_queue.o $(L)/libew_mt.a $(L)/libmseed.a
 
 LOCALLIBS = $(LL)/palert.o
 

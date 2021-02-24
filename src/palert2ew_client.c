@@ -153,7 +153,8 @@ int pa2ew_client_stream( void )
 	else {
 		ret         = fwptr->length + offset;
 		lrbuf->sptr = staptr;
-		if ( pa2ew_msgqueue_rawpacket( lrbuf, ret ) ) {
+	/* Packet type temporary fixed on 1 */
+		if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1 ) ) {
 			if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
 				logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
 				if ( reconstruct_connect_sock() < 0 )

@@ -19,6 +19,7 @@
 #include <kom.h>
 #include <transport.h>
 #include <lockfile.h>
+#include <libmseed.h>
 /* Local header include */
 #include <palert2ew_list.h>
 #include <palert2ew_client.h>
@@ -53,7 +54,7 @@ static int     load_list_configfile( void **, char * );
 static void           process_packet_pm1( PalertPacket *, _STAINFO * );
 static void           process_packet_rt( PalertExtPacket *, _STAINFO * );
 static void           process_packet_soh( PalertExtPacket *, _STAINFO * );
-static int            examine_ntp_sync_pm1( _STAINFO *, const PALERTMODE1_HEADER * );
+static int            examine_ntp_sync( _STAINFO *, const void * );
 static int32_t       *copydata_tracebuf_rt( const EXT_RT_PACKET *, int32_t * );
 static void           request_soh_stations( const void *, const VISIT, const int );
 static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
@@ -339,8 +340,8 @@ int main ( int argc, char **argv )
 			/* Parse the raw packet to trace buffer */
 				if ( PALERT_IS_MODE1_HEADER( &data_ptr->data.palert_pck.pah ) )
 					process_packet_pm1( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
-				//else if ( PALERT_IS_MODE4_HEADER( &data_ptr->data.palert_pck.pah ) )
-					//process_packet_pm4( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
+				else if ( PALERT_IS_MODE4_HEADER( &data_ptr->data.palert_pck.pah ) )
+					process_packet_pm4( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
 			}
 			else if ( msg_logo.type == TypePalertExt ) {
 			/* */
@@ -987,7 +988,7 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 #endif
 
 /* Examine the NTP sync. status */
-	if ( examine_ntp_sync_pm1( stainfo, &packet->pah ) ) {
+	if ( examine_ntp_sync( stainfo, &packet->pah ) ) {
 	/* Common part */
 		enrich_trh2_pm1( &tracebuf.trh2, stainfo, &packet->pah );
 		msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
@@ -1008,6 +1009,85 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 			}
 			chaptr->last_endtime = tracebuf.trh2.endtime;
 		}
+	/* */
+		if ( req_queue != NULL ) {
+			if ( StartThreadWithArg( request_rt_thread, req_queue, (uint32_t)THREAD_STACK, &req_thr_id ) == -1 ) {
+				logit("e", "palert2ew: Error starting request_rt thread; skip it!\n");
+				free(req_queue);
+			}
+		}
+	}
+
+	return;
+}
+
+/* Streamline mini-SEED data record structures */
+typedef struct {
+	struct fsdh_s fsdh;
+	uint16_t blkt_type;
+	uint16_t next_blkt;
+	struct blkt_1000_s blkt1000;
+	uint8_t smsrlength[2];
+	uint8_t reserved[6];
+} SMSRECORD;
+/*
+ *
+ */
+static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
+{
+	int                 i, msg_size;
+	TracePacket         tracebuf;  /* message which is sent to share ring    */
+	_CHAINFO           *chaptr    = (_CHAINFO *)stainfo->chaptr;
+	__EXT_COMMAND_ARG  *req_queue = NULL;
+	PALERTMODE4_HEADER *pah4      = (PALERTMODE4_HEADER *)packet->pah;
+	uint8_t            *dataptr   = (uint8_t *)(pah4 + 1);
+	uint8_t            *endptr    = (uint8_t *)pah4 + PALERTMODE4_HEADER_GET_PACKETLEN( pah4 );
+/* */
+	uint8_t    msbuffer[512];
+	uint16_t   msrlength;
+	MSRecord  *msr  = NULL;
+	SMSRECORD *smsr = NULL;
+#if defined( _V710 )
+	static ew_thread_t req_thr_id = 0;
+#else
+	static unsigned    req_thr_id = 0;
+#endif
+
+/* Examine the NTP sync. status */
+	if ( examine_ntp_sync( stainfo, &packet->pah ) ) {
+	/* Common part */
+		do {
+			smsr      = (SMSRECORD *)dataptr;
+		/* Need to check the byte order */
+			msrlength = (smsr->smsrlength[0] << 8) + smsr->smsrlength[1];
+			memset(msbuffer, 0, sizeof(msbuffer));
+			memcpy(msbuffer, dataptr, msrlength);
+			msr_parse(msbuffer, msrlength, &msr, msrlength, 1, 0);
+
+			enrich_trh2(
+				&tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc,
+				msr->numsamples, msr->samprate, (double)(MS_HPTIME2EPOCH(msr->starttime))
+			)
+			strcpy(tracebuf.trh2.chan, chaptr->chan);
+
+			msg_size = tracebuf.trh2.nsamp * ms_samplesize(msr->sampletype);
+			memcpy((int *)(&tracebuf.trh2 + 1), msr->datasamples, msg_size);
+			msg_size += sizeof(TRACE2_HEADER);
+			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
+				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
+			}
+			else if ( ExtFuncSwitch ) {
+			/* */
+				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) )
+					insert_request_queue(
+						&req_queue, stainfo, chaptr,
+						chaptr->last_endtime, tracebuf.trh2.starttime, tracebuf.trh2.endtime
+					);
+			}
+			chaptr->last_endtime = tracebuf.trh2.endtime;
+			chaptr++;
+	} while ( (dataptr += msrlength) < endptr );
+
 	/* */
 		if ( req_queue != NULL ) {
 			if ( StartThreadWithArg( request_rt_thread, req_queue, (uint32_t)THREAD_STACK, &req_thr_id ) == -1 ) {
@@ -1124,14 +1204,14 @@ static void process_packet_soh( PalertExtPacket *packet, _STAINFO *stainfo )
 }
 
 /*
- * examine_ntp_sync_pm1() -
+ * examine_ntp_sync() -
  */
-static int examine_ntp_sync_pm1( _STAINFO *stainfo, const PALERTMODE1_HEADER *pah )
+static int examine_ntp_sync( _STAINFO *stainfo, const void *header )
 {
 	uint8_t *ntp_errors = &stainfo->ntp_errors;
 
 /* Check NTP SYNC. */
-	if ( PALERTMODE1_HEADER_CHECK_NTP( pah ) ) {
+	if ( palert_check_ntp_common( header ) ) {
 		if ( *ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT )
 			logit("o", "palert2ew: Station %s NTP resync, now back online.\n", stainfo->sta);
 		*ntp_errors = 0;
