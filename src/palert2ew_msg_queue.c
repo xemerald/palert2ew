@@ -14,7 +14,7 @@
 /* Internal stack related struct */
 struct last_buffer {
 	uint16_t buffer_rear;
-	uint8_t  buffer[PALERTMODE1_PACKET_LENGTH];
+	uint8_t  buffer[PA2EW_RECV_BUFFER_LENGTH];
 };
 
 /* Define global variables */
@@ -23,6 +23,7 @@ static QUEUE           MsgQueue;         /* from queue.h, queue.c; sets up linke
 static MSG_LOGO        RawLogo = { 0 };  /* Raw packet logo for module, type, instid */
 
 /* */
+static LABELED_RECV_BUFFER *merge_last_buffer( void *, size_t * );
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t * );
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *, size_t * );
 static int validate_serial_pah1( const PALERTMODE1_HEADER *, const int );
@@ -97,38 +98,16 @@ int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 /*
  * pa2ew_msgqueue_rawpacket() - Stack received message into queue of station.
  */
-int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type )
+int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, const int packet_type )
 {
-	LABELED_RECV_BUFFER *lrbuf   = (LABELED_RECV_BUFFER *)label_buf;
-	_STAINFO            *stainfo = (_STAINFO *)lrbuf->sptr;
-	struct last_buffer  *lastbuf = (struct last_buffer *)stainfo->msg_buffer;
-/* */
-	int sync_flag = 0;
+	LABELED_RECV_BUFFER *lrbuf;
+	_STAINFO            *stainfo;
+	int                  sync_flag = 0;
 
 /* */
 	buf_len -= lrbuf->recv_buffer - (uint8_t *)lrbuf;
-/* First, deal the remainder data from last packet */
-	if ( lastbuf != NULL && lastbuf->buffer_rear ) {
-		if ( lastbuf->buffer_rear + buf_len < PA2EW_RECV_BUFFER_LENGTH ) {
-			memmove(lrbuf->recv_buffer + lastbuf->buffer_rear, lrbuf->recv_buffer, buf_len);
-			memcpy(lrbuf->recv_buffer, lastbuf->buffer, lastbuf->buffer_rear);
-		}
-		else {
-			LABELED_RECV_BUFFER *_lrbuf = (LABELED_RECV_BUFFER *)calloc(1, sizeof(LABELED_RECV_BUFFER));
-
-			_lrbuf->sptr = lrbuf->sptr;
-			memcpy(_lrbuf->recv_buffer, lastbuf->buffer, lastbuf->buffer_rear);
-			memcpy(_lrbuf->recv_buffer + lastbuf->buffer_rear, lrbuf->recv_buffer, buf_len);
-			lrbuf = _lrbuf;
-		}
-	/* */
-		buf_len += lastbuf->buffer_rear;
-		lastbuf->buffer_rear = 0;
-	}
-	else if ( lastbuf != NULL && !lastbuf->buffer_rear ) {
-		free(stainfo->msg_buffer);
-		stainfo->msg_buffer = NULL;
-	}
+	lrbuf    = merge_last_buffer( label_buf, &buf_len );
+ 	stainfo  = (_STAINFO *)lrbuf->sptr;
 /* */
 	if ( packet_type == 1 )
 		sync_flag = pre_enqueue_check_pah1( lrbuf, &buf_len );
@@ -138,21 +117,59 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type )
 		buf_len = 0;
 /* */
 	if ( buf_len ) {
+		struct last_buffer *_lastbuf = stainfo->msg_buffer;
 	/* */
-		if ( lastbuf == NULL ) {
-			stainfo->msg_buffer = calloc(1, sizeof(struct last_buffer));
-			lastbuf = (struct last_buffer *)stainfo->msg_buffer;
+		if ( _lastbuf == NULL ) {
+			_lastbuf = (struct last_buffer *)malloc(sizeof(struct last_buffer));
+			stainfo->msg_buffer = _lastbuf;
 		}
 	/* */
-		lastbuf->buffer_rear = buf_len;
-		memcpy(lastbuf->buffer, lrbuf->recv_buffer, buf_len);
+		_lastbuf->buffer_rear = buf_len;
+		memcpy(_lastbuf->buffer, lrbuf->recv_buffer, buf_len);
 	}
 /* */
 	if ( lrbuf != (LABELED_RECV_BUFFER *)label_buf )
 		free(lrbuf);
-
 /* */
 	return sync_flag ? 0 : -1;
+}
+
+/*
+ *
+ */
+static LABELED_RECV_BUFFER *merge_last_buffer( void *label_buf, size_t *buf_len )
+{
+	LABELED_RECV_BUFFER *result  = (LABELED_RECV_BUFFER *)label_buf;
+	_STAINFO            *stainfo = (_STAINFO *)result->sptr;
+	struct last_buffer  *lastbuf = (struct last_buffer *)stainfo->msg_buffer;
+
+/* First, deal the remainder data from last packet */
+	if ( lastbuf != NULL && lastbuf->buffer_rear ) {
+	/* */
+		if ( *buf_len + lastbuf->buffer_rear <= PA2EW_RECV_BUFFER_LENGTH ) {
+			memmove(result->recv_buffer + lastbuf->buffer_rear, result->recv_buffer, *buf_len);
+			memcpy(result->recv_buffer, lastbuf->buffer, lastbuf->buffer_rear);
+		}
+	/* */
+		else {
+			LABELED_RECV_BUFFER *_result =
+				(LABELED_RECV_BUFFER *)malloc(sizeof(LABELED_RECV_BUFFER) + lastbuf->buffer_rear);
+
+			_result->sptr = result->sptr;
+			memcpy(_result->recv_buffer, lastbuf->buffer, lastbuf->buffer_rear);
+			memcpy(_result->recv_buffer + lastbuf->buffer_rear, result->recv_buffer, *buf_len);
+			result = _result;
+		}
+	/* */
+		*buf_len += lastbuf->buffer_rear;
+		lastbuf->buffer_rear = 0;
+	}
+	else if ( lastbuf != NULL && !lastbuf->buffer_rear ) {
+		free(lastbuf);
+		stainfo->msg_buffer = NULL;
+	}
+
+	return result;
 }
 
 /*

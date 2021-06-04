@@ -45,12 +45,12 @@ typedef struct {
 /* Internal function prototype */
 static int  proc_server_raw( const int, const int );
 static int  proc_server_ext( const int, const int );
-static int  init_palert_server_common( const int, const char *, const int, CONNDESCRIP **, int (*)( void ) );
-static int  construct_listen_sock( const char * );
 static int  accept_palert_raw( void );
 static int  accept_palert_ext( void );
-static CONNDESCRIP real_accept_connection( const int );
+static int  init_palert_server_common( const int, const char *, const int, CONNDESCRIP **, int (*)( void ) );
+static int  construct_listen_sock( const char * );
 static int  eval_threadnum( int );
+static CONNDESCRIP real_accept_connection( const int );
 static void close_palert_connect( CONNDESCRIP *, unsigned int );
 
 /* Define global variables */
@@ -178,29 +178,22 @@ int pa2ew_server_proc( const int countindex, const int msec )
 /*
  *
  */
-int pa2ew_server_ext_req_send( const _STAINFO *staptr, const char *request, const int req_length )
+int pa2ew_server_palert_accept( const int msec )
 {
-	int result = -1;
-	CONNDESCRIP *conn = NULL;
+	int                i, nready;
+	struct epoll_event evts[LISTENQ];
+	int              (*accept_func)( void ) = NULL;
 
 /* */
-	if ( staptr != NULL ) {
-		conn = (CONNDESCRIP *)staptr->ext_conn;
-		if ( conn != NULL && conn->sock > 0 ) {
-			if ( send(conn->sock, request, req_length, 0) == req_length )
-				result = 0;
-			else {
-				logit(
-					"e", "palert2ew: Error sending the extension request to station %s; close connection!\n",
-					staptr->sta
-				);
-				result = -2;
-				close_palert_connect( conn, ThreadsNumber );
-			}
+	nready = epoll_wait(AcceptEpoll, evts, LISTENQ, msec);
+	for ( i = 0; i < nready; i++ ) {
+		if ( evts[i].events & EPOLLIN ) {
+			accept_func = (int (*)( void ))evts[i].data.ptr;
+			accept_func();
 		}
 	}
 
-	return result;
+	return nready;
 }
 
 /*
@@ -245,22 +238,59 @@ int pa2ew_server_conn_check( void )
 /*
  *
  */
-int pa2ew_server_palert_accept( const int msec )
+int pa2ew_server_ext_req_send( const _STAINFO *staptr, const char *request, const int req_length )
 {
-	int                i, nready;
-	struct epoll_event evts[LISTENQ];
-	int              (*accept_func)( void ) = NULL;
+	int result = -1;
+	CONNDESCRIP *conn = NULL;
 
 /* */
-	nready = epoll_wait(AcceptEpoll, evts, LISTENQ, msec);
-	for ( i = 0; i < nready; i++ ) {
-		if ( evts[i].events & EPOLLIN ) {
-			accept_func = (int (*)( void ))evts[i].data.ptr;
-			accept_func();
+	if ( staptr != NULL ) {
+		conn = (CONNDESCRIP *)staptr->ext_conn;
+		if ( conn != NULL && conn->sock > 0 ) {
+			if ( send(conn->sock, request, req_length, 0) == req_length )
+				result = 0;
+			else {
+				logit(
+					"e", "palert2ew: Error sending the extension request to station %s; close connection!\n",
+					staptr->sta
+				);
+				result = -2;
+				close_palert_connect( conn, ThreadsNumber );
+			}
 		}
 	}
 
-	return nready;
+	return result;
+}
+
+/*
+ *
+ */
+int pa2ew_server_ext_conn_reset( const _STAINFO *staptr )
+{
+	CONNDESCRIP *conn   = NULL;
+	int          rtimes = PA2EW_EXT_CONNECT_RETRY_LIMIT;
+	int          result = -1;
+
+/* */
+	if ( staptr != NULL ) {
+		conn = (CONNDESCRIP *)staptr->ext_conn;
+	/* */
+		if ( conn != NULL && conn->sock > 0 )
+			close_palert_connect( conn, ThreadsNumber );
+	/* */
+		do {
+			sleep_ew(1000);
+			conn = (CONNDESCRIP *)staptr->ext_conn;
+		/* */
+			if ( conn != NULL && conn->sock == -1 ) {
+				result = conn->sock;
+				break;
+			}
+		} while ( --rtimes > 0 );
+	}
+
+	return result;
 }
 
 /*
@@ -329,7 +359,8 @@ static int proc_server_raw( const int countindex, const int msec )
 							}
 							else {
 								conn->staptr->raw_conn = conn;
-								conn->packet_type = palert_get_packet_type_common( buffer->recv_buffer );
+								conn->packet_type      = palert_get_packet_type_common( buffer->recv_buffer );
+								pa2ew_msgqueue_lbuffer_reset( conn->staptr );
 								printf("palert2ew: Palert %s now online.\n", conn->staptr->sta);
 							}
 						}

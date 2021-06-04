@@ -368,10 +368,8 @@ static _STAINFO *enrich_stainfo_raw(
 	strcpy(stainfo->net, net);
 	strcpy(stainfo->loc, loc);
 	stainfo->msg_buffer = NULL;
-	stainfo->req_queue  = NULL;
 	stainfo->raw_conn   = NULL;
 	stainfo->ext_conn   = NULL;
-
 
 	return stainfo;
 }
