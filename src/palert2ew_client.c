@@ -69,6 +69,7 @@ int pa2ew_client_stream( void )
 	int        data_read = 0;
 	int        data_req  = FORWARD_PACKET_HEADER_LENGTH;
 	PREPACKET *readptr   = (PREPACKET *)buffer;
+	_STAINFO  *staptr    = NULL;
 
 	memset(buffer, 0, PA2EW_PREPACKET_LENGTH);
 	do {
@@ -99,21 +100,18 @@ int pa2ew_client_stream( void )
 	/* */
 		if ( (data_read += ret) >= FORWARD_PACKET_HEADER_LENGTH ) {
 		/* */
-			if ( readptr->len >= PA2EW_PREPACKET_LENGTH ) {
-				if ( reconstruct_connect_sock() < 0 )
-					return PA2EW_RECV_CONNECT_ERROR;
-			}
+			if ( readptr->len >= PA2EW_PREPACKET_LENGTH )
+				return PA2EW_RECV_CONNECT_ERROR;
+		/* */
 			data_req = readptr->len + FORWARD_PACKET_HEADER_LENGTH - data_read;
 		}
 	} while ( data_req );
 
-/* Find which one palert */
-	uint16_t  serial = readptr->serial;
-	_STAINFO *staptr;
 /* Serial should always larger than 0, if so send the update request */
-	if ( serial > 0 ) {
-		if ( (staptr = pa2ew_list_find( serial )) == NULL ) {
-			printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", serial);
+	if ( readptr->serial > 0 ) {
+	/* Find which one palert */
+		if ( (staptr = pa2ew_list_find( readptr->serial )) == NULL ) {
+			printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", readptr->serial);
 			return PA2EW_RECV_NEED_UPDATE;
 		}
 		else {
