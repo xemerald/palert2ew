@@ -97,40 +97,49 @@ int pa2ew_client_stream( void )
 			continue;
 		}
 	/* */
-		if ( (data_read += ret) >= FORWARD_PACKET_HEADER_LENGTH )
+		if ( (data_read += ret) >= FORWARD_PACKET_HEADER_LENGTH ) {
+		/* */
+			if ( readptr->len >= PA2EW_PREPACKET_LENGTH ) {
+				if ( reconstruct_connect_sock() < 0 )
+					return PA2EW_RECV_CONNECT_ERROR;
+			}
 			data_req = readptr->len + FORWARD_PACKET_HEADER_LENGTH - data_read;
+		}
 	} while ( data_req );
 
 /* Find which one palert */
 	uint16_t  serial = readptr->serial;
-	_STAINFO *staptr = pa2ew_list_find( serial );
-	if ( staptr == NULL ) {
-	/* Serial should always larger than 0, if so send the update request */
-		if ( serial > 0 ) {
+	_STAINFO *staptr;
+/* Serial should always larger than 0, if so send the update request */
+	if ( serial > 0 ) {
+		if ( (staptr = pa2ew_list_find( serial )) == NULL ) {
 			printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", serial);
 			return PA2EW_RECV_NEED_UPDATE;
 		}
 		else {
-			/* printf("palert2ew: Recieve keep alive packet!\n"); */ /* Debug */
+			if ( (ret = pa2ew_msgqueue_prequeue( staptr, readptr )) ) {
+			/* */
+				if ( ret == 1 ) {
+					if ( ++sync_errors >= 10 ) {
+						sync_errors = 0;
+						logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
+						if ( reconstruct_connect_sock() < 0 )
+							return PA2EW_RECV_CONNECT_ERROR;
+					}
+				}
+			/* */
+				else {
+					sleep_ew(100);
+				}
+			}
+		/* */
+			else {
+				sync_errors = 0;
+			}
 		}
 	}
 	else {
-		if ( (ret = pa2ew_msgqueue_prequeue( staptr, readptr )) ) {
-			if ( ret == 1 ) {
-				if ( ++sync_errors >= 10 ) {
-					sync_errors = 0;
-					logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
-					if ( reconstruct_connect_sock() < 0 )
-						return PA2EW_RECV_CONNECT_ERROR;
-				}
-			}
-			else {
-				sleep_ew(100);
-			}
-		}
-		else {
-			sync_errors = 0;
-		}
+		/* Just a placeholer for keep alive packet */
 	}
 
 	return PA2EW_RECV_NORMAL;
