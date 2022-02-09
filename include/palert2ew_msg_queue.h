@@ -22,3 +22,4 @@ void pa2ew_msgqueue_end( void );                                  /* End process
 int  pa2ew_msgqueue_dequeue( void *, size_t *, MSG_LOGO * );    /* Pop-out received message from main queue */
 int  pa2ew_msgqueue_enqueue( void *, size_t, MSG_LOGO );        /* Put the compelete packet into the main queue. */
 int  pa2ew_msgqueue_rawpacket( void *, size_t, int );
+void pa2ew_msgqueue_lbuffer_reset( _STAINFO * );

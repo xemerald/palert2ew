@@ -137,6 +137,19 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, const int packet_
 /*
  *
  */
+void pa2ew_msgqueue_lbuffer_reset( _STAINFO *staptr )
+{
+	if ( staptr->msg_buffer != NULL ) {
+		free(staptr->msg_buffer);
+		staptr->msg_buffer = NULL;
+	}
+
+	return;
+}
+
+/*
+ *
+ */
 static LABELED_RECV_BUFFER *merge_last_buffer( void *label_buf, size_t *buf_len )
 {
 	LABELED_RECV_BUFFER *result  = (LABELED_RECV_BUFFER *)label_buf;
@@ -251,7 +264,7 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
 				pah4 = (PALERTMODE4_HEADER *)lrbuf->recv_buffer;
 			}
 		/* */
-			if ( *buf_len >= ret ) {
+			if ( *buf_len >= (size_t)ret ) {
 				if ( pa2ew_msgqueue_enqueue( lrbuf, ret + offset, RawLogo ) )
 					sleep_ew(100);
 			/* */

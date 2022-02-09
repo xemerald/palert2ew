@@ -15,10 +15,10 @@ EWLIBS = $(L)/lockfile_ew.o $(L)/lockfile.o \
 LOCALLIBS = $(LL)/palert.o
 
 UTILITY = palert2ew_msg_queue.o palert2ew_list.o \
-		palert2ew_server.o palert2ew_client.o
+		palert2ew_server.o palert2ew_server_ext.o palert2ew_client.o
 
 SRC = palert2ew.c palert2ew_msg_queue.c palert2ew_list.c \
-		palert2ew_server.c palert2ew_client.c
+		palert2ew_server.c palert2ew_server_ext.c palert2ew_client.c
 
 palert2ew: palert2ew.o $(EWLIBS) $(UTILITY)
 	$(CC) $(CFLAGS) -o $(B)/$(BIN_NAME) palert2ew.o $(UTILITY) $(EWLIBS) $(LOCALLIBS) $(LIBS)

@@ -24,6 +24,7 @@
 #include <palert2ew_list.h>
 #include <palert2ew_client.h>
 #include <palert2ew_server.h>
+#include <palert2ew_server_ext.h>
 #include <palert2ew_msg_queue.h>
 
 /* */
@@ -235,11 +236,19 @@ int main ( int argc, char **argv )
 		check_receiver_func = check_receiver_client;
 	}
 	else {
-		ReceiverThreadsNum = pa2ew_server_init(
-			MaxStationNum, PA2EW_PALERT_PORT, ExtFuncSwitch ? PA2EW_PALERT_EXT_PORT : NULL, Putlogo[EXT_MSG_LOGO]
-		);
+		ReceiverThreadsNum = pa2ew_server_init( MaxStationNum, PA2EW_PALERT_PORT );
+	/* */
+		if ( ExtFuncSwitch ) {
+			if ( pa2ew_server_ext_init( PA2EW_PALERT_EXT_PORT, Putlogo[EXT_MSG_LOGO] ) != 1 ) {
+				ReceiverThreadsNum = 0;
+				pa2ew_server_end();
+			}
+			else {
+				ReceiverThreadsNum++;
+			}
+		}
 		if ( ReceiverThreadsNum < 1 ) {
-			logit("e","palert2ew: Cannot initialize the connection server process. Exiting!\n");
+			logit("e","palert2ew: Cannot initialize the Palert server process. Exiting!\n");
 			pa2ew_list_end();
 			exit(-1);
 		}
@@ -736,10 +745,14 @@ static void palert2ew_end( void )
 
 	pa2ew_msgqueue_end();
 	pa2ew_list_end();
-	if ( ServerSwitch == 0 )
+	if ( ServerSwitch == 0 ) {
 		pa2ew_client_end();
-	else
+	}
+	else {
 		pa2ew_server_end();
+		if ( ExtFuncSwitch )
+			pa2ew_server_ext_end();
+	}
 
 	free(ReceiverThreadID);
 	free((int8_t *)MessageReceiverStatus);
@@ -811,6 +824,8 @@ static void check_receiver_server( const int wait_msec )
 	if ( (time(&time_now) - time_check) >= 60 ) {
 		time_check = time_now;
 		pa2ew_server_conn_check();
+		if ( ExtFuncSwitch )
+			pa2ew_server_ext_conn_check();
 	}
 
 	return;
@@ -854,12 +869,18 @@ static thr_ret receiver_server_thread( void *arg )
 {
 	int           ret;
 	const uint8_t countindex = *((uint8_t *)arg);
+	int         (*proc_func)( const int, const int ) = NULL;
 
 /* Tell the main thread we're ok */
 	MessageReceiverStatus[countindex] = THREAD_ALIVE;
+/* */
+	if ( countindex < (ReceiverThreadsNum - 1) )
+		proc_func = pa2ew_server_proc;
+	else
+		proc_func = pa2ew_server_ext_proc;
 /* Main service loop */
 	do {
-		if ( (ret = pa2ew_server_proc(countindex, 1000)) )
+		if ( (ret = proc_func(countindex, 1000)) )
 			if ( ret == PA2EW_RECV_NEED_UPDATE )
 				if ( UpdateFlag == LIST_IS_UPDATED )
 					UpdateFlag = LIST_NEED_UPDATED;
