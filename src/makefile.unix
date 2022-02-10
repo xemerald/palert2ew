@@ -48,8 +48,8 @@ ver_710_sql: ver_710
 	@$(CC) $(CFLAGS) -c $<
 
 #
-post_setting:
-	setcap cap_net_bind_service=+ep $(B)/$(BIN_NAME)
+cap_set:
+	sudo setcap cap_net_bind_service=+ep $(B)/$(BIN_NAME)
 
 
 # Clean-up rules

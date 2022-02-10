@@ -383,7 +383,7 @@ static int construct_listen_sock( const char *port )
 			logit("e", "palert2ew: Listen Palert connection socket error!\n");
 		}
 		else {
-			logit("o", "palert2ew: Listen Palert connection socket ready!\n");
+			logit("o", "palert2ew: Listen Palert connection socket: %d ready!\n", result);
 			return result;
 		}
 	}

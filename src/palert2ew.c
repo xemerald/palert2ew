@@ -55,8 +55,8 @@ static void    check_receiver_server( const int );
 static thr_ret receiver_client_thread( void * );  /* Read messages from the socket of forward server */
 static thr_ret receiver_server_thread( void * );  /* Read messages from the socket of Palerts */
 static thr_ret update_list_thread( void * );
-static int     load_list_configfile( void **, char * );
 
+static int            load_list_configfile( void **, char * );
 static void           process_packet_pm1( PalertPacket *, _STAINFO * );
 static void           process_packet_pm4( PalertPacket *, _STAINFO * );
 static int            examine_ntp_sync( _STAINFO *, const void * );

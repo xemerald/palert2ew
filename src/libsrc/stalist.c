@@ -62,10 +62,11 @@ MYSQL_RES *stalist_chan_query_sql(
 	va_end(ap);
 /* */
 	sprintf(
-		tmpquery, " WHERE `%s`='%s' && `%s`='%s' && `%s`='%s'",
+		tmpquery, " WHERE `%s`='%s' && `%s`='%s' && `%s`='%s' ORDER BY %s ASC",
 		get_sta_column_name( (COL_STA_LIST)COL_STA_STATION ), sta,
 		get_sta_column_name( (COL_STA_LIST)COL_STA_NETWORK ), net,
-		get_sta_column_name( (COL_STA_LIST)COL_STA_LOCATION ), loc
+		get_sta_column_name( (COL_STA_LIST)COL_STA_LOCATION ), loc,
+		get_sta_column_name( (COL_STA_LIST)COL_CHAN_SEQ )
 	);
 	strcat(query, tmpquery);
 

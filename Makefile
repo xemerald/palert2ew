@@ -4,10 +4,10 @@
 
 # Compile rule for Earthworm version under 7.9
 #
-ver_709: libs echo_msg_79
+ver_709: libs echo_msg_709
 	(cd ./src; make -f makefile.unix ver_709;);
 
-ver_709_sql: libs_all echo_msg_79
+ver_709_sql: libs_all echo_msg_709
 	(cd ./src; make -f makefile.unix ver_709_sql;);
 
 # Compile rule for Earthworm version over 7.10
@@ -20,6 +20,10 @@ ver_710_sql: libs_all echo_msg_710
 
 #
 #
+cap_set:
+	(cd ./src; make -f makefile.unix cap_set;);
+#
+#
 libs: echo_msg_libraries
 	(cd ./src/libsrc; make -f makefile.unix;);
 
@@ -29,7 +33,7 @@ libs_all: echo_msg_libraries
 
 #
 #
-echo_msg_79:
+echo_msg_709:
 	@echo "-----------------------------------";
 	@echo "- Making main palert2ew for EW7.9 -";
 	@echo "-----------------------------------";

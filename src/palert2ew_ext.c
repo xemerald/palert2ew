@@ -137,16 +137,22 @@ int pa2ew_ext_rt_packet_process(
  */
 int pa2ew_ext_soh_packet_process( void *dest, PalertExtPacket *packet, _STAINFO *stainfo )
 {
-	EXT_SOH_PACKET *ext_soh = &packet->soh.soh_packet;
-	char           *output = (char *)dest;
+	EXT_SOH_PACKET *ext_soh   = &packet->soh.soh_packet;
+	char           *output    = (char *)dest;
+
+	float _cpu_temp    = ext_soh->cpu_temp * PA2EW_EXT_SOH_INTVALUE_UNIT;
+	float _ext_volt    = ext_soh->ext_volt * PA2EW_EXT_SOH_INTVALUE_UNIT;
+	float _int_volt    = ext_soh->int_volt * PA2EW_EXT_SOH_INTVALUE_UNIT;
+	float _rtc_battery = ext_soh->rtc_battery * PA2EW_EXT_SOH_INTVALUE_UNIT;
 
 /* */
 	sprintf(
-		output, "%5s: <sensor status: %d>, <cpu temp: %d>, <ext volt: %d>, <int volt: %d>, <rtc battery: %d>\n"
-		"\t<ntp status: %d>, <gnss status: %d>, <gps lock: %d>, <satellite num: %d>, <latitude: %f>, <longitude: %f>",
-		stainfo->sta, ext_soh->sensor_status, ext_soh->cpu_temp, ext_soh->ext_volt, ext_soh->int_volt,
-		ext_soh->rtc_battery, ext_soh->ntp_status, ext_soh->gnss_status, ext_soh->gps_lock, ext_soh->satellite_num,
-		ext_soh->latitude, ext_soh->longitude
+		output, "#SOH:%s: <sensor status: %d>, <cpu temp: %.2f>, <ext volt: %.2f>, <int volt: %.2f>, <rtc battery: %.2f>\n"
+		"#SOH:%s: <ntp status: %d>, <gnss status: %d>, <gps lock: %d>, <satellite num: %d>\n"
+		"#SOH:%s: <latitude: %.6f>, <longitude: %.6f>",
+		stainfo->sta, ext_soh->sensor_status, _cpu_temp, _ext_volt, _int_volt, _rtc_battery,
+		stainfo->sta, ext_soh->ntp_status, ext_soh->gnss_status, ext_soh->gps_lock, ext_soh->satellite_num,
+		stainfo->sta, ext_soh->latitude, ext_soh->longitude
 	);
 
 	return strlen(output) + 1;
