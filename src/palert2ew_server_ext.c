@@ -14,6 +14,7 @@
 #include <earthworm.h>
 /* Local header include */
 #include <palert2ew.h>
+#include <palert2ew_ext.h>
 #include <palert2ew_list.h>
 #include <palert2ew_msg_queue.h>
 #include <palert2ew_server.h>
@@ -53,7 +54,7 @@ int pa2ew_server_ext_init( const char *port, const MSG_LOGO ext_logo )
 		ExtLogo = ext_logo;
 	}
 	else {
-		logit("e", "palert2ew: The base of Palert server is not initiated!\n");
+		logit("e", "palert2ew: The raw Palert server has not been initiated yet!\n");
 		return -1;
 	}
 
@@ -101,13 +102,15 @@ int pa2ew_server_ext_conn_check( void )
 	if ( conn != NULL ) {
 		for ( i = 0; i < MaxStationNum; i++, conn++ ) {
 			if ( conn->sock != -1 ) {
-				if ( (time(&time_now) - conn->last_act) >= 120 ) {
+				if ( (time(&time_now) - conn->last_act) >= PA2EW_IDLE_THRESHOLD ) {
 					logit(
-						"t", "palert2ew: Extension connection: %s idle over two minutes, close connection!\n",
-						conn->ip
+						"t", "palert2ew: Extension connection from %s idle over %d seconds, close connection!\n",
+						conn->ip, PA2EW_IDLE_THRESHOLD
 					);
 					pa2ew_server_pconnect_close( conn, ThreadSetsExt->epoll_fd );
 				}
+				if ( conn->staptr )
+					result++;
 			}
 		}
 	}

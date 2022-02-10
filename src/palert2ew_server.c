@@ -23,9 +23,9 @@
 #include <palert2ew_msg_queue.h>
 
 /* Internal function prototype */
+static int construct_listen_sock( const char * );
 static int accept_palert_raw( void );
 static int eval_threadnum( int );
-static int construct_listen_sock( const char * );
 
 /* Define global variables */
 volatile int              MaxStationNum = 0;
@@ -100,7 +100,7 @@ void pa2ew_server_end( void )
 /*
  *
  */
-int pa2ew_server_palert_accept( const int msec )
+int pa2ew_server_palerts_accept( const int msec )
 {
 	int                i, nready;
 	struct epoll_event evts[LISTENQ];
@@ -128,14 +128,19 @@ int pa2ew_server_conn_check( void )
 	CONNDESCRIP *conn = PalertConns;
 
 /* */
-	for ( i = 0; i < MaxStationNum; i++, conn++ ) {
-		if ( conn->sock != -1 ) {
-			if ( (time(&time_now) - conn->last_act) >= 120 ) {
-				logit("t", "palert2ew: Connection: %s idle over two minutes, close connection!\n", conn->ip);
-				pa2ew_server_pconnect_close( conn, ThreadSets[i % ThreadsNumber].epoll_fd );
+	if ( conn != NULL ) {
+		for ( i = 0; i < MaxStationNum; i++, conn++ ) {
+			if ( conn->sock != -1 ) {
+				if ( (time(&time_now) - conn->last_act) >= PA2EW_IDLE_THRESHOLD ) {
+					logit(
+						"t", "palert2ew: Connection from %s idle over %d seconds, close connection!\n",
+						conn->ip, PA2EW_IDLE_THRESHOLD
+					);
+					pa2ew_server_pconnect_close( conn, ThreadSets[i % ThreadsNumber].epoll_fd );
+				}
+				if ( conn->staptr )
+					result++;
 			}
-			if ( conn->staptr )
-				result++;
 		}
 	}
 
@@ -239,8 +244,8 @@ void pa2ew_server_pconnect_close( CONNDESCRIP *conn, const int epoll )
 }
 
 /*
- * proc_server_raw() - Read the streaming data from each Palert and put it
- *                        into queue.
+ * pa2ew_server_proc() - Read the streaming data from each Palert and put it
+ *                       into queue.
  */
 int pa2ew_server_proc( const int countindex, const int msec )
 {
@@ -393,7 +398,7 @@ static int construct_listen_sock( const char *port )
 
 /*
  * accept_palert_raw() - Accept the connection of Palerts then add it
- *                          into connection descriptor and EpollFd.
+ *                       into connection descriptor and EpollFd.
  */
 static int accept_palert_raw( void )
 {

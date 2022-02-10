@@ -7,11 +7,14 @@
  * Department of Geology
  * National Taiwan University
  *
- * Febuary, 2022
+ * February, 2022
  *
  */
 #pragma once
-
+/* */
+#include <earthworm.h>
+/* */
+#include <palert2ew.h>
 /* */
 int  pa2ew_server_ext_init( const char *, const MSG_LOGO ); /* Initialize the independent Palert server */
 void pa2ew_server_ext_end( void );                                                   /* End process of Palert server */

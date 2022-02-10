@@ -6,24 +6,27 @@ CFLAGS = $(GLOBALFLAGS) -O2 -g -I/usr/include/mysql -I../../include -flto
 
 LL = ../../lib
 
-LOCALSRCS = stalist.c palert.c
+LOCALSRCS = stalist.c palert.c trh2_enrich.c
 LOCALOBJS = $(LOCALSRCS:%.c=%.o)
 
-no_sql: palert.o
-	mv *.o $(LL)
+no_sql: palert.o trh2_enrich.o
+	@mv *.o $(LL)
 
 all: $(LOCALOBJS)
-	mv *.o $(LL)
+	@mv *.o $(LL)
 
 #
 .c.o:
-	$(CC) $(CFLAGS) -c $<
+	@echo Compiling $<...
+	@$(CC) $(CFLAGS) -c $<
 
 # Clean-up rules
 clean:
-	rm -f a.out core *.o *.obj *% *~
+	@echo Cleaning build objects...
+	@rm -f a.out core *.o *.obj *% *~
 
 clean_lib:
-	rm -f $(LL)/*.o
+	@echo Removing libraries...
+	@rm -f $(LL)/*.o
 
 PHONY:

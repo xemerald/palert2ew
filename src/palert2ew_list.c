@@ -212,10 +212,11 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 		extract_stainfo_mysql( &serial, sta, net, loc, sql_row, stalist_fetch_lengths_sql( sql_res ) );
 	/* */
 		nchannel = 0;
-		if ( table_chan != NULL && strlen(table_chan) )
+		if ( table_chan != NULL && strlen(table_chan) ) {
 			nchannel = extract_chainfo_mysql(
 				chan, stalist_chan_query_sql( dbinfo, table_chan, sta, net, loc, 1, COL_CHAN_CHANNEL )
 			);
+		}
 	/* */
 		if ( add_new_station( root, serial, sta, net, loc, nchannel, (const char **)chan ) != NULL ) {
 			result++;
@@ -278,7 +279,7 @@ static int extract_chainfo_mysql( char *chan[], MYSQL_RES *sql_res )
 		if ( result > 0 && result <= PALERTMODE1_CHAN_COUNT ) {
 			while ( (sql_row = stalist_fetch_row_sql( sql_res )) != NULL ) {
 				row_lengths = stalist_fetch_lengths_sql( sql_res );
-				stalist_field_extract_sql( chan[i++], TRACE2_LOC_LEN, sql_row[0], row_lengths[0] );
+				stalist_field_extract_sql( chan[i++], TRACE2_CHAN_LEN, sql_row[0], row_lengths[0] );
 			}
 		}
 		stalist_free_result_sql( sql_res );

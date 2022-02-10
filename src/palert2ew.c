@@ -1,7 +1,6 @@
 /*
  *
  */
-
 #ifdef _OS2
 #define INCL_DOSMEMMGR
 #define INCL_DOSSEMAPHORES
@@ -12,29 +11,37 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <search.h>
 #include <ctype.h>
 #include <time.h>
 /* Earthworm environment header include */
 #include <earthworm.h>
+#include <trace_buf.h>
 #include <kom.h>
 #include <transport.h>
 #include <lockfile.h>
 #include <libmseed.h>
 /* Local header include */
+#include <trh2_enrich.h>
+#include <palert2ew.h>
+#include <palert2ew_ext.h>
 #include <palert2ew_list.h>
 #include <palert2ew_client.h>
 #include <palert2ew_server.h>
 #include <palert2ew_server_ext.h>
 #include <palert2ew_msg_queue.h>
 
-/* */
+/* Internal stack related struct */
 typedef struct {
-	_STAINFO   *staptr;
-	_CHAINFO   *chaptr;
-	double      lastend;
-	double      starttime;
-	double      endtime;
-} __EXT_COMMAND_ARG;
+/* */
+	void *sptr;
+/* */
+	union {
+		PalertPacket    palert_pck;
+		PalertExtPacket palert_ext_pck;
+		uint8_t         buffer[4096];
+	} data;
+} LABELED_DATA;
 
 /* Functions prototype in this source file
  *******************************/
@@ -48,27 +55,12 @@ static void    check_receiver_server( const int );
 static thr_ret receiver_client_thread( void * );  /* Read messages from the socket of forward server */
 static thr_ret receiver_server_thread( void * );  /* Read messages from the socket of Palerts */
 static thr_ret update_list_thread( void * );
-static thr_ret request_rt_thread( void * );
-static thr_ret request_soh_thread( void * );
 static int     load_list_configfile( void **, char * );
 
 static void           process_packet_pm1( PalertPacket *, _STAINFO * );
 static void           process_packet_pm4( PalertPacket *, _STAINFO * );
-static void           process_packet_rt( PalertExtPacket *, _STAINFO * );
-static void           process_packet_soh( PalertExtPacket *, _STAINFO * );
 static int            examine_ntp_sync( _STAINFO *, const void * );
-static int32_t       *copydata_tracebuf_rt( const EXT_RT_PACKET *, int32_t * );
-static void           request_soh_stations( const void *, const VISIT, const int );
 static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
-static TRACE2_HEADER *enrich_trh2_rt( TRACE2_HEADER *, const _STAINFO *, const EXT_RT_PACKET * );
-static TRACE2_HEADER *enrich_trh2(
-	TRACE2_HEADER *, const char *, const char *, const char *, const int, const double, const double
-);
-static __EXT_COMMAND_ARG *insert_request_queue(
-	__EXT_COMMAND_ARG **, _STAINFO *, _CHAINFO *, double, double, double
-);
-static __EXT_COMMAND_ARG *create_request_queue( const int );
-static __EXT_COMMAND_ARG *enrich_ext_command_arg( __EXT_COMMAND_ARG *, _STAINFO *, _CHAINFO *, double, double, double );
 
 /* Ring messages things */
 #define WAVE_MSG_LOGO  0
@@ -107,6 +99,7 @@ static uint64_t ReqSOHInterval = PA2EW_EXT_REQUEST_SOH_INTERVAL; /* seconds betw
 static uint64_t QueueSize;                  /* max messages in output circular buffer */
 static uint8_t  ServerSwitch;               /* 0 connect to Palert server; 1 as the server of Palert */
 static uint8_t  RawOutputSwitch = 0;
+static uint8_t  ExtOutputSwitch = 0;
 static uint8_t  ExtFuncSwitch   = 0;
 static char     ServerIP[INET6_ADDRSTRLEN];
 static char     ServerPort[8] = { 0 };
@@ -186,7 +179,8 @@ int main ( int argc, char **argv )
 	palert2ew_config( argv[1] );
 	logit("" , "%s: Read command file <%s>\n", argv[0], argv[1]);
 /* Read the station list from remote database */
-	pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo );
+	if ( pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo ) == -1 )
+		exit(-1);
 	pa2ew_list_root_reg( (void *)_Root );
 	if ( !(i = pa2ew_list_total_station()) ) {
 		fprintf(stderr, "There is not any station in the list after fetching, exiting!\n");
@@ -270,7 +264,10 @@ int main ( int argc, char **argv )
 /* */
 	buffer   = calloc(1, sizeof(LABELED_DATA));
 	data_ptr = (LABELED_DATA *)buffer;
+/* */
+	if ( ExtOutputSwitch ) {
 
+	}
 /* Initialize the threads' parameters */
 	MessageReceiverStatus = calloc(ReceiverThreadsNum, sizeof(int8_t));
 #if defined( _V710 )
@@ -304,7 +301,7 @@ int main ( int argc, char **argv )
 	/* Start the request of SOH thread */
 		if ( ExtFuncSwitch && ReqSOHInterval && timeNow - timeLastReqSOH >= (int64_t)ReqSOHInterval ) {
 			timeLastReqSOH = timeNow;
-			if ( StartThread(request_soh_thread, (uint32_t)THREAD_STACK, &ReqSOHThreadID) == -1 )
+			if ( StartThread(pa2ew_ext_soh_req_thread, (uint32_t)THREAD_STACK, &ReqSOHThreadID) == -1 )
 				logit("e", "palert2ew: Error starting request_soh thread, just skip it!\n");
 		}
 	/* Start the message receiving thread if it isn't running. */
@@ -353,22 +350,41 @@ int main ( int argc, char **argv )
 				else if ( PALERT_IS_MODE4_HEADER( &data_ptr->data.palert_pck.pah ) )
 					process_packet_pm4( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
 			}
-			else if ( msg_logo.type == TypePalertExt ) {
+			else if ( ExtFuncSwitch && msg_logo.type == TypePalertExt ) {
 			/* */
-				if ( ExtFuncSwitch ) {
-					if (
-						tport_putmsg(
-							&Region[EXT_MSG_LOGO], &Putlogo[EXT_MSG_LOGO],
-							data_ptr->data.palert_ext_pck.header.length, (char *)(&data_ptr->data)
-						) != PUT_OK
-					) {
-						logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
-					}
+				if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_RT_PACKET ) {
+					TracePacket tracebuf;
 				/* */
-					if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_RT_PACKET )
-						process_packet_rt( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
-					else if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_SOH_PACKET )
-						process_packet_soh( &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr );
+					msg_size = pa2ew_ext_rt_packet_process(
+						tracebuf.msg, &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr, UniSampRate
+					);
+				/* */
+					if ( ExtOutputSwitch ) {
+						if (
+							tport_putmsg(
+								&Region[EXT_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg
+							) != PUT_OK
+						) {
+							logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
+						}
+					}
+				}
+				else if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_SOH_PACKET ) {
+					char soh_string[PA2EW_EXT_MAX_PACKET_SIZE] = { 0 };
+				/* */
+					msg_size = pa2ew_ext_soh_packet_process(
+						soh_string, &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr
+					);
+				/* Output the SOH to the log file */
+					logit("","%s\n", soh_string);
+				/* */
+					if ( ExtOutputSwitch ) {
+						if (
+							tport_putmsg(&Region[EXT_MSG_LOGO], &Putlogo[EXT_MSG_LOGO], msg_size, soh_string ) != PUT_OK
+						) {
+							logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
+						}
+					}
 				}
 			}
 		} while ( count < MaxStationNum );  /* end of message-processing-loop */
@@ -442,6 +458,11 @@ static void palert2ew_config( char *configfile )
 				LogSwitch = k_int();
 				init[0] = 1;
 			}
+			else if( k_its("ExtFunc") ) {
+				ExtFuncSwitch = k_int();
+				if ( ExtFuncSwitch )
+					logit("o", "palert2ew: Turn on the extension function for Palerts!\n");
+			}
 		/* 1 */
 			else if( k_its("MyModuleId") ) {
 				str = k_str();
@@ -461,8 +482,8 @@ static void palert2ew_config( char *configfile )
 			}
 			else if( k_its("OutExtendRing") ) {
 				str = k_str();
-				if(str) strcpy(&RingName[EXT_MSG_LOGO][0], str);
-				ExtFuncSwitch = 1;
+				if ( str ) strcpy(&RingName[EXT_MSG_LOGO][0], str);
+				ExtOutputSwitch = 1;
 			}
 		/* 3 */
 			else if( k_its("HeartBeatInterval") ) {
@@ -639,7 +660,7 @@ static void palert2ew_lookup( void )
 	else {
 		RingKey[RAW_MSG_LOGO] = -1;
 	}
-	if ( ExtFuncSwitch ) {
+	if ( ExtOutputSwitch ) {
 		if ( (RingKey[EXT_MSG_LOGO] = GetKey(&RingName[EXT_MSG_LOGO][0])) == -1 ) {
 			fprintf(
 				stderr, "palert2ew: Invalid ring name <%s>; exiting!\n", &RingName[EXT_MSG_LOGO][0]
@@ -682,7 +703,7 @@ static void palert2ew_lookup( void )
 			exit(-1);
 		}
 	}
-	if ( ExtFuncSwitch ) {
+	if ( ExtOutputSwitch ) {
 		if ( GetType( "TYPE_PALERTEXT", &TypePalertExt ) != 0 ) {
 			fprintf(stderr, "palert2ew: Invalid message type <TYPE_PALERTEXT>; exiting!\n");
 			exit(-1);
@@ -740,7 +761,7 @@ static void palert2ew_end( void )
 	tport_detach( &Region[WAVE_MSG_LOGO] );
 	if ( RawOutputSwitch )
 		tport_detach( &Region[RAW_MSG_LOGO] );
-	if ( ExtFuncSwitch )
+	if ( ExtOutputSwitch )
 		tport_detach( &Region[EXT_MSG_LOGO] );
 
 	pa2ew_msgqueue_end();
@@ -804,7 +825,7 @@ static void check_receiver_server( const int wait_msec )
 			number[i] = i;
 	}
 /* */
-	pa2ew_server_palert_accept( wait_msec );
+	pa2ew_server_palerts_accept( wait_msec );
 /* */
 	for ( i = 0; i < ReceiverThreadsNum; i++ ) {
 		if ( MessageReceiverStatus[i] != THREAD_ALIVE ) {
@@ -998,10 +1019,10 @@ static int load_list_configfile( void **root, char *configfile )
  */
 static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 {
-	int             i, msg_size;
-	TracePacket     tracebuf;  /* message which is sent to share ring    */
-	_CHAINFO *chaptr = (_CHAINFO *)stainfo->chaptr;
-	__EXT_COMMAND_ARG *req_queue = NULL;
+	int         i, msg_size;
+	TracePacket tracebuf;  /* message which is sent to share ring    */
+	_CHAINFO   *chaptr = (_CHAINFO *)stainfo->chaptr;
+	void       *req_queue = NULL;
 
 #if defined( _V710 )
 	static ew_thread_t req_thr_id = 0;
@@ -1023,17 +1044,18 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 			}
 			else if ( ExtFuncSwitch ) {
 			/* */
-				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) )
-					insert_request_queue(
+				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) ) {
+					pa2ew_ext_req_queue_insert(
 						&req_queue, stainfo, chaptr,
 						chaptr->last_endtime, tracebuf.trh2.starttime, tracebuf.trh2.endtime
 					);
+				}
 			}
 			chaptr->last_endtime = tracebuf.trh2.endtime;
 		}
 	/* */
-		if ( req_queue != NULL ) {
-			if ( StartThreadWithArg( request_rt_thread, req_queue, (uint32_t)THREAD_STACK, &req_thr_id ) == -1 ) {
+		if ( ExtFuncSwitch && req_queue != NULL ) {
+			if ( StartThreadWithArg( pa2ew_ext_rt_req_thread, req_queue, (uint32_t)THREAD_STACK, &req_thr_id ) == -1 ) {
 				logit("e", "palert2ew: Error starting request_rt thread; skip it!\n");
 				free(req_queue);
 			}
@@ -1060,7 +1082,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 	int                 msg_size;
 	TracePacket         tracebuf;  /* message which is sent to share ring    */
 	_CHAINFO           *chaptr    = (_CHAINFO *)stainfo->chaptr;
-	__EXT_COMMAND_ARG  *req_queue = NULL;
+	void               *req_queue = NULL;
 	PALERTMODE4_HEADER *pah4      = (PALERTMODE4_HEADER *)&packet->pah;
 	uint8_t            *dataptr   = (uint8_t *)(pah4 + 1);
 	uint8_t            *endptr    = (uint8_t *)pah4 + PALERTMODE4_HEADER_GET_PACKETLEN( pah4 );
@@ -1086,7 +1108,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 			memcpy(msbuffer, dataptr, msrlength);
 			msr_parse((char *)msbuffer, msrlength, &msr, msrlength, 1, 0);
 
-			enrich_trh2(
+			trh2_enrich(
 				&tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc,
 				msr->numsamples, msr->samprate, (double)(MS_HPTIME2EPOCH(msr->starttime))
 			);
@@ -1100,127 +1122,25 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 			}
 			else if ( ExtFuncSwitch ) {
 			/* */
-				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) )
-					insert_request_queue(
+				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) ) {
+					pa2ew_ext_req_queue_insert(
 						&req_queue, stainfo, chaptr,
 						chaptr->last_endtime, tracebuf.trh2.starttime, tracebuf.trh2.endtime
 					);
+				}
 			}
 			chaptr->last_endtime = tracebuf.trh2.endtime;
 			chaptr++;
-	} while ( (dataptr += msrlength) < endptr );
+		} while ( (dataptr += msrlength) < endptr );
 
 	/* */
-		if ( req_queue != NULL ) {
-			if ( StartThreadWithArg( request_rt_thread, req_queue, (uint32_t)THREAD_STACK, &req_thr_id ) == -1 ) {
+		if ( ExtFuncSwitch && req_queue != NULL ) {
+			if ( StartThreadWithArg( pa2ew_ext_rt_req_thread, req_queue, (uint32_t)THREAD_STACK, &req_thr_id ) == -1 ) {
 				logit("e", "palert2ew: Error starting request_rt thread; skip it!\n");
 				free(req_queue);
 			}
 		}
 	}
-
-	return;
-}
-
-/*
- *
- */
-static thr_ret request_rt_thread( void *arg )
-{
-	__EXT_COMMAND_ARG *_req_queue = (__EXT_COMMAND_ARG *)arg;
-	__EXT_COMMAND_ARG *ext_arg    = NULL;
-	_STAINFO          *staptr     = NULL;
-/* */
-	int    retry_times = 0;
-	char   request[32] = { 0 };
-	time_t timestamp   = 0.0;
-
-/* */
-	for ( ext_arg = _req_queue; ext_arg->chaptr != NULL; ext_arg++ ) {
-		timestamp = (time_t)ext_arg->lastend;
-		staptr    = ext_arg->staptr;
-	/* */
-		for ( ; (double)timestamp < ext_arg->starttime; timestamp++ ) {
-			sprintf(request, PA2EW_EXT_RT_COMMAND_FORMAT, staptr->serial, ext_arg->chaptr->seq, timestamp);
-			if ( pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) ) {
-			/* */
-				for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
-					sleep_ew(500);
-					if ( !pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) )
-						break;
-				}
-			/* */
-				if ( !retry_times )
-					break;
-			}
-			sleep_ew(50);
-		}
-	}
-/* Just exit this thread */
-	free(_req_queue);
-	KillSelfThread();
-
-	return NULL;
-}
-
-/*
- *
- */
-static thr_ret request_soh_thread( void *dummy )
-{
-/* */
-	pa2ew_list_walk( request_soh_stations );
-/* Just exit this thread */
-	KillSelfThread();
-
-	return NULL;
-}
-
-/*
- *
- */
-static void process_packet_rt( PalertExtPacket *packet, _STAINFO *stainfo )
-{
-	int             msg_size;
-	TracePacket     tracebuf;  /* message which is sent to share ring    */
-	const _CHAINFO *chaptr = ((_CHAINFO *)stainfo->chaptr) + packet->rt.rt_packet.chan_seq;
-
-/* Common part */
-	enrich_trh2_rt( &tracebuf.trh2, stainfo, &packet->rt.rt_packet );
-	msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
-/* Channel part */
-	strcpy(tracebuf.trh2.chan, chaptr->chan);
-	copydata_tracebuf_rt( &packet->rt.rt_packet, (int32_t *)(&tracebuf.trh2 + 1) );
-/* */
-	if ( tport_putmsg(&Region[EXT_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
-		logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
-
-	return;
-}
-
-/*
- *
- */
-static void process_packet_soh( PalertExtPacket *packet, _STAINFO *stainfo )
-{
-	EXT_SOH_PACKET *ext_soh = &packet->soh.soh_packet;
-
-/* Common part */
-	logit(
-		"", "%s: <sensor status: %d>, <cpu temp: %d>, <ext volt: %d>, <int volt: %d>, <rtc battery: %d>\n",
-		stainfo->sta,
-		ext_soh->sensor_status, ext_soh->cpu_temp, ext_soh->ext_volt, ext_soh->int_volt, ext_soh->rtc_battery
-	);
-	logit(
-		"", "%s: <ntp status: %d>, <gnss status: %d>, <gps lock: %d>, <satellite num: %d>, "
-		"<latitude: %f>, <longitude: %f>\n",
-		stainfo->sta,
-		ext_soh->ntp_status, ext_soh->gnss_status, ext_soh->gps_lock, ext_soh->satellite_num,
-		ext_soh->latitude, ext_soh->longitude
-	);
-/* */
-	if ( tport_putmsg(&Region[EXT_MSG_LOGO], &Putlogo[EXT_MSG_LOGO], packet->header.length, (char *)packet) != PUT_OK )
-		logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
 
 	return;
 }
@@ -1258,186 +1178,15 @@ static int examine_ntp_sync( _STAINFO *stainfo, const void *header )
 }
 
 /*
- * copydata_tracebuf_rt() -
- */
-static int32_t *copydata_tracebuf_rt( const EXT_RT_PACKET *rt_packet, int32_t *buffer )
-{
-	int      i;
-	int16_t *sdata_in = (int16_t *)rt_packet->data;
-
-	switch ( rt_packet->data_bytes ) {
-	case 2:
-		for ( i = 0; i < rt_packet->nsamp; i++, sdata_in++, buffer++ )
-			*buffer = *sdata_in;
-		break;
-	case 4: default:
-		memcpy(buffer, rt_packet->data, rt_packet->nsamp << 2);
-		break;
-	}
-
-	return buffer;
-}
-
-/*
- *
- */
-static __EXT_COMMAND_ARG *insert_request_queue(
-	__EXT_COMMAND_ARG **queue, _STAINFO *staptr, _CHAINFO *chaptr, double lastend, double start, double end
-) {
-	int i;
-	__EXT_COMMAND_ARG *result = NULL;
-
-/* First time */
-	if ( *queue == NULL )
-		*queue = create_request_queue( staptr->nchannel );
-
-	if ( *queue != NULL ) {
-		for ( i = 0, result = *queue; i < staptr->nchannel; i++, result++ ) {
-			if ( result->chaptr == NULL ) {
-				enrich_ext_command_arg( result, staptr, chaptr, lastend, start, end );
-				break;
-			}
-		}
-		if ( i == staptr->nchannel )
-			logit("e", "palert2ew: Too much request in the queue of station %s; skip it!\n", staptr->sta);
-	}
-	else {
-		logit("e", "palert2ew: Error inserting the extension request for station %s; skip it!\n", staptr->sta);
-	}
-
-	return result;
-}
-
-/*
- *
- */
-static __EXT_COMMAND_ARG *create_request_queue( const int queue_size )
-{
-	int i;
-	__EXT_COMMAND_ARG *result = (__EXT_COMMAND_ARG *)calloc(queue_size + 1, sizeof(__EXT_COMMAND_ARG));
-
-	if ( result != NULL ) {
-		for ( i = 0; i <= queue_size; i++ ) {
-			result[i].staptr    = NULL;
-			result[i].chaptr    = NULL;
-			result[i].lastend   = -1.0;
-			result[i].starttime = -1.0;
-			result[i].endtime   = -1.0;
-		}
-	}
-
-	return result;
-}
-
-/*
- *
- */
-static __EXT_COMMAND_ARG *enrich_ext_command_arg(
-	__EXT_COMMAND_ARG *dest, _STAINFO *staptr, _CHAINFO *chaptr, double lastend, double start, double end
-) {
-	if ( dest != NULL ) {
-		dest->staptr    = staptr;
-		dest->chaptr    = chaptr;
-		dest->lastend   = lastend;
-		dest->starttime = start;
-		dest->endtime   = end;
-	}
-
-	return dest;
-}
-
-/*
- *
- */
-static void request_soh_stations( const void *nodep, const VISIT which, const int depth )
-{
-	_STAINFO *staptr      = *(_STAINFO **)nodep;
-	int       retry_times = 0;
-	char      request[32] = { 0 };
-	time_t    timestamp   = 0.0;
-
-	switch ( which ) {
-	case postorder: case leaf:
-	/* */
-		if ( staptr->ext_conn != NULL ) {
-			time(&timestamp);
-			sprintf(request, PA2EW_EXT_SOH_COMMAND_FORMAT, staptr->serial, timestamp);
-			if ( pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) ) {
-			/* */
-				for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
-					sleep_ew(50);
-					if ( !pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) )
-						break;
-				}
-			}
-		}
-		break;
-	case preorder: case endorder:
-	default:
-		break;
-	}
-
-	return;
-}
-
-/*
  * enrich_trh2_pm1() -
  */
 static TRACE2_HEADER *enrich_trh2_pm1(
 	TRACE2_HEADER *trh2, const _STAINFO *staptr, const PALERTMODE1_HEADER *pah
 ) {
-	return enrich_trh2(
+	return trh2_enrich(
 		trh2, staptr->sta, staptr->net, staptr->loc,
 		PALERTMODE1_SAMPLE_NUMBER,
 		UniSampRate ? (double)UniSampRate : (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah ),
 		palert_get_systime( pah, LocalTimeShift )
 	);
-}
-
-/*
- * enrich_trh2_rt() -
- */
-static TRACE2_HEADER *enrich_trh2_rt(
-	TRACE2_HEADER *trh2, const _STAINFO *staptr, const EXT_RT_PACKET *rt_packet
-) {
-	return enrich_trh2(
-		trh2, staptr->sta, staptr->net, staptr->loc, rt_packet->nsamp,
-		UniSampRate ? (double)UniSampRate : (double)rt_packet->samprate,
-		rt_packet->timestamp
-	);
-}
-
-/*
- * enrich_trh2() -
- */
-static TRACE2_HEADER *enrich_trh2(
-	TRACE2_HEADER *trh2, const char *sta, const char *net, const char *loc,
-	const int nsamp, const double samprate, const double starttime
-) {
-/* */
-	trh2->pinno     = 0;
-	trh2->nsamp     = nsamp;
-	trh2->samprate  = samprate;
-	trh2->starttime = starttime;
-	trh2->endtime   = trh2->starttime + (trh2->nsamp - 1) / trh2->samprate;
-/* */
-	strcpy(trh2->sta, sta);
-	strcpy(trh2->net, net);
-	strcpy(trh2->loc, loc);
-/* */
-	trh2->version[0] = TRACE2_VERSION0;
-	trh2->version[1] = TRACE2_VERSION1;
-
-	strcpy(trh2->quality, TRACE2_NO_QUALITY);
-	strcpy(trh2->pad    , TRACE2_NO_PAD    );
-
-#if defined( _SPARC )
-	strcpy(trh2->datatype, "s4");   /* SUN IEEE integer */
-#elif defined( _INTEL )
-	strcpy(trh2->datatype, "i4");   /* VAX/Intel IEEE integer */
-#else
-	logit("e", "palert2ew: warning _INTEL and _SPARC are both undefined.");
-#endif
-
-	return trh2;
 }

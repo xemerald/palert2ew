@@ -137,7 +137,8 @@ MYSQL *stalist_start_persistent_sql( const DBINFO *dbinfo )
 	/* Connect to database */
 		SQL = mysql_init(NULL);
 		mysql_options(SQL, MYSQL_SET_CHARSET_NAME, "utf8");
-		mysql_real_connect(SQL, dbinfo->host, dbinfo->user, dbinfo->password, dbinfo->database, dbinfo->port, NULL, 0);
+		if ( !mysql_real_connect(SQL, dbinfo->host, dbinfo->user, dbinfo->password, dbinfo->database, dbinfo->port, NULL, 0) )
+			fprintf(stderr, "stalist_start_persistent_sql: Connecting to MySQL server error: %s!\n", mysql_error(SQL) );
 	}
 
 	return SQL;
@@ -168,9 +169,17 @@ static MYSQL_RES *query_sql( const DBINFO *dbinfo, const char *query, const size
 		MYSQL *sql = mysql_init(NULL);
 	/* Connect to database */
 		mysql_options(sql, MYSQL_SET_CHARSET_NAME, "utf8");
-		if ( mysql_real_connect(sql, dbinfo->host, dbinfo->user, dbinfo->password, dbinfo->database, dbinfo->port, NULL, 0) != NULL )
-			if ( !mysql_real_query(sql, query, query_len) )
+		if ( mysql_real_connect(sql, dbinfo->host, dbinfo->user, dbinfo->password, dbinfo->database, dbinfo->port, NULL, 0) != NULL ) {
+			if ( !mysql_real_query(sql, query, query_len) ) {
 				result = mysql_store_result(sql);
+			}
+			else {
+				fprintf(stderr, "query_sql: Querying to MySQL server error: %s!\n", mysql_error(sql) );
+			}
+		}
+		else {
+			fprintf(stderr, "query_sql: Connecting to MySQL server error: %s!\n", mysql_error(sql) );
+		}
 		mysql_close(sql);
 	}
 	else {

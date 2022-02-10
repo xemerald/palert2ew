@@ -6,12 +6,14 @@
 MyModuleId         MOD_PALERT2EW  # module id for this instance of template
 OutWaveRing        WAVE_RING      # shared memory ring for output wave trace
 #OutRawRing         RPALERT_RING   # shared memory ring for output raw packet;
-                                  # if not define, it will close this function
+                                  # if not define, it will close this output function
 #OutExtendRing      PEXTEND_RING   # shared memory ring for output extension messages
                                   # like, retransmissioned wave trace, if not define,
-                                  # it will close this function
+                                  # it will close this output function
 LogFile            1              # 0 to turn off disk log file; 1 to turn it on
                                   # to log to module log but not stderr/stdout
+ExtFunc            0              # 0 to turn off extension function; 1 to turn it on
+								  # like, retransmissioned wave trace,
 HeartBeatInterval  15             # seconds between heartbeats
 
 QueueSize          1000           # max messages in internal circular msg buffer

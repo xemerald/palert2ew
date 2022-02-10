@@ -10,7 +10,6 @@
  * March, 2020
  *
  */
-
 #pragma once
 /* */
 #include <mysql.h>
