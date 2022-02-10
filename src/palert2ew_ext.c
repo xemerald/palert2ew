@@ -29,6 +29,10 @@ static __EXT_COMMAND_ARG *enrich_ext_command_arg(
 	__EXT_COMMAND_ARG *, const _STAINFO *, const _CHAINFO *, const double, const double, const double
 );
 
+/* */
+#define GEN_EXT_STATUS_STRING(STATUS) \
+		((STATUS) ? "OK" : "NG")
+
 /*
  *
  */
@@ -147,11 +151,12 @@ int pa2ew_ext_soh_packet_process( void *dest, PalertExtPacket *packet, _STAINFO 
 
 /* */
 	sprintf(
-		output, "#SOH:%s: <sensor status: %d>, <cpu temp: %.2f>, <ext volt: %.2f>, <int volt: %.2f>, <rtc battery: %.2f>\n"
-		"#SOH:%s: <ntp status: %d>, <gnss status: %d>, <gps lock: %d>, <satellite num: %d>\n"
+		output, "#SOH:%s: <sensor status: %s>, <cpu temp: %.2f>, <ext volt: %.2f>, <int volt: %.2f>, <rtc battery: %.2f>\n"
+		"#SOH:%s: <ntp status: %s>, <gnss status: %s>, <gps lock: %s>, <satellite num: %d>\n"
 		"#SOH:%s: <latitude: %.6f>, <longitude: %.6f>",
-		stainfo->sta, ext_soh->sensor_status, _cpu_temp, _ext_volt, _int_volt, _rtc_battery,
-		stainfo->sta, ext_soh->ntp_status, ext_soh->gnss_status, ext_soh->gps_lock, ext_soh->satellite_num,
+		stainfo->sta, GEN_EXT_STATUS_STRING(ext_soh->sensor_status), _cpu_temp, _ext_volt, _int_volt, _rtc_battery,
+		stainfo->sta, GEN_EXT_STATUS_STRING(ext_soh->ntp_status), GEN_EXT_STATUS_STRING(ext_soh->gnss_status),
+		GEN_EXT_STATUS_STRING(ext_soh->gps_lock), ext_soh->satellite_num,
 		stainfo->sta, ext_soh->latitude, ext_soh->longitude
 	);
 

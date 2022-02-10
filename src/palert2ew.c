@@ -333,12 +333,13 @@ int main ( int argc, char **argv )
 		/* Process the raw packet */
 			if ( msg_logo.type == TypePalertRaw ) {
 				count++;
+				msg_size -= (uint8_t *)(&data_ptr->data) - (uint8_t *)data_ptr;
 			/* Put the raw data to the raw ring */
 				if ( RawOutputSwitch ) {
 					if (
 						tport_putmsg(
 							&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO],
-							PALERTMODE1_PACKET_LENGTH, (char *)(&data_ptr->data)
+							msg_size, (char *)(&data_ptr->data)
 						) != PUT_OK
 					) {
 						logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[RAW_MSG_LOGO]);
