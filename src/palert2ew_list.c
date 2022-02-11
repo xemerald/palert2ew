@@ -161,7 +161,7 @@ void *pa2ew_list_root_reg( void *root )
 	Root = root;
 	RootTimestamp = pa2ew_misc_timenow_get();
 /* Free the old one */
-	sleep_ew(4000);
+	sleep_ew(2000);
 	pa2ew_list_root_destroy( _root );
 
 	return (void *)Root;
