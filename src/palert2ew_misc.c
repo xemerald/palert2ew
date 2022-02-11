@@ -4,13 +4,14 @@
 /* Standard C header include */
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 /* Earthworm environment header include */
 #include <trace_buf.h>
 
 /*
- * trh2_enrich() -
+ * pa2ew_misc_trh2_enrich() -
  */
-TRACE2_HEADER *trh2_enrich(
+TRACE2_HEADER *pa2ew_misc_trh2_enrich(
 	TRACE2_HEADER *dest, const char *sta, const char *net, const char *loc,
 	const int nsamp, const double samprate, const double starttime
 ) {
@@ -40,4 +41,19 @@ TRACE2_HEADER *trh2_enrich(
 #endif
 
 	return dest;
+}
+
+/*
+ *
+ */
+double pa2ew_misc_timenow_get( void )
+{
+	struct timespec time_sp;
+	double          result = 0.0;
+
+/* */
+	clock_gettime(CLOCK_REALTIME_COARSE, &time_sp);
+	result = (double)time_sp.tv_sec + (double)time_sp.tv_nsec * 1.0e-9;
+
+	return result;
 }

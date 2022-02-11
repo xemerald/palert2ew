@@ -7,13 +7,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <time.h>
 /* Network related header include */
 #include <sys/epoll.h>
 /* Earthworm environment header include */
 #include <earthworm.h>
 /* Local header include */
 #include <palert2ew.h>
+#include <palert2ew_misc.h>
 #include <palert2ew_ext.h>
 #include <palert2ew_list.h>
 #include <palert2ew_msg_queue.h>
@@ -95,14 +95,15 @@ void pa2ew_server_ext_end( void )
 int pa2ew_server_ext_conn_check( void )
 {
 	int          i, result = 0;
-	time_t       time_now;
+	double       time_now;
 	CONNDESCRIP *conn = PalertConnsExt;
 
 /* */
 	if ( conn != NULL ) {
+		time_now = pa2ew_misc_timenow_get();
 		for ( i = 0; i < MaxStationNum; i++, conn++ ) {
 			if ( conn->sock != -1 ) {
-				if ( (time(&time_now) - conn->last_act) >= PA2EW_IDLE_THRESHOLD ) {
+				if ( (time_now - conn->last_act) > (double)PA2EW_IDLE_THRESHOLD ) {
 					logit(
 						"t", "palert2ew: Extension connection from %s idle over %d seconds, close connection!\n",
 						conn->ip, PA2EW_IDLE_THRESHOLD
@@ -184,7 +185,7 @@ int pa2ew_server_ext_conn_reset( const _STAINFO *staptr )
 int pa2ew_server_ext_proc( const int countindex, const int msec )
 {
 	int    i, nready;
-	time_t time_now;
+	double time_now;
 	_Bool  need_update = 0;
 /* */
 	int                  epoll  = ThreadSetsExt->epoll_fd;
@@ -195,14 +196,13 @@ int pa2ew_server_ext_proc( const int countindex, const int msec )
 
 /* Wait the epoll for msec minisec */
 	if ( (nready = epoll_wait(epoll, evts, MaxStationNum, msec)) ) {
-		time(&time_now);
+		time_now = pa2ew_misc_timenow_get();
 	/* There is some incoming data from socket */
 		for ( i = 0; i < nready; i++ ) {
 			if ( evts[i].events & EPOLLIN || evts[i].events & EPOLLRDHUP || evts[i].events & EPOLLERR ) {
 				int          ret  = 0;
 				CONNDESCRIP *conn = (CONNDESCRIP *)evts[i].data.ptr;
 			/* */
-				conn->last_act = time_now;
 				if ( (ret = recv(conn->sock, &buffer->recv_buffer, PA2EW_EXT_MAX_PACKET_SIZE, 0)) <= 0 ) {
 					printf(
 						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
@@ -212,6 +212,21 @@ int pa2ew_server_ext_proc( const int countindex, const int msec )
 				}
 				else {
 					if ( conn->staptr ) {
+					/* */
+						if ( conn->last_act < pa2ew_list_timestamp_get() ) {
+							_STAINFO *_staptr = pa2ew_list_find( exth->serial );
+							if ( conn->staptr != _staptr ) {
+								if ( _staptr != NULL ) {
+									_staptr->ext_conn = conn;
+								}
+								else {
+									pa2ew_server_pconnect_close( conn, epoll );
+									continue;
+								}
+								conn->staptr = _staptr;
+							}
+						}
+					/* */
 						if ( exth->ext_type != PA2EW_EXT_TYPE_HEARTBEAT && ret == (int)exth->length ) {
 							buffer->sptr = conn->staptr;
 							if ( pa2ew_msgqueue_enqueue( buffer, ret + offset, ExtLogo ) )
@@ -229,6 +244,10 @@ int pa2ew_server_ext_proc( const int countindex, const int msec )
 							pa2ew_server_pconnect_close( conn, epoll );
 						}
 						else {
+						/* */
+							if ( conn->staptr->ext_conn != NULL )
+								pa2ew_server_pconnect_close( conn->staptr->ext_conn, epoll );
+						/* */
 							conn->staptr->ext_conn = conn;
 							printf("palert2ew: Palert %s extension now online.\n", conn->staptr->sta);
 						}
@@ -242,6 +261,8 @@ int pa2ew_server_ext_proc( const int countindex, const int msec )
 						pa2ew_server_pconnect_close( conn, epoll );
 					}
 				}
+			/* */
+				conn->last_act = time_now;
 			}
 		}
 	}

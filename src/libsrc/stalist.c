@@ -14,8 +14,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
-
+#include <mysql.h>
 /* Local header include */
+#include <dbinfo.h>
 #include <stalist.h>
 
 /* Internal functions' prototype */

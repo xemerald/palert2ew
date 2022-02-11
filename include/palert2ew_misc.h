@@ -1,5 +1,5 @@
 /*
- * trh2_enrich.h
+ * palert2ew_misc.h
  *
  * Header file for enrich tracebuf 2 header.
  *
@@ -15,6 +15,8 @@
 #include <trace_buf.h>
 
 /* Function prototype */
-TRACE2_HEADER *trh2_enrich(
+TRACE2_HEADER *pa2ew_misc_trh2_enrich(
 	TRACE2_HEADER *, const char *, const char *, const char *, const int, const double, const double
 );
+
+double pa2ew_misc_timenow_get( void );

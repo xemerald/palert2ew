@@ -7,7 +7,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <time.h>
 /* Network related header include */
 #include <netdb.h>
 #include <sys/socket.h>
@@ -18,6 +17,7 @@
 #include <earthworm.h>
 /* Local header include */
 #include <palert2ew.h>
+#include <palert2ew_misc.h>
 #include <palert2ew_list.h>
 #include <palert2ew_server.h>
 #include <palert2ew_msg_queue.h>
@@ -123,15 +123,17 @@ int pa2ew_server_palerts_accept( const int msec )
  */
 int pa2ew_server_conn_check( void )
 {
-	int          i, result = 0;
-	time_t       time_now;
-	CONNDESCRIP *conn = PalertConns;
+	int            i, result = 0;
+	double         time_now;
+	CONNDESCRIP   *conn = PalertConns;
 
 /* */
 	if ( conn != NULL ) {
+	/* */
+		time_now = pa2ew_misc_timenow_get();
 		for ( i = 0; i < MaxStationNum; i++, conn++ ) {
 			if ( conn->sock != -1 ) {
-				if ( (time(&time_now) - conn->last_act) >= PA2EW_IDLE_THRESHOLD ) {
+				if ( (time_now - conn->last_act) > (double)PA2EW_IDLE_THRESHOLD ) {
 					logit(
 						"t", "palert2ew: Connection from %s idle over %d seconds, close connection!\n",
 						conn->ip, PA2EW_IDLE_THRESHOLD
@@ -213,7 +215,7 @@ CONNDESCRIP pa2ew_server_common_accept( const int sock )
 		break;
 	}
 /* */
-	time(&result.last_act);
+	result.last_act = pa2ew_misc_timenow_get();
 
 	return result;
 }
@@ -230,7 +232,7 @@ void pa2ew_server_pconnect_close( CONNDESCRIP *conn, const int epoll )
 		tmpev.data.ptr = conn;
 	/* Raw connection */
 		epoll_ctl(epoll, EPOLL_CTL_DEL, conn->sock, &tmpev);
-		if ( staptr != NULL ) {
+		if ( staptr != NULL && conn->last_act > pa2ew_list_timestamp_get() ) {
 			if ( conn == (CONNDESCRIP *)staptr->raw_conn )
 				staptr->raw_conn = NULL;
 			else
@@ -250,7 +252,7 @@ void pa2ew_server_pconnect_close( CONNDESCRIP *conn, const int epoll )
 int pa2ew_server_proc( const int countindex, const int msec )
 {
 	int    i, nready;
-	time_t time_now;
+	double time_now;
 	_Bool  need_update = 0;
 /* */
 	int                  epoll  = ThreadSets[countindex].epoll_fd;
@@ -260,14 +262,13 @@ int pa2ew_server_proc( const int countindex, const int msec )
 
 /* Wait the epoll for msec minisec */
 	if ( (nready = epoll_wait(epoll, evts, PA2EW_MAX_PALERTS_PER_THREAD, msec)) ) {
-		time(&time_now);
+		time_now = pa2ew_misc_timenow_get();
 	/* There is some incoming data from socket */
 		for ( i = 0; i < nready; i++ ) {
 			if ( evts[i].events & EPOLLIN || evts[i].events & EPOLLRDHUP || evts[i].events & EPOLLERR ) {
 				int          ret  = 0;
 				CONNDESCRIP *conn = (CONNDESCRIP *)evts[i].data.ptr;
 			/* */
-				conn->last_act = time_now;
 				if ( (ret = recv(conn->sock, buffer->recv_buffer, PA2EW_RECV_BUFFER_LENGTH, 0)) <= 0 ) {
 					printf(
 						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
@@ -277,6 +278,21 @@ int pa2ew_server_proc( const int countindex, const int msec )
 				}
 				else {
 					if ( conn->staptr ) {
+					/* */
+						if ( conn->last_act < pa2ew_list_timestamp_get() ) {
+							_STAINFO *_staptr = pa2ew_list_find( palert_get_serial_common( buffer->recv_buffer ) );
+							if ( conn->staptr != _staptr ) {
+								if ( _staptr != NULL ) {
+									_staptr->raw_conn = conn;
+									pa2ew_msgqueue_lbuffer_reset( _staptr );
+								}
+								else {
+									pa2ew_server_pconnect_close( conn, epoll );
+									continue;
+								}
+								conn->staptr = _staptr;
+							}
+						}
 					/* Process message */
 						buffer->sptr = conn->staptr;
 						if ( pa2ew_msgqueue_rawpacket( buffer, ret + offset, conn->packet_type ) ) {
@@ -308,6 +324,10 @@ int pa2ew_server_proc( const int countindex, const int msec )
 								pa2ew_server_pconnect_close( conn, epoll );
 							}
 							else {
+							/* */
+								if ( conn->staptr->raw_conn != NULL )
+									pa2ew_server_pconnect_close( conn->staptr->raw_conn, epoll );
+							/* */
 								conn->staptr->raw_conn = conn;
 								conn->packet_type      = palert_get_packet_type_common( buffer->recv_buffer );
 								pa2ew_msgqueue_lbuffer_reset( conn->staptr );
@@ -324,6 +344,8 @@ int pa2ew_server_proc( const int countindex, const int msec )
 						pa2ew_server_pconnect_close( conn, epoll );
 					}
 				}
+			/* */
+				conn->last_act = time_now;
 			}
 		}
 	}

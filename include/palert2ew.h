@@ -14,6 +14,7 @@
 /* */
 #include <stdint.h>
 /* */
+#include <libmseed.h>
 #include <trace_buf.h>
 /* */
 #include <palert.h>
@@ -63,3 +64,13 @@ typedef struct {
 	char    chan[TRACE2_CHAN_LEN];
 	double  last_endtime;
 } _CHAINFO;
+
+/* Streamline mini-SEED data record structures */
+typedef struct {
+	struct fsdh_s fsdh;
+	uint16_t blkt_type;
+	uint16_t next_blkt;
+	struct blkt_1000_s blkt1000;
+	uint8_t smsrlength[2];
+	uint8_t reserved[6];
+} SMSRECORD;

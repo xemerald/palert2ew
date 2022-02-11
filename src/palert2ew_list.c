@@ -6,12 +6,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
+#include <stdint.h>
 #include <ctype.h>
 /* */
 #include <earthworm.h>
 /* */
+#include <palert2ew_misc.h>
 #include <palert2ew_list.h>
+#include <palert2ew_msg_queue.h>
 
 /* Internal functions' prototypes */
 static int       fetch_list_sql( void **, const char *, const char *, const DBINFO * );
@@ -30,8 +32,9 @@ static int  extract_chainfo_mysql( char *[], MYSQL_RES * );
 #endif
 
 /* Global variables */
-static volatile void *Root          = NULL;       /* Root of serial binary tree */
-static volatile int   TotalStations = 0;
+static volatile void  *Root          = NULL;       /* Root of serial binary tree */
+static volatile int    TotalStations = 0;
+static volatile double RootTimestamp = 0;
 
 /*
  * pa2ew_list_db_fetch() -
@@ -152,12 +155,13 @@ int pa2ew_list_station_line_parse( void **root, const char *line )
  */
 void *pa2ew_list_root_reg( void *root )
 {
-	void *_root = (void *)Root;
+	void  *_root = (void *)Root;
 
 /* Switch the tree's root */
 	Root = root;
+	RootTimestamp = pa2ew_misc_timenow_get();
 /* Free the old one */
-	sleep_ew(500);
+	sleep_ew(4000);
 	pa2ew_list_root_destroy( _root );
 
 	return (void *)Root;
@@ -172,6 +176,14 @@ void pa2ew_list_root_destroy( void *root )
 		tdestroy(root, free_stainfo);
 
 	return;
+}
+
+/*
+ * pa2ew_list_timestamp_get() -
+ */
+double pa2ew_list_timestamp_get( void )
+{
+	return RootTimestamp;
 }
 
 #if defined( _USE_SQL )
@@ -404,13 +416,10 @@ static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, cons
 static void cal_total_stations( const void *nodep, const VISIT which, const int depth )
 {
 	switch ( which ) {
-	case postorder:
-	case leaf:
+	case postorder: case leaf:
 		TotalStations++;
 		break;
-	case preorder:
-	case endorder:
-	default:
+	case preorder: case endorder: default:
 		break;
 	}
 
@@ -440,6 +449,7 @@ static void free_stainfo( void *node )
 {
 	_STAINFO *stainfo = (_STAINFO *)node;
 
+	pa2ew_msgqueue_lbuffer_reset( stainfo );
 	free(stainfo->chaptr);
 	free(stainfo);
 

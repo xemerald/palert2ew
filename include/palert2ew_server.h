@@ -23,7 +23,7 @@ typedef struct {
 	char      ip[INET6_ADDRSTRLEN];
 	uint8_t   sync_errors;
 	uint16_t  packet_type;
-	time_t    last_act;
+	double    last_act;
 	_STAINFO *staptr;
 } CONNDESCRIP;
 

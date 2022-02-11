@@ -13,8 +13,8 @@
 #include <transport.h>
 #include <trace_buf.h>
 /* */
-#include <trh2_enrich.h>
 #include <palert2ew.h>
+#include <palert2ew_misc.h>
 #include <palert2ew_list.h>
 #include <palert2ew_ext.h>
 #include <palert2ew_server_ext.h>
@@ -44,7 +44,7 @@ thr_ret pa2ew_ext_rt_req_thread( void *arg )
 /* */
 	int    retry_times = 0;
 	char   request[32] = { 0 };
-	time_t timestamp   = 0.0;
+	time_t timestamp   = 0;
 
 /* */
 	for ( ext_arg = _req_queue; ext_arg->chaptr != NULL; ext_arg++ ) {
@@ -224,7 +224,7 @@ static int32_t *copydata_tracebuf_rt( int32_t *buffer, const EXT_RT_PACKET *rt_p
 static TRACE2_HEADER *enrich_trh2_rt(
 	TRACE2_HEADER *trh2, const _STAINFO *staptr, const EXT_RT_PACKET *rt_packet, const int uni_samprate
 ) {
-	return trh2_enrich(
+	return pa2ew_misc_trh2_enrich(
 		trh2, staptr->sta, staptr->net, staptr->loc, rt_packet->nsamp,
 		uni_samprate ? (double)uni_samprate : (double)rt_packet->samprate,
 		rt_packet->timestamp

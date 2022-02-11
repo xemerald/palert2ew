@@ -22,8 +22,8 @@
 #include <lockfile.h>
 #include <libmseed.h>
 /* Local header include */
-#include <trh2_enrich.h>
 #include <palert2ew.h>
+#include <palert2ew_misc.h>
 #include <palert2ew_ext.h>
 #include <palert2ew_list.h>
 #include <palert2ew_client.h>
@@ -179,8 +179,7 @@ int main ( int argc, char **argv )
 	palert2ew_config( argv[1] );
 	logit("" , "%s: Read command file <%s>\n", argv[0], argv[1]);
 /* Read the station list from remote database */
-	if ( pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo ) == -1 )
-		exit(-1);
+	pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo );
 	pa2ew_list_root_reg( (void *)_Root );
 	if ( !(i = pa2ew_list_total_station()) ) {
 		fprintf(stderr, "There is not any station in the list after fetching, exiting!\n");
@@ -548,8 +547,10 @@ static void palert2ew_config( char *configfile )
 			else if( k_its("SQLHost") ) {
 				str = k_str();
 				if ( str ) strcpy(DBInfo.host, str);
+#if defined( _USE_SQL )
 				for ( i = 9; i < 14; i++ )
 					init[i] = 0;
+#endif
 			}
 		/* 9 */
 			else if( k_its("SQLPort") ) {
@@ -896,7 +897,7 @@ static thr_ret receiver_server_thread( void *arg )
 /* Tell the main thread we're ok */
 	MessageReceiverStatus[countindex] = THREAD_ALIVE;
 /* */
-	if ( countindex < (ReceiverThreadsNum - 1) )
+	if ( countindex < (ReceiverThreadsNum - (ExtFuncSwitch ? 1 : 0)) )
 		proc_func = pa2ew_server_proc;
 	else
 		proc_func = pa2ew_server_ext_proc;
@@ -938,8 +939,8 @@ static thr_ret update_list_thread( void *arg )
 		}
 		else {
 			if ( root != NULL ) {
-				logit("o", "palert2ew: Successfully updated the Palert list!\n");
 				pa2ew_list_root_reg( root );
+				logit("o", "palert2ew: Successfully updated the Palert list(%.6lf)!\n", pa2ew_list_timestamp_get());
 				logit(
 					"o", "palert2ew: There are total %d stations in the new Palert list.\n", pa2ew_list_total_station()
 				);
@@ -1043,7 +1044,7 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
 				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
 			}
-			else if ( ExtFuncSwitch ) {
+			else if ( ExtFuncSwitch && stainfo->ext_conn ) {
 			/* */
 				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) ) {
 					pa2ew_ext_req_queue_insert(
@@ -1066,15 +1067,6 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 	return;
 }
 
-/* Streamline mini-SEED data record structures */
-typedef struct {
-	struct fsdh_s fsdh;
-	uint16_t blkt_type;
-	uint16_t next_blkt;
-	struct blkt_1000_s blkt1000;
-	uint8_t smsrlength[2];
-	uint8_t reserved[6];
-} SMSRECORD;
 /*
  *
  */
@@ -1083,6 +1075,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 	int                 msg_size;
 	TracePacket         tracebuf;  /* message which is sent to share ring    */
 	_CHAINFO           *chaptr    = (_CHAINFO *)stainfo->chaptr;
+	_CHAINFO           *cha_last  = (_CHAINFO *)stainfo->chaptr + stainfo->nchannel;
 	void               *req_queue = NULL;
 	PALERTMODE4_HEADER *pah4      = (PALERTMODE4_HEADER *)&packet->pah;
 	uint8_t            *dataptr   = (uint8_t *)(pah4 + 1);
@@ -1109,7 +1102,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 			memcpy(msbuffer, dataptr, msrlength);
 			msr_parse((char *)msbuffer, msrlength, &msr, msrlength, 1, 0);
 
-			trh2_enrich(
+			pa2ew_misc_trh2_enrich(
 				&tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc,
 				msr->numsamples, msr->samprate, (double)(MS_HPTIME2EPOCH(msr->starttime))
 			);
@@ -1121,7 +1114,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
 				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
 			}
-			else if ( ExtFuncSwitch ) {
+			else if ( ExtFuncSwitch && stainfo->ext_conn ) {
 			/* */
 				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) ) {
 					pa2ew_ext_req_queue_insert(
@@ -1132,7 +1125,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 			}
 			chaptr->last_endtime = tracebuf.trh2.endtime;
 			chaptr++;
-		} while ( (dataptr += msrlength) < endptr );
+		} while ( (dataptr += msrlength) < endptr && chaptr < cha_last );
 
 	/* */
 		if ( ExtFuncSwitch && req_queue != NULL ) {
@@ -1184,7 +1177,7 @@ static int examine_ntp_sync( _STAINFO *stainfo, const void *header )
 static TRACE2_HEADER *enrich_trh2_pm1(
 	TRACE2_HEADER *trh2, const _STAINFO *staptr, const PALERTMODE1_HEADER *pah
 ) {
-	return trh2_enrich(
+	return pa2ew_misc_trh2_enrich(
 		trh2, staptr->sta, staptr->net, staptr->loc,
 		PALERTMODE1_SAMPLE_NUMBER,
 		UniSampRate ? (double)UniSampRate : (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah ),
