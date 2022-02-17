@@ -26,7 +26,6 @@
 #define PA2EW_NTP_SYNC_ERR_LIMIT  30
 /* */
 #define PA2EW_PALERT_PORT            "502"
-#define PA2EW_PALERT_EXT_PORT        "24000"
 #define PA2EW_MAX_PALERTS_PER_THREAD  512
 #define PA2EW_IDLE_THRESHOLD          120
 /* */
@@ -35,17 +34,29 @@
 #define PA2EW_RECV_NEED_UPDATE   -1
 #define PA2EW_RECV_CONNECT_ERROR -2
 #define PA2EW_RECV_FATAL_ERROR   -3
+/* */
+#define PA2EW_PALERT_EXT_PORT      "24000"
+#define PA2EW_PALERT_EXT_UNCHECK  -1
+#define PA2EW_PALERT_EXT_OFF       0
+#define PA2EW_PALERT_EXT_ON        1
+/* */
+typedef union {
+	void    *staptr;
+	uint16_t serial;
+} LABEL;
 
 /* */
 typedef struct {
 /* */
-	void   *sptr;
+	LABEL   label;
 	uint8_t recv_buffer[PA2EW_RECV_BUFFER_LENGTH];
 } LABELED_RECV_BUFFER;
 
 /* Station info related struct */
 typedef struct {
-	uint8_t  ntp_errors;;
+	uint8_t  update;
+	uint8_t  ntp_errors;
+	int8_t   ext_flag;
 	char     sta[TRACE2_STA_LEN];
 	char     net[TRACE2_NET_LEN];
 	char     loc[TRACE2_LOC_LEN];
@@ -53,9 +64,6 @@ typedef struct {
 	uint16_t nchannel;
 /* */
 	void *chaptr;
-	void *msg_buffer;
-	void *raw_conn;
-	void *ext_conn;
 } _STAINFO;
 
 /* */

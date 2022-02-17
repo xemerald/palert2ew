@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <search.h>
 #include <unistd.h>
 #include <errno.h>
 /* Network related header include */
@@ -25,6 +26,8 @@
 /* Internal function prototype */
 static int construct_listen_sock( const char * );
 static int accept_palert_raw( void );
+static int find_which_station( void *, CONNDESCRIP *, int );
+static int compare_serial( const void *, const void * );
 static int eval_threadnum( int );
 
 /* Define global variables */
@@ -81,7 +84,7 @@ void pa2ew_server_end( void )
 /* Closing connections of Palerts */
 	if ( PalertConns != NULL ) {
 		for ( i = 0; i < MaxStationNum; i++ )
-			pa2ew_server_pconnect_close( (PalertConns + i), ThreadSets[i % ThreadsNumber].epoll_fd );
+			pa2ew_server_common_pconnect_close( (PalertConns + i), ThreadSets[i % ThreadsNumber].epoll_fd );
 		free(PalertConns);
 	}
 /* Free epoll & readevts */
@@ -93,6 +96,16 @@ void pa2ew_server_end( void )
 		}
 		free(ThreadSets);
 	}
+
+	return;
+}
+
+/*
+ *
+ */
+void pa2ew_server_pconnect_walk( void (*action)(const void *, const int, void *), void *arg )
+{
+	pa2ew_server_common_pconnect_walk( PalertConns, MaxStationNum, action, arg );
 
 	return;
 }
@@ -119,9 +132,9 @@ int pa2ew_server_palerts_accept( const int msec )
 }
 
 /*
- * pa2ew_server_conn_check() - Check connections of all Palerts.
+ * pa2ew_server_pconnect_check() - Check connections of all Palerts.
  */
-int pa2ew_server_conn_check( void )
+int pa2ew_server_pconnect_check( void )
 {
 	int            i, result = 0;
 	double         time_now;
@@ -138,15 +151,23 @@ int pa2ew_server_conn_check( void )
 						"t", "palert2ew: Connection from %s idle over %d seconds, close connection!\n",
 						conn->ip, PA2EW_IDLE_THRESHOLD
 					);
-					pa2ew_server_pconnect_close( conn, ThreadSets[i % ThreadsNumber].epoll_fd );
+					pa2ew_server_common_pconnect_close( conn, ThreadSets[i % ThreadsNumber].epoll_fd );
 				}
-				if ( conn->staptr )
+				if ( conn->label.serial )
 					result++;
 			}
 		}
 	}
 
 	return result;
+}
+
+/*
+ * pa2ew_server_pconnect_find()
+ */
+CONNDESCRIP *pa2ew_server_pconnect_find( const uint16_t serial )
+{
+	return pa2ew_server_common_pconnect_find( PalertConns, MaxStationNum, serial );
 }
 
 /*
@@ -221,23 +242,49 @@ CONNDESCRIP pa2ew_server_common_accept( const int sock )
 }
 
 /*
- * pa2ew_server_pconnect_close() - Close the connect of the Palert.
+ * pa2ew_server_common_pconnect_walk() -
  */
-void pa2ew_server_pconnect_close( CONNDESCRIP *conn, const int epoll )
+void pa2ew_server_common_pconnect_walk(
+	const CONNDESCRIP *conn, const int conn_num, void (*action)(const void *, const int, void *), void *arg
+) {
+	int i;
+
+	if ( conn && conn_num ) {
+		for ( i = 0; i < conn_num; i++ )
+			action( conn + i, i, arg );
+	}
+
+	return;
+}
+
+/*
+ * pa2ew_server_common_pconnect_find() -
+ */
+CONNDESCRIP *pa2ew_server_common_pconnect_find( const CONNDESCRIP *conn, const int conn_num, const uint16_t serial )
+{
+	CONNDESCRIP *result = NULL;
+	CONNDESCRIP  key;
+	size_t       num = conn_num;
+
+	if ( conn && num ) {
+		key.label.serial = serial;
+		result = lfind(&key, conn, &num, sizeof(CONNDESCRIP), compare_serial);
+	}
+
+	return result;
+}
+
+/*
+ * pa2ew_server_common_pconnect_close() - Close the connect of the Palert.
+ */
+void pa2ew_server_common_pconnect_close( CONNDESCRIP *conn, const int epoll )
 {
 	if ( conn->sock != -1 ) {
 		struct epoll_event tmpev;
-		_STAINFO *staptr = (_STAINFO *)conn->staptr;
 		tmpev.events   = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLET;
 		tmpev.data.ptr = conn;
 	/* Raw connection */
 		epoll_ctl(epoll, EPOLL_CTL_DEL, conn->sock, &tmpev);
-		if ( staptr != NULL && conn->last_act > pa2ew_list_timestamp_get() ) {
-			if ( conn == (CONNDESCRIP *)staptr->raw_conn )
-				staptr->raw_conn = NULL;
-			else
-				staptr->ext_conn = NULL;
-		}
 	/* */
 		close(conn->sock);
 		RESET_CONNDESCRIP( conn );
@@ -274,34 +321,19 @@ int pa2ew_server_proc( const int countindex, const int msec )
 						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
 						conn->ip, ret, errno, strerror(errno)
 					);
-					pa2ew_server_pconnect_close( conn, epoll );
+					pa2ew_server_common_pconnect_close( conn, epoll );
 				}
 				else {
-					if ( conn->staptr ) {
-					/* */
-						if ( conn->last_act < pa2ew_list_timestamp_get() ) {
-							_STAINFO *_staptr = pa2ew_list_find( palert_get_serial_common( buffer->recv_buffer ) );
-							if ( conn->staptr != _staptr ) {
-								if ( _staptr != NULL ) {
-									_staptr->raw_conn = conn;
-									pa2ew_msgqueue_lbuffer_reset( _staptr );
-								}
-								else {
-									pa2ew_server_pconnect_close( conn, epoll );
-									continue;
-								}
-								conn->staptr = _staptr;
-							}
-						}
-					/* Process message */
-						buffer->sptr = conn->staptr;
+					if ( conn->label.serial ) {
+					/* Just send it to the main queue */
+						buffer->label.serial = conn->label.serial;
 						if ( pa2ew_msgqueue_rawpacket( buffer, ret + offset, conn->packet_type ) ) {
 							if ( ++conn->sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
 								logit(
-									"e","palert2ew: Palert %s TCP connection sync error, close connection!\n",
-									conn->staptr->sta
+									"e","palert2ew: Palert %d TCP connection sync error, close connection!\n",
+									conn->label.serial
 								);
-								pa2ew_server_pconnect_close( conn, epoll );
+								pa2ew_server_common_pconnect_close( conn, epoll );
 							}
 						}
 						else {
@@ -311,28 +343,10 @@ int pa2ew_server_proc( const int countindex, const int msec )
 					else if ( ret >= 200 ) {
 						if ( !palert_check_sync_common( buffer->recv_buffer ) ) {
 							printf("palert2ew: Palert IP:%s sync failure, close connection!\n", conn->ip);
-							pa2ew_server_pconnect_close( conn, epoll );
+							pa2ew_server_common_pconnect_close( conn, epoll );
 						}
 						else {
-						/* Find which Palert */
-							uint16_t serial = palert_get_serial_common( buffer->recv_buffer );
-							if ( (conn->staptr = pa2ew_list_find( serial )) == NULL ) {
-							/* Not found in Palert table */
-								printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", serial);
-							/* Drop the connection */
-								need_update = 1;
-								pa2ew_server_pconnect_close( conn, epoll );
-							}
-							else {
-							/* */
-								if ( conn->staptr->raw_conn != NULL )
-									pa2ew_server_pconnect_close( conn->staptr->raw_conn, epoll );
-							/* */
-								conn->staptr->raw_conn = conn;
-								conn->packet_type      = palert_get_packet_type_common( buffer->recv_buffer );
-								pa2ew_msgqueue_lbuffer_reset( conn->staptr );
-								printf("palert2ew: Palert %s now online.\n", conn->staptr->sta);
-							}
+							need_update = find_which_station( buffer, conn, epoll );
 						}
 					}
 					else {
@@ -341,7 +355,7 @@ int pa2ew_server_proc( const int countindex, const int msec )
 							"palert2ew: Palert IP:%s send data not enough to check, close connection!\n",
 							conn->ip
 						);
-						pa2ew_server_pconnect_close( conn, epoll );
+						pa2ew_server_common_pconnect_close( conn, epoll );
 					}
 				}
 			/* */
@@ -454,6 +468,54 @@ static int accept_palert_raw( void )
 	}
 
 	return 0;
+}
+
+/*
+ *
+ */
+static int find_which_station( void *buffer, CONNDESCRIP *conn, int epoll )
+{
+	int       result = 0;
+	uint16_t  serial = palert_get_serial_common( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
+	_STAINFO *staptr = pa2ew_list_find( serial );
+/* */
+	if ( !staptr ) {
+	/* Not found in Palert table */
+		printf("palert2ew: S/N %d not found in station list, maybe it's a new palert.\n", serial);
+		result = -1;
+	/* Drop the connection */
+		pa2ew_server_common_pconnect_close( conn, epoll );
+	}
+	else {
+	/* Checking for existing connection with the same serial...*/
+		CONNDESCRIP *_conn = pa2ew_server_common_pconnect_find( PalertConns, MaxStationNum, serial );
+		if ( _conn ) {
+			int i = (_conn - PalertConns) % ThreadsNumber;
+			pa2ew_server_common_pconnect_close( _conn, ThreadSets[i].epoll_fd );
+		}
+	/* */
+		conn->label.serial = staptr->serial;
+		conn->packet_type  = palert_get_packet_type_common( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
+		printf("palert2ew: Palert %s now online.\n", staptr->sta);
+	}
+
+	return result;
+}
+
+/*
+ * compare_serial() - reverse version of compare function.
+ */
+static int compare_serial( const void *node_a, const void *node_b )
+{
+	int serial_a = ((CONNDESCRIP *)node_a)->label.serial;
+	int serial_b = ((CONNDESCRIP *)node_b)->label.serial;
+
+	if ( serial_a > serial_b )
+		return -1;
+	else if ( serial_a < serial_b )
+		return 1;
+	else
+		return 0;
 }
 
 /*

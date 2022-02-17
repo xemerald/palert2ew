@@ -84,18 +84,9 @@ typedef union {
 } PalertExtPacket;
 
 /* */
-typedef struct {
-	_STAINFO   *staptr;
-	_CHAINFO   *chaptr;
-	double      lastend;
-	double      starttime;
-	double      endtime;
-} __EXT_COMMAND_ARG;
-
-/**/
 thr_ret pa2ew_ext_rt_req_thread( void * );
 thr_ret pa2ew_ext_soh_req_thread( void * );
 int     pa2ew_ext_rt_packet_process( void *, PalertExtPacket *, _STAINFO *, const int );
 int     pa2ew_ext_soh_packet_process( void *, PalertExtPacket *, _STAINFO * );
-/* */
-__EXT_COMMAND_ARG *pa2ew_ext_req_queue_insert( void **, _STAINFO *, _CHAINFO *, double, double, double );
+void   *pa2ew_ext_req_queue_insert( void **, _STAINFO *, _CHAINFO *, double, double, double );
+int     pa2ew_ext_flag_check( _STAINFO * );

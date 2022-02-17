@@ -21,6 +21,7 @@
 
 /* Internal function prototype */
 static int accept_palert_ext( void );
+static int find_which_station( const uint16_t, CONNDESCRIP *, int );
 
 /* Define global variables */
 extern volatile int       MaxStationNum;
@@ -35,28 +36,27 @@ static MSG_LOGO           ExtLogo         = { 0 };
  * pa2ew_server_ext_init() - Initialize the independent Palert extension server &
  *                           return the needed threads number.
  */
-int pa2ew_server_ext_init( const char *port, const MSG_LOGO ext_logo )
+int pa2ew_server_ext_init( const int max_stations, const char *port, const MSG_LOGO ext_logo )
 {
 /* Check the constants */
-	if ( MaxStationNum && AcceptEpoll ) {
-		ThreadSetsExt = calloc(1, sizeof(PALERT_THREAD_SET));
-	/* Construct the accept socket for retransmission */
-		ThreadSetsExt->epoll_fd = epoll_create(MaxStationNum);
-		ThreadSetsExt->buffer   = calloc(1, sizeof(LABELED_RECV_BUFFER));
-		ThreadSetsExt->evts     = calloc(MaxStationNum, sizeof(struct epoll_event));
-	/* */
-		AcceptSocketExt = pa2ew_server_common_init(
-			MaxStationNum, port, AcceptEpoll, &PalertConnsExt, accept_palert_ext
-		);
-		if ( AcceptSocketExt <= 0 )
-			return -2;
-	/* */
-		ExtLogo = ext_logo;
+	if ( !MaxStationNum || !AcceptEpoll ) {
+		MaxStationNum = max_stations;
+		AcceptEpoll   = epoll_create(1);
 	}
-	else {
-		logit("e", "palert2ew: The raw Palert server has not been initiated yet!\n");
+/* */
+	ThreadSetsExt = calloc(1, sizeof(PALERT_THREAD_SET));
+/* Construct the accept socket for retransmission */
+	ThreadSetsExt->epoll_fd = epoll_create(MaxStationNum);
+	ThreadSetsExt->buffer   = calloc(1, sizeof(LABELED_RECV_BUFFER));
+	ThreadSetsExt->evts     = calloc(MaxStationNum, sizeof(struct epoll_event));
+/* */
+	AcceptSocketExt = pa2ew_server_common_init(
+		MaxStationNum, port, AcceptEpoll, &PalertConnsExt, accept_palert_ext
+	);
+	if ( AcceptSocketExt <= 0 )
 		return -1;
-	}
+/* */
+	ExtLogo = ext_logo;
 
 	return 1;
 }
@@ -75,7 +75,7 @@ void pa2ew_server_ext_end( void )
 /* Closing connections of Palerts */
 	if ( PalertConnsExt != NULL ) {
 		for ( i = 0; i < MaxStationNum; i++ )
-			pa2ew_server_pconnect_close( (PalertConnsExt + i), ThreadSetsExt->epoll_fd );
+			pa2ew_server_common_pconnect_close( (PalertConnsExt + i), ThreadSetsExt->epoll_fd );
 		free(PalertConnsExt);
 	}
 /* Free epoll & readevts */
@@ -90,9 +90,19 @@ void pa2ew_server_ext_end( void )
 }
 
 /*
- * pa2ew_server_ext_conn_check() - Check connections of all Palerts.
+ *
  */
-int pa2ew_server_ext_conn_check( void )
+void pa2ew_server_ext_pconnect_walk( void (*action)(const void *, const int, void *), void *arg )
+{
+	pa2ew_server_common_pconnect_walk( PalertConnsExt, MaxStationNum, action, arg );
+
+	return;
+}
+
+/*
+ * pa2ew_server_ext_pconnect_check() - Check connections of all Palerts.
+ */
+int pa2ew_server_ext_pconnect_check( void )
 {
 	int          i, result = 0;
 	double       time_now;
@@ -108,9 +118,9 @@ int pa2ew_server_ext_conn_check( void )
 						"t", "palert2ew: Extension connection from %s idle over %d seconds, close connection!\n",
 						conn->ip, PA2EW_IDLE_THRESHOLD
 					);
-					pa2ew_server_pconnect_close( conn, ThreadSetsExt->epoll_fd );
+					pa2ew_server_common_pconnect_close( conn, ThreadSetsExt->epoll_fd );
 				}
-				if ( conn->staptr )
+				if ( conn->label.serial )
 					result++;
 			}
 		}
@@ -120,59 +130,33 @@ int pa2ew_server_ext_conn_check( void )
 }
 
 /*
- *
+ * pa2ew_server_ext_pconnect_find()
  */
-int pa2ew_server_ext_req_send( const _STAINFO *staptr, const char *request, const int req_length )
+CONNDESCRIP *pa2ew_server_ext_pconnect_find( const uint16_t serial )
 {
-	int result = -1;
-	CONNDESCRIP *conn = NULL;
-
-/* */
-	if ( staptr != NULL ) {
-		conn = (CONNDESCRIP *)staptr->ext_conn;
-		if ( conn != NULL && conn->sock > 0 ) {
-			if ( send(conn->sock, request, req_length, 0) == req_length ) {
-				result = 0;
-			}
-			else {
-				logit(
-					"e", "palert2ew: Error sending the extension request to station %s; close connection!\n",
-					staptr->sta
-				);
-				result = -2;
-				pa2ew_server_pconnect_close( conn, ThreadSetsExt->epoll_fd );
-			}
-		}
-	}
-
-	return result;
+	return pa2ew_server_common_pconnect_find( PalertConnsExt, MaxStationNum, serial );
 }
 
 /*
  *
  */
-int pa2ew_server_ext_conn_reset( const _STAINFO *staptr )
+int pa2ew_server_ext_req_send( CONNDESCRIP *conn, const char *request, const int req_length )
 {
-	CONNDESCRIP *conn   = NULL;
-	int          rtimes = PA2EW_EXT_CONNECT_RETRY_LIMIT;
-	int          result = -1;
+	int result = -1;
 
 /* */
-	if ( staptr != NULL ) {
-		conn = (CONNDESCRIP *)staptr->ext_conn;
-	/* */
-		if ( conn != NULL && conn->sock > 0 )
-			pa2ew_server_pconnect_close( conn, ThreadSetsExt->epoll_fd );
-	/* */
-		do {
-			sleep_ew(1000);
-			conn = (CONNDESCRIP *)staptr->ext_conn;
-		/* */
-			if ( conn != NULL && conn->sock == -1 ) {
-				result = conn->sock;
-				break;
-			}
-		} while ( --rtimes > 0 );
+	if ( conn != NULL && conn->sock > 0 ) {
+		if ( send(conn->sock, request, req_length, 0) == req_length ) {
+			result = 0;
+		}
+		else {
+			logit(
+				"e", "palert2ew: Error sending the extension request to S/N %s; close connection!\n",
+				conn->label.serial
+			);
+			result = -2;
+			pa2ew_server_common_pconnect_close( conn, ThreadSetsExt->epoll_fd );
+		}
 	}
 
 	return result;
@@ -208,49 +192,20 @@ int pa2ew_server_ext_proc( const int countindex, const int msec )
 						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
 						conn->ip, ret, errno, strerror(errno)
 					);
-					pa2ew_server_pconnect_close( conn, epoll );
+					pa2ew_server_common_pconnect_close( conn, epoll );
 				}
 				else {
-					if ( conn->staptr ) {
-					/* */
-						if ( conn->last_act < pa2ew_list_timestamp_get() ) {
-							_STAINFO *_staptr = pa2ew_list_find( exth->serial );
-							if ( conn->staptr != _staptr ) {
-								if ( _staptr != NULL ) {
-									_staptr->ext_conn = conn;
-								}
-								else {
-									pa2ew_server_pconnect_close( conn, epoll );
-									continue;
-								}
-								conn->staptr = _staptr;
-							}
-						}
+					if ( conn->label.serial ) {
 					/* */
 						if ( exth->ext_type != PA2EW_EXT_TYPE_HEARTBEAT && ret == (int)exth->length ) {
-							buffer->sptr = conn->staptr;
+							buffer->label.serial = conn->label.serial;
 							if ( pa2ew_msgqueue_enqueue( buffer, ret + offset, ExtLogo ) )
 								sleep_ew(100);
 						}
 					}
 					else if ( ret >= PA2EW_EXT_HEADER_SIZE ) {
 					/* Find which Palert */
-						uint16_t serial = exth->serial;
-						if ( (conn->staptr = pa2ew_list_find( serial )) == NULL ) {
-						/* Not found in Palert table */
-							printf("palert2ew: %d not found in station list, maybe it's a new palert.\n", serial);
-						/* Drop the connection */
-							need_update = 1;
-							pa2ew_server_pconnect_close( conn, epoll );
-						}
-						else {
-						/* */
-							if ( conn->staptr->ext_conn != NULL )
-								pa2ew_server_pconnect_close( conn->staptr->ext_conn, epoll );
-						/* */
-							conn->staptr->ext_conn = conn;
-							printf("palert2ew: Palert %s extension now online.\n", conn->staptr->sta);
-						}
+						need_update = find_which_station( exth->serial, conn, epoll );
 					}
 					else {
 					/* Cannot received the hearbeat packet, close connection */
@@ -258,7 +213,7 @@ int pa2ew_server_ext_proc( const int countindex, const int msec )
 							"palert2ew: Extension packet from Palert IP:%s is not heartbeat, close connection!\n",
 							conn->ip
 						);
-						pa2ew_server_pconnect_close( conn, epoll );
+						pa2ew_server_common_pconnect_close( conn, epoll );
 					}
 				}
 			/* */
@@ -309,4 +264,35 @@ static int accept_palert_ext( void )
 	}
 
 	return 0;
+}
+
+/*
+ *
+ */
+static int find_which_station( const uint16_t serial, CONNDESCRIP *conn, int epoll )
+{
+	int       result = 0;
+	_STAINFO *staptr = pa2ew_list_find( serial );
+
+/* */
+	if ( !staptr ) {
+	/* Not found in Palert table */
+		printf("palert2ew: S/N %d not found in station list, maybe it's a new palert.\n", serial);
+	/* Drop the connection */
+		result = -1;
+		pa2ew_server_common_pconnect_close( conn, epoll );
+	}
+	else {
+	/* Checking for existing connection with the same serial...*/
+		CONNDESCRIP *_conn = pa2ew_server_common_pconnect_find( PalertConnsExt, MaxStationNum, serial );
+		if ( _conn ) {
+			pa2ew_server_common_pconnect_close( _conn, epoll );
+		}
+	/* */
+		conn->label.serial = staptr->serial;
+		staptr->ext_flag   = PA2EW_PALERT_EXT_ON;
+		printf("palert2ew: Palert %s extension now online.\n", staptr->sta);
+	}
+
+	return result;
 }

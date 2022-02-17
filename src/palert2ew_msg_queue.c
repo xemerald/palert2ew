@@ -9,18 +9,28 @@
 #include <mem_circ_queue.h>
 /* Local header include */
 #include <palert2ew.h>
+#include <palert2ew_list.h>
 
+/* */
+#define RATIO_LBUF_SIZE_STATIONS  0.05
+#define MINIMUM_LBUF_SIZE         2
 
 /* Internal stack related struct */
 struct last_buffer {
+	uint16_t serial;
 	uint16_t buffer_rear;
 	uint8_t  buffer[PA2EW_RECV_BUFFER_LENGTH];
 };
 
 /* Define global variables */
-static pthread_mutex_t QueueMutex;
-static QUEUE           MsgQueue;         /* from queue.h, queue.c; sets up linked */
-static MSG_LOGO        RawLogo = { 0 };  /* Raw packet logo for module, type, instid */
+static mutex_t  QueueMutex;
+static QUEUE    MsgQueue;         /* from queue.h, queue.c; sets up linked */
+static MSG_LOGO RawLogo = { 0 };  /* Raw packet logo for module, type, instid */
+/* */
+static struct last_buffer *LastBuffer = NULL;
+static volatile int        LastBufferSize = 0;
+static volatile int        LastBufferInuse = 0;
+static mutex_t             LastBufferMutex;
 
 /* */
 static LABELED_RECV_BUFFER *merge_last_buffer( void *, size_t * );
@@ -28,6 +38,13 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t * );
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *, size_t * );
 static int validate_serial_pah1( const PALERTMODE1_HEADER *, const int );
 static int validate_serial_pah4( const PALERTMODE4_HEADER *, const int );
+/* */
+static struct last_buffer *init_last_buffers( const int );
+static struct last_buffer *adjust_last_buffers( const int );
+static struct last_buffer *sort_last_buffers( void );
+static struct last_buffer *reg_last_buffer( void * );
+static struct last_buffer *find_last_buffer( void * );
+static int compare_serial( const void *, const void * );
 
 /*
  * pa2ew_msgqueue_init() - Initialization function of message queue and mutex.
@@ -40,6 +57,8 @@ int pa2ew_msgqueue_init( const unsigned long queue_size, const unsigned long ele
 	initqueue( &MsgQueue, queue_size, element_size + 1 );
 /* */
 	RawLogo = raw_logo;
+/* */
+	init_last_buffers( pa2ew_list_total_station_get() );
 
 	return 0;
 }
@@ -49,7 +68,13 @@ int pa2ew_msgqueue_init( const unsigned long queue_size, const unsigned long ele
  */
 void pa2ew_msgqueue_end( void )
 {
+	RequestSpecificMutex(&LastBufferMutex);
+	free(LastBuffer);
+	ReleaseSpecificMutex(&LastBufferMutex);
+	CloseSpecificMutex(&LastBufferMutex);
+	RequestSpecificMutex(&QueueMutex);
 	freequeue(&MsgQueue);
+	ReleaseSpecificMutex(&QueueMutex);
 	CloseSpecificMutex(&QueueMutex);
 
 	return;
@@ -101,13 +126,14 @@ int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, const int packet_type )
 {
 	LABELED_RECV_BUFFER *lrbuf;
-	_STAINFO            *stainfo;
 	int                  sync_flag = 0;
 
 /* */
 	buf_len -= lrbuf->recv_buffer - (uint8_t *)lrbuf;
-	lrbuf    = merge_last_buffer( label_buf, &buf_len );
- 	stainfo  = (_STAINFO *)lrbuf->sptr;
+	RequestSpecificMutex(&LastBufferMutex);
+	lrbuf = merge_last_buffer( label_buf, &buf_len );
+	ReleaseSpecificMutex(&LastBufferMutex);
+
 /* */
 	if ( packet_type == 1 )
 		sync_flag = pre_enqueue_check_pah1( lrbuf, &buf_len );
@@ -115,17 +141,18 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, const int packet_
 		sync_flag = pre_enqueue_check_pah4( lrbuf, &buf_len );
 	else
 		buf_len = 0;
-/* */
+/* Try to store the remainder data into the buffer */
 	if ( buf_len ) {
-		struct last_buffer *_lastbuf = stainfo->msg_buffer;
+		RequestSpecificMutex(&LastBufferMutex);
+		struct last_buffer *_lastbuf = find_last_buffer( lrbuf );
 	/* */
-		if ( _lastbuf == NULL ) {
-			_lastbuf = (struct last_buffer *)malloc(sizeof(struct last_buffer));
-			stainfo->msg_buffer = _lastbuf;
-		}
+		if ( _lastbuf == NULL )
+			_lastbuf = reg_last_buffer( lrbuf );
 	/* */
 		_lastbuf->buffer_rear = buf_len;
 		memcpy(_lastbuf->buffer, lrbuf->recv_buffer, buf_len);
+		sort_last_buffers();
+		ReleaseSpecificMutex(&LastBufferMutex);
 	}
 /* */
 	if ( lrbuf != (LABELED_RECV_BUFFER *)label_buf )
@@ -137,49 +164,35 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, const int packet_
 /*
  *
  */
-void pa2ew_msgqueue_lbuffer_reset( _STAINFO *staptr )
-{
-	if ( staptr->msg_buffer != NULL ) {
-		free(staptr->msg_buffer);
-		staptr->msg_buffer = NULL;
-	}
-
-	return;
-}
-
-/*
- *
- */
 static LABELED_RECV_BUFFER *merge_last_buffer( void *label_buf, size_t *buf_len )
 {
-	LABELED_RECV_BUFFER *result  = (LABELED_RECV_BUFFER *)label_buf;
-	_STAINFO            *stainfo = (_STAINFO *)result->sptr;
-	struct last_buffer  *lastbuf = (struct last_buffer *)stainfo->msg_buffer;
+	LABELED_RECV_BUFFER *result   = (LABELED_RECV_BUFFER *)label_buf;
+	struct last_buffer  *_lastbuf = find_last_buffer( result );
 
 /* First, deal the remainder data from last packet */
-	if ( lastbuf != NULL && lastbuf->buffer_rear ) {
+	if ( _lastbuf != NULL && _lastbuf->buffer_rear ) {
 	/* */
-		if ( *buf_len + lastbuf->buffer_rear <= PA2EW_RECV_BUFFER_LENGTH ) {
-			memmove(result->recv_buffer + lastbuf->buffer_rear, result->recv_buffer, *buf_len);
-			memcpy(result->recv_buffer, lastbuf->buffer, lastbuf->buffer_rear);
+		if ( *buf_len + _lastbuf->buffer_rear <= PA2EW_RECV_BUFFER_LENGTH ) {
+			memmove(result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
+			memcpy(result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear);
 		}
 	/* */
 		else {
 			LABELED_RECV_BUFFER *_result =
-				(LABELED_RECV_BUFFER *)malloc(sizeof(LABELED_RECV_BUFFER) + lastbuf->buffer_rear);
+				(LABELED_RECV_BUFFER *)malloc(sizeof(LABELED_RECV_BUFFER) + _lastbuf->buffer_rear);
 
-			_result->sptr = result->sptr;
-			memcpy(_result->recv_buffer, lastbuf->buffer, lastbuf->buffer_rear);
-			memcpy(_result->recv_buffer + lastbuf->buffer_rear, result->recv_buffer, *buf_len);
+			_result->label.serial = result->label.serial;
+			memcpy(_result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear);
+			memcpy(_result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
 			result = _result;
 		}
 	/* */
-		*buf_len += lastbuf->buffer_rear;
-		lastbuf->buffer_rear = 0;
+		*buf_len += _lastbuf->buffer_rear;
+		_lastbuf->buffer_rear = 0;
 	}
-	else if ( lastbuf != NULL && !lastbuf->buffer_rear ) {
-		free(lastbuf);
-		stainfo->msg_buffer = NULL;
+	else if ( _lastbuf != NULL && !_lastbuf->buffer_rear ) {
+		_lastbuf->serial = 0;
+		LastBufferInuse--;
 	}
 
 	return result;
@@ -190,9 +203,9 @@ static LABELED_RECV_BUFFER *merge_last_buffer( void *label_buf, size_t *buf_len 
  */
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
 {
-	_STAINFO            *stainfo = (_STAINFO *)lrbuf->sptr;
-	const size_t         offset  = lrbuf->recv_buffer - (uint8_t *)lrbuf;
-	PALERTMODE1_HEADER  *pah;
+	uint16_t            serial = lrbuf->label.serial;
+	const size_t        offset = lrbuf->recv_buffer - (uint8_t *)lrbuf;
+	PALERTMODE1_HEADER *pah;
 /* */
 	int     ret           = 0;
 	int     sync_flag     = 0;
@@ -205,7 +218,7 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
 		*buf_len -= PALERTMODE1_HEADER_LENGTH, pah++
 	) {
 	/* */
-		if ( (ret = validate_serial_pah1( pah, stainfo->serial )) > 0 ) {
+		if ( (ret = validate_serial_pah1( pah, serial )) > 0 ) {
 			if ( ret == PALERTMODE1_PACKET_LENGTH ) {
 			/* */
 				if ( (uint8_t *)pah != lrbuf->recv_buffer ) {
@@ -246,16 +259,16 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
  */
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
 {
-	_STAINFO           *stainfo = (_STAINFO *)lrbuf->sptr;
-	const size_t        offset  = lrbuf->recv_buffer - (uint8_t *)lrbuf;
-	PALERTMODE4_HEADER *pah4    = (PALERTMODE4_HEADER *)lrbuf->recv_buffer;
+	uint16_t            serial = lrbuf->label.serial;
+	const size_t        offset = lrbuf->recv_buffer - (uint8_t *)lrbuf;
+	PALERTMODE4_HEADER *pah4   = (PALERTMODE4_HEADER *)lrbuf->recv_buffer;
 /* */
 	int ret       = 0;
 	int sync_flag = 0;
 
 /* */
 	do {
-		if ( (ret = validate_serial_pah4( pah4, stainfo->serial )) > 0 ) {
+		if ( (ret = validate_serial_pah4( pah4, serial )) > 0 ) {
 		/* */
 			sync_flag = 1;
 		/* */
@@ -317,4 +330,107 @@ static int validate_serial_pah4( const PALERTMODE4_HEADER *pah4, const int seria
 	}
 
 	return -1;
+}
+
+/*
+ *
+ */
+static struct last_buffer *init_last_buffers( const int station_num )
+{
+	int _num = station_num * RATIO_LBUF_SIZE_STATIONS;
+
+	LastBufferSize = _num ? _num : MINIMUM_LBUF_SIZE;
+	LastBuffer     = calloc(LastBufferSize, sizeof(struct last_buffer));
+	CreateSpecificMutex(&LastBufferMutex);
+
+	if ( !LastBuffer ) {
+		logit("e", "palert2ew: Last buffer cannot allocate memory, exit!\n");
+		exit(-1);
+	}
+
+	return LastBuffer;
+}
+
+/*
+ *
+ */
+static struct last_buffer *adjust_last_buffers( const int station_num )
+{
+	int _num = station_num * RATIO_LBUF_SIZE_STATIONS;
+
+	if ( LastBufferSize > _num ) {
+		if ( LastBufferInuse < _num || LastBufferInuse < MINIMUM_LBUF_SIZE ) {
+			LastBufferSize = _num ? _num : MINIMUM_LBUF_SIZE;
+			LastBuffer = realloc(LastBuffer, LastBufferSize * sizeof(struct last_buffer));
+		}
+	}
+
+	return LastBuffer;
+}
+
+/*
+ *
+ */
+static struct last_buffer *sort_last_buffers( void )
+{
+	qsort(LastBuffer, LastBufferSize, sizeof(struct last_buffer), compare_serial);
+
+	return LastBuffer;
+}
+
+/*
+ *
+ */
+static struct last_buffer *reg_last_buffer( void *label_buf )
+{
+	int i;
+	struct last_buffer *result = NULL;
+
+	for ( i = 0; i < LastBufferSize; i++ ) {
+		if ( LastBuffer[i].serial == 0 ) {
+			result = LastBuffer + i;
+			break;
+		}
+	}
+/* */
+	if ( !result ) {
+		LastBufferSize++;
+		LastBuffer = realloc(LastBuffer, LastBufferSize * sizeof(struct last_buffer));
+		result = LastBuffer + LastBufferSize;
+	}
+/* */
+	result->serial = ((LABELED_RECV_BUFFER *)label_buf)->label.serial;
+	result->buffer_rear = 0;
+	LastBufferInuse++;
+
+	return result;
+}
+
+/*
+ *
+ */
+static struct last_buffer *find_last_buffer( void *label_buf )
+{
+	struct last_buffer key;
+
+/* */
+	key.serial = ((LABELED_RECV_BUFFER *)label_buf)->label.serial;
+
+	return (struct last_buffer *)bsearch(&key, LastBuffer, LastBufferSize, sizeof(struct last_buffer), compare_serial);
+}
+
+/*
+ * compare_serial() - reverse version of compare function.
+ */
+static int compare_serial( const void *node_a, const void *node_b )
+{
+	int serial_a = ((struct last_buffer *)node_a)->serial;
+	int serial_b = ((struct last_buffer *)node_b)->serial;
+
+	if ( serial_a > serial_b )
+		return -1;
+	else if ( serial_a < serial_b )
+		return 1;
+	else
+		return 0;
 }

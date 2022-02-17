@@ -6,10 +6,10 @@ CFLAGS = $(GLOBALFLAGS) -O2 -g -I/usr/include/mysql -I../../include -flto
 
 LL = ../../lib
 
-LOCALSRCS = stalist.c palert.c
+LOCALSRCS = stalist.c palert.c dl_chain_list.c
 LOCALOBJS = $(LOCALSRCS:%.c=%.o)
 
-no_sql: palert.o
+no_sql: palert.o dl_chain_list.o
 	@mv *.o $(LL)
 
 all: $(LOCALOBJS)

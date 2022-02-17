@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <search.h>
 #include <time.h>
 /* Earthworm environment header include */
 #include <earthworm.h>
@@ -17,11 +16,21 @@
 #include <palert2ew_misc.h>
 #include <palert2ew_list.h>
 #include <palert2ew_ext.h>
+#include <palert2ew_server.h>
 #include <palert2ew_server_ext.h>
+
+/* */
+typedef struct {
+	uint16_t serial;
+	uint8_t  chan_seq;
+	double   lastend;
+	double   starttime;
+	double   endtime;
+} __EXT_COMMAND_ARG;
 
 /* Functions prototype in this source file
  *******************************/
-static void               request_soh_stations( const void *, const VISIT, const int );
+static void               request_soh_stations( const void *, const int, void * );
 static int32_t           *copydata_tracebuf_rt( int32_t *, const EXT_RT_PACKET * );
 static TRACE2_HEADER     *enrich_trh2_rt( TRACE2_HEADER *, const _STAINFO *, const EXT_RT_PACKET *, const int );
 static __EXT_COMMAND_ARG *create_request_queue( const int );
@@ -40,24 +49,24 @@ thr_ret pa2ew_ext_rt_req_thread( void *arg )
 {
 	__EXT_COMMAND_ARG *_req_queue = (__EXT_COMMAND_ARG *)arg;
 	__EXT_COMMAND_ARG *ext_arg    = NULL;
-	_STAINFO          *staptr     = NULL;
+	CONNDESCRIP       *conn;
 /* */
 	int    retry_times = 0;
 	char   request[32] = { 0 };
 	time_t timestamp   = 0;
 
 /* */
-	for ( ext_arg = _req_queue; ext_arg->chaptr != NULL; ext_arg++ ) {
+	for ( ext_arg = _req_queue; ext_arg->serial != 0; ext_arg++ ) {
 		timestamp = (time_t)ext_arg->lastend;
-		staptr    = ext_arg->staptr;
 	/* */
 		for ( ; (double)timestamp < ext_arg->starttime; timestamp++ ) {
-			sprintf(request, PA2EW_EXT_RT_COMMAND_FORMAT, staptr->serial, ext_arg->chaptr->seq, timestamp);
-			if ( pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) ) {
+			sprintf(request, PA2EW_EXT_RT_COMMAND_FORMAT, ext_arg->serial, ext_arg->chan_seq, timestamp);
+			conn = pa2ew_server_ext_pconnect_find( ext_arg->serial );
+			if ( pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) ) {
 			/* */
 				for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
 					sleep_ew(500);
-					if ( !pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) )
+					if ( !pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) )
 						break;
 				}
 			/* */
@@ -79,8 +88,10 @@ thr_ret pa2ew_ext_rt_req_thread( void *arg )
  */
 thr_ret pa2ew_ext_soh_req_thread( void *dummy )
 {
+	time_t timestamp;
 /* */
-	pa2ew_list_walk( request_soh_stations );
+	time(&timestamp);
+	pa2ew_server_ext_pconnect_walk( request_soh_stations, &timestamp );
 /* Just exit this thread */
 	KillSelfThread();
 
@@ -90,7 +101,7 @@ thr_ret pa2ew_ext_soh_req_thread( void *dummy )
 /*
  *
  */
-__EXT_COMMAND_ARG *pa2ew_ext_req_queue_insert(
+void *pa2ew_ext_req_queue_insert(
 	void **queue, _STAINFO *staptr, _CHAINFO *chaptr, double lastend, double start, double end
 ) {
 	int i;
@@ -103,7 +114,7 @@ __EXT_COMMAND_ARG *pa2ew_ext_req_queue_insert(
 
 	if ( *_queue != NULL ) {
 		for ( i = 0, result = *_queue; i < staptr->nchannel; i++, result++ ) {
-			if ( result->chaptr == NULL ) {
+			if ( result->serial == 0 ) {
 				enrich_ext_command_arg( result, staptr, chaptr, lastend, start, end );
 				break;
 			}
@@ -166,32 +177,42 @@ int pa2ew_ext_soh_packet_process( void *dest, PalertExtPacket *packet, _STAINFO 
 /*
  *
  */
-static void request_soh_stations( const void *nodep, const VISIT which, const int depth )
+int pa2ew_ext_flag_check( _STAINFO *staptr )
 {
-	_STAINFO *staptr      = *(_STAINFO **)nodep;
-	int       retry_times = 0;
-	char      request[32] = { 0 };
-	time_t    timestamp   = 0.0;
+/* */
+	if ( staptr->ext_flag == PA2EW_PALERT_EXT_UNCHECK ) {
+		if ( pa2ew_server_ext_pconnect_find( staptr->serial ) ) {
+			staptr->ext_flag = PA2EW_PALERT_EXT_ON;
+		}
+		else {
+			staptr->ext_flag = PA2EW_PALERT_EXT_OFF;
+		}
+	}
+/* */
+	return staptr->ext_flag;
+}
 
-	switch ( which ) {
-	case postorder: case leaf:
-	/* */
-		if ( staptr->ext_conn != NULL ) {
-			time(&timestamp);
-			sprintf(request, PA2EW_EXT_SOH_COMMAND_FORMAT, staptr->serial, timestamp);
-			if ( pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) ) {
-			/* */
-				for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
-					sleep_ew(50);
-					if ( !pa2ew_server_ext_req_send( staptr, request, strlen(request) + 1 ) )
-						break;
-				}
+/*
+ *
+ */
+static void request_soh_stations( const void *nodep, const int seq, void *arg )
+{
+	CONNDESCRIP *conn        = (CONNDESCRIP *)nodep;
+	int          retry_times = 0;
+	char         request[32] = { 0 };
+	time_t       timestamp   = *(time_t *)arg;
+
+/* */
+	if ( conn->sock > 0 && conn->label.serial ) {
+		sprintf(request, PA2EW_EXT_SOH_COMMAND_FORMAT, conn->label.serial, timestamp);
+		if ( pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) ) {
+		/* */
+			for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
+				sleep_ew(50);
+				if ( !pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) )
+					break;
 			}
 		}
-		break;
-	case preorder: case endorder:
-	default:
-		break;
 	}
 
 	return;
@@ -241,8 +262,8 @@ static __EXT_COMMAND_ARG *create_request_queue( const int queue_size )
 
 	if ( result != NULL ) {
 		for ( i = 0; i <= queue_size; i++ ) {
-			result[i].staptr    = NULL;
-			result[i].chaptr    = NULL;
+			result[i].serial    = 0;
+			result[i].chan_seq  = 0;
 			result[i].lastend   = -1.0;
 			result[i].starttime = -1.0;
 			result[i].endtime   = -1.0;
@@ -260,8 +281,8 @@ static __EXT_COMMAND_ARG *enrich_ext_command_arg(
 	const double lastend, const double start, const double end
 ) {
 	if ( dest != NULL ) {
-		dest->staptr    = (_STAINFO *)staptr;
-		dest->chaptr    = (_CHAINFO *)chaptr;
+		dest->serial    = staptr->serial;
+		dest->chan_seq  = chaptr->seq;
 		dest->lastend   = lastend;
 		dest->starttime = start;
 		dest->endtime   = end;

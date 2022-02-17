@@ -34,7 +34,7 @@
 /* Internal stack related struct */
 typedef struct {
 /* */
-	void *sptr;
+	LABEL label;
 /* */
 	union {
 		PalertPacket    palert_pck;
@@ -45,7 +45,7 @@ typedef struct {
 
 /* Functions prototype in this source file
  *******************************/
-static void palert2ew_config( char * );
+static void palert2ew_config( char *, void ** );
 static void palert2ew_lookup( void );
 static void palert2ew_status( unsigned char, short, char * );
 static void palert2ew_end( void );                /* Free all the local memory & close socket */
@@ -56,7 +56,7 @@ static thr_ret receiver_client_thread( void * );  /* Read messages from the sock
 static thr_ret receiver_server_thread( void * );  /* Read messages from the socket of Palerts */
 static thr_ret update_list_thread( void * );
 
-static int            load_list_configfile( void **, char * );
+static int            update_list_configfile( char * );
 static void           process_packet_pm1( PalertPacket *, _STAINFO * );
 static void           process_packet_pm4( PalertPacket *, _STAINFO * );
 static int            examine_ntp_sync( _STAINFO *, const void * );
@@ -132,7 +132,6 @@ static uint8_t TypePalertExt = 0;
 #define  LIST_NEED_UPDATED    1
 #define  LIST_UNDER_UPDATE    2
 
-static volatile void   *_Root  = NULL;
 static volatile _Bool   Finish = 0;
 static volatile uint8_t UpdateFlag = LIST_IS_UPDATED;
 
@@ -159,11 +158,14 @@ int main ( int argc, char **argv )
 
 	uint8_t *buffer   = NULL;
 	uint32_t count    = 0;
+	uint16_t _serial  = 0;
 	size_t   msg_size = 0;
 	MSG_LOGO msg_logo = { 0 };
 
 	LABELED_DATA *data_ptr = NULL;
 	void (*check_receiver_func)( const int ) = NULL;
+
+	void *_root = NULL;        /* First root for station list */
 
 /* Check command line arguments */
 	if ( argc != 2 ) {
@@ -176,13 +178,18 @@ int main ( int argc, char **argv )
 /* Initialize name of log-file & open it */
 	logit_init(argv[1], 0, 256, 1);
 /* Read the configuration file(s) */
-	palert2ew_config( argv[1] );
+	palert2ew_config( argv[1], &_root );
 	logit("" , "%s: Read command file <%s>\n", argv[0], argv[1]);
+/* Comfirm the extension output again */
+	ExtOutputSwitch = ExtFuncSwitch ? ExtOutputSwitch : 0;
 /* Read the station list from remote database */
-	pa2ew_list_db_fetch( (void **)&_Root, SQLStationTable, SQLChannelTable, &DBInfo );
-	pa2ew_list_root_reg( (void *)_Root );
-	if ( !(i = pa2ew_list_total_station()) ) {
-		fprintf(stderr, "There is not any station in the list after fetching, exiting!\n");
+	if ( pa2ew_list_db_fetch( SQLStationTable, SQLChannelTable, &DBInfo, PA2EW_LIST_INITIALIZING ) < 0 ) {
+		fprintf(stderr, "Something error when fetching station list. Exiting!\n");
+		exit(-1);
+	}
+/* Checking total station number */
+	if ( !(i = pa2ew_list_total_station_get()) ) {
+		fprintf(stderr, "There is not any station in the list after fetching. Exiting!\n");
 		exit(-1);
 	}
 	else {
@@ -195,7 +202,7 @@ int main ( int argc, char **argv )
 	logit_init(argv[1], 0, 256, LogSwitch);
 	lockfile = ew_lockfile_path(argv[1]);
 	if ( (lockfile_fd = ew_lockfile(lockfile) ) == -1 ) {
-		fprintf(stderr, "One instance of %s is already running, exiting!\n", argv[0]);
+		fprintf(stderr, "One instance of %s is already running. Exiting!\n", argv[0]);
 		pa2ew_list_end();
 		exit(-1);
 	}
@@ -219,8 +226,8 @@ int main ( int argc, char **argv )
 	Putlogo[EXT_MSG_LOGO].type    = TypePalertExt;
 
 /* Initialize the connection process either server or client */
-	if ( ServerSwitch == 0 ) {
-		ReceiverThreadsNum = ExtFuncSwitch ? 2 : 1;
+	if ( !ServerSwitch ) {
+		ReceiverThreadsNum = 1;
 		if ( pa2ew_client_init( ServerIP, ServerPort ) < 0 ) {
 			logit("e","palert2ew: Cannot initialize the connection client process. Exiting!\n");
 			pa2ew_list_end();
@@ -230,22 +237,25 @@ int main ( int argc, char **argv )
 	}
 	else {
 		ReceiverThreadsNum = pa2ew_server_init( MaxStationNum, PA2EW_PALERT_PORT );
-	/* */
-		if ( ExtFuncSwitch ) {
-			if ( pa2ew_server_ext_init( PA2EW_PALERT_EXT_PORT, Putlogo[EXT_MSG_LOGO] ) != 1 ) {
-				ReceiverThreadsNum = 0;
-				pa2ew_server_end();
-			}
-			else {
-				ReceiverThreadsNum++;
-			}
-		}
 		if ( ReceiverThreadsNum < 1 ) {
 			logit("e","palert2ew: Cannot initialize the Palert server process. Exiting!\n");
 			pa2ew_list_end();
 			exit(-1);
 		}
 		check_receiver_func = check_receiver_server;
+	}
+/* */
+	if ( ExtFuncSwitch ) {
+		if ( pa2ew_server_ext_init( MaxStationNum, PA2EW_PALERT_EXT_PORT, Putlogo[EXT_MSG_LOGO] ) != 1 ) {
+			logit("e","palert2ew: Cannot initialize the Palert server process. Exiting!\n");
+			pa2ew_list_end();
+			if ( ServerSwitch )
+				pa2ew_server_end();
+			exit(-1);
+		}
+		else {
+			ReceiverThreadsNum++;
+		}
 	}
 
 /* Attach to Output shared memory ring */
@@ -263,10 +273,7 @@ int main ( int argc, char **argv )
 /* */
 	buffer   = calloc(1, sizeof(LABELED_DATA));
 	data_ptr = (LABELED_DATA *)buffer;
-/* */
-	if ( ExtOutputSwitch ) {
 
-	}
 /* Initialize the threads' parameters */
 	MessageReceiverStatus = calloc(ReceiverThreadsNum, sizeof(int8_t));
 #if defined( _V710 )
@@ -277,8 +284,8 @@ int main ( int argc, char **argv )
 
 /* Force a heartbeat to be issued in first pass thru main loop */
 	timeLastBeat   = time(&timeNow) - HeartBeatInterval - 1;
-	timeLastUpd    = timeNow;
-	timeLastReqSOH = timeNow;
+	timeLastUpd    = timeNow + 1;
+	timeLastReqSOH = timeNow - 1;
 /* Initialize the timezone shift */
 	LocalTimeShift = -(localtime(&timeNow)->tm_gmtoff);
 /*----------------------- setup done; start main loop -------------------------*/
@@ -329,63 +336,72 @@ int main ( int argc, char **argv )
 		/* */
 			if ( pa2ew_msgqueue_dequeue( buffer, &msg_size, &msg_logo ) < 0 )
 				break;
-		/* Process the raw packet */
-			if ( msg_logo.type == TypePalertRaw ) {
-				count++;
-				msg_size -= (uint8_t *)(&data_ptr->data) - (uint8_t *)data_ptr;
-			/* Put the raw data to the raw ring */
-				if ( RawOutputSwitch ) {
-					if (
-						tport_putmsg(
-							&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO],
-							msg_size, (char *)(&data_ptr->data)
-						) != PUT_OK
-					) {
-						logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[RAW_MSG_LOGO]);
-					}
-				}
-			/* Parse the raw packet to trace buffer */
-				if ( PALERT_IS_MODE1_HEADER( &data_ptr->data.palert_pck.pah ) )
-					process_packet_pm1( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
-				else if ( PALERT_IS_MODE4_HEADER( &data_ptr->data.palert_pck.pah ) )
-					process_packet_pm4( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->sptr );
-			}
-			else if ( ExtFuncSwitch && msg_logo.type == TypePalertExt ) {
-			/* */
-				if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_RT_PACKET ) {
-					TracePacket tracebuf;
-				/* */
-					msg_size = pa2ew_ext_rt_packet_process(
-						tracebuf.msg, &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr, UniSampRate
-					);
-				/* */
-					if ( ExtOutputSwitch ) {
+		/* */
+			_serial = data_ptr->label.serial;
+		/* */
+			if ( (data_ptr->label.staptr = pa2ew_list_find( _serial )) != NULL ) {
+			/* Process the raw packet */
+				if ( msg_logo.type == TypePalertRaw ) {
+					count++;
+					msg_size -= (uint8_t *)(&data_ptr->data) - (uint8_t *)data_ptr;
+				/* Put the raw data to the raw ring */
+					if ( RawOutputSwitch ) {
 						if (
 							tport_putmsg(
-								&Region[EXT_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg
+								&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO],
+								msg_size, (char *)(&data_ptr->data)
 							) != PUT_OK
 						) {
-							logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
+							logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[RAW_MSG_LOGO]);
+						}
+					}
+				/* Parse the raw packet to trace buffer */
+					if ( PALERT_IS_MODE1_HEADER( &data_ptr->data.palert_pck.pah ) )
+						process_packet_pm1( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->label.staptr );
+					else if ( PALERT_IS_MODE4_HEADER( &data_ptr->data.palert_pck.pah ) )
+						process_packet_pm4( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->label.staptr );
+				}
+				else if ( ExtFuncSwitch && msg_logo.type == TypePalertExt ) {
+				/* */
+					if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_RT_PACKET ) {
+						TracePacket tracebuf;
+					/* */
+						msg_size = pa2ew_ext_rt_packet_process(
+							tracebuf.msg, &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->label.staptr, UniSampRate
+						);
+					/* */
+						if ( ExtOutputSwitch ) {
+							if (
+								tport_putmsg(
+									&Region[EXT_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg
+								) != PUT_OK
+							) {
+								logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
+							}
+						}
+					}
+					else if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_SOH_PACKET ) {
+						char soh_string[PA2EW_EXT_MAX_PACKET_SIZE] = { 0 };
+					/* */
+						msg_size = pa2ew_ext_soh_packet_process(
+							soh_string, &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->label.staptr
+						);
+					/* Output the SOH to the log file */
+						logit("","%s\n", soh_string);
+					/* */
+						if ( ExtOutputSwitch ) {
+							if (
+								tport_putmsg(&Region[EXT_MSG_LOGO], &Putlogo[EXT_MSG_LOGO], msg_size, soh_string ) != PUT_OK
+							) {
+								logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
+							}
 						}
 					}
 				}
-				else if ( data_ptr->data.palert_ext_pck.header.ext_type == PA2EW_EXT_TYPE_SOH_PACKET ) {
-					char soh_string[PA2EW_EXT_MAX_PACKET_SIZE] = { 0 };
-				/* */
-					msg_size = pa2ew_ext_soh_packet_process(
-						soh_string, &data_ptr->data.palert_ext_pck, (_STAINFO *)data_ptr->sptr
-					);
-				/* Output the SOH to the log file */
-					logit("","%s\n", soh_string);
-				/* */
-					if ( ExtOutputSwitch ) {
-						if (
-							tport_putmsg(&Region[EXT_MSG_LOGO], &Putlogo[EXT_MSG_LOGO], msg_size, soh_string ) != PUT_OK
-						) {
-							logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[EXT_MSG_LOGO]);
-						}
-					}
-				}
+			}
+			else {
+				printf("palert2ew: S/N %d not found in station list, maybe it's a new palert.\n", _serial);
+				UpdateFlag = ServerSwitch ? LIST_IS_UPDATED : LIST_NEED_UPDATED;
 			}
 		} while ( count < MaxStationNum );  /* end of message-processing-loop */
 	}
@@ -401,7 +417,7 @@ int main ( int argc, char **argv )
  * palert2ew_config() - processes command file(s) using kom.c functions;
  *                      exits if any errors are encountered.
  */
-static void palert2ew_config( char *configfile )
+static void palert2ew_config( char *configfile, void **root )
 {
 	char  init[16];     /* init flags, one byte for each required command */
 	char *com;
@@ -588,9 +604,9 @@ static void palert2ew_config( char *configfile )
 			else if ( k_its("Palert") ) {
 				str = k_get();
 				for ( str += strlen(str) + 1; isspace(*str); str++ );
-				if ( pa2ew_list_station_line_parse( (void **)&_Root, str ) ) {
+				if ( pa2ew_list_station_line_parse( str, PA2EW_LIST_INITIALIZING ) ) {
 					logit(
-						"e", "palert2ew: ERROR, lack of some station information for in <%s>, exiting!\n",
+						"e", "palert2ew: ERROR, lack of some station information for in <%s>. Exiting!\n",
 						configfile
 					);
 					exit(-1);
@@ -788,6 +804,11 @@ static void palert2ew_end( void )
  */
 static void check_receiver_client( const int wait_msec )
 {
+	static time_t  time_check = 0;
+	static uint8_t ext_num    = 1;
+/* */
+	time_t time_now;
+
 	if ( MessageReceiverStatus[0] != THREAD_ALIVE ) {
 		if ( StartThread(receiver_client_thread, (uint32_t)THREAD_STACK, ReceiverThreadID) == -1 ) {
 			logit("e", "palert2ew: Error starting receiver_client thread; exiting!\n");
@@ -798,12 +819,31 @@ static void check_receiver_client( const int wait_msec )
 	}
 /* */
 	if ( ExtFuncSwitch ) {
-		if ( MessageReceiverStatus[1] != THREAD_ALIVE ) {
-			/* Placeholder */
-			MessageReceiverStatus[1] = THREAD_ALIVE;
+	/* */
+		pa2ew_server_palerts_accept( wait_msec );
+	/* */
+		if ( MessageReceiverStatus[ext_num] != THREAD_ALIVE ) {
+			if (
+				StartThreadWithArg(
+					receiver_server_thread, &ext_num, (uint32_t)THREAD_STACK, ReceiverThreadID + ext_num
+				) == -1
+			) {
+				logit("e", "palert2ew: Error starting receiver_server_ext thread; exiting!\n");
+				palert2ew_end();
+				exit(-1);
+			}
+			MessageReceiverStatus[ext_num] = THREAD_ALIVE;
+		}
+	/* */
+		if ( (time(&time_now) - time_check) >= 60 ) {
+			if ( time_check )
+				pa2ew_server_ext_pconnect_check();
+			time_check = time_now;
 		}
 	}
-	sleep_ew(wait_msec);
+	else {
+		sleep_ew(wait_msec);
+	}
 
 	return;
 }
@@ -846,9 +886,9 @@ static void check_receiver_server( const int wait_msec )
 /* */
 	if ( (time(&time_now) - time_check) >= 60 ) {
 		time_check = time_now;
-		pa2ew_server_conn_check();
+		pa2ew_server_pconnect_check();
 		if ( ExtFuncSwitch )
-			pa2ew_server_ext_conn_check();
+			pa2ew_server_ext_pconnect_check();
 	}
 
 	return;
@@ -922,31 +962,37 @@ static thr_ret receiver_server_thread( void *arg )
  */
 static thr_ret update_list_thread( void *arg )
 {
-	void *root = NULL;
+	int update_flag = 0;
 
 	logit("o", "palert2ew: Updating the Palert list...\n");
 	UpdateFlag = LIST_UNDER_UPDATE;
 /* */
-	if ( load_list_configfile( &root, (char *)arg ) ) {
+	pa2ew_list_lock();
+	pa2ew_list_update_status_set( PA2EW_PALERT_INFO_OBSOLETE );
+	if ( pa2ew_list_db_fetch( SQLStationTable, SQLChannelTable, &DBInfo, PA2EW_LIST_UPDATING ) < 0 ) {
+		logit("e", "palert2ew: Fetching Palert list from remote database error!\n");
+		update_flag = 1;
+	}
+/* */
+	if ( update_list_configfile( (char *)arg ) ) {
 		logit("e", "palert2ew: Fetching Palert list from local file error!\n");
-		pa2ew_list_root_destroy( root );
+		update_flag = 1;
+	}
+/* */
+	if ( update_flag ) {
+		pa2ew_list_update_status_set( PA2EW_PALERT_INFO_UPDATED );
+		logit("e", "palert2ew: Failed to update the Palert list!\n");
+		logit("o", "palert2ew: Keep using the previous Palert list(%.6lf)!\n", pa2ew_list_timestamp_get());
 	}
 	else {
-	/* */
-		if ( pa2ew_list_db_fetch( &root, SQLStationTable, SQLChannelTable, &DBInfo ) < 0 ) {
-			logit("e", "palert2ew: Fetching Palert list from remote database error!\n");
-			pa2ew_list_root_destroy( root );
-		}
-		else {
-			if ( root != NULL ) {
-				pa2ew_list_root_reg( root );
-				logit("o", "palert2ew: Successfully updated the Palert list(%.6lf)!\n", pa2ew_list_timestamp_get());
-				logit(
-					"o", "palert2ew: There are total %d stations in the new Palert list.\n", pa2ew_list_total_station()
-				);
-			}
-		}
+		pa2ew_list_obsolete_clear();
+		logit("o", "palert2ew: Successfully updated the Palert list(%.6lf)!\n", pa2ew_list_timestamp_get());
+		logit(
+			"o", "palert2ew: There are total %d stations in the new Palert list.\n", pa2ew_list_total_station_get()
+		);
 	}
+	pa2ew_list_release();
+
 /* */
 	UpdateFlag = LIST_IS_UPDATED;
 /* Just exit this thread */
@@ -958,7 +1004,7 @@ static thr_ret update_list_thread( void *arg )
 /*
  *
  */
-static int load_list_configfile( void **root, char *configfile )
+static int update_list_configfile( char *configfile )
 {
 	char *com;
 	char *str;
@@ -996,7 +1042,7 @@ static int load_list_configfile( void **root, char *configfile )
 			if ( k_its("Palert") ) {
 				str = k_get();
 				for ( str += strlen(str) + 1; isspace(*str); str++ );
-				if ( pa2ew_list_station_line_parse( root, str ) ) {
+				if ( pa2ew_list_station_line_parse( str, PA2EW_LIST_UPDATING ) ) {
 					logit(
 						"e", "palert2ew: Some errors occured in <%s> when updating!\n",
 						configfile
@@ -1044,7 +1090,7 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
 				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
 			}
-			else if ( ExtFuncSwitch && stainfo->ext_conn ) {
+			else if ( ExtFuncSwitch && pa2ew_ext_flag_check( stainfo ) ) {
 			/* */
 				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) ) {
 					pa2ew_ext_req_queue_insert(
@@ -1095,7 +1141,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 	if ( examine_ntp_sync( stainfo, &packet->pah ) ) {
 	/* Common part */
 		do {
-			smsr      = (SMSRECORD *)dataptr;
+			smsr = (SMSRECORD *)dataptr;
 		/* Need to check the byte order */
 			msrlength = (smsr->smsrlength[0] << 8) + smsr->smsrlength[1];
 			memset(msbuffer, 0, sizeof(msbuffer));
@@ -1114,7 +1160,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
 				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
 			}
-			else if ( ExtFuncSwitch && stainfo->ext_conn ) {
+			else if ( ExtFuncSwitch && pa2ew_ext_flag_check( stainfo ) ) {
 			/* */
 				if ( IS_GAP_BETWEEN_LAST_TRACE( &tracebuf.trh2, chaptr->last_endtime ) ) {
 					pa2ew_ext_req_queue_insert(
