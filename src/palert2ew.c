@@ -1111,7 +1111,9 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 					);
 				}
 			}
-			chaptr->last_endtime = tracebuf.trh2.endtime;
+		/* Only keep the end time that is larger than the last end time */
+			chaptr->last_endtime =
+				tracebuf.trh2.endtime > chaptr->last_endtime ? tracebuf.trh2.endtime : chaptr->last_endtime;
 		}
 	/* */
 		if ( ExtFuncSwitch && req_queue != NULL ) {
@@ -1181,7 +1183,9 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 					);
 				}
 			}
-			chaptr->last_endtime = tracebuf.trh2.endtime;
+		/* Only keep the end time that is larger than the last end time */
+			chaptr->last_endtime =
+				tracebuf.trh2.endtime > chaptr->last_endtime ? tracebuf.trh2.endtime : chaptr->last_endtime;
 			chaptr++;
 		} while ( (dataptr += msrlength) < endptr && chaptr < cha_last );
 
