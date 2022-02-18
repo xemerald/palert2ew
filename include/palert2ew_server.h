@@ -40,9 +40,9 @@ typedef struct {
 	__extension__({ \
 		memset((CONN), 0, sizeof(CONNDESCRIP)); \
 		(CONN)->sock = -1; \
+		(CONN)->label.staptr = NULL; \
 		(CONN)->label.serial = 0; \
 	})
-
 
 /* */
 int  pa2ew_server_init( const int, const char * ); /* Initialize the independent Palert server */

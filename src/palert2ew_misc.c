@@ -7,6 +7,8 @@
 #include <time.h>
 /* Earthworm environment header include */
 #include <trace_buf.h>
+/* */
+#include <palert2ew.h>
 
 /*
  * pa2ew_misc_trh2_enrich() -
@@ -56,4 +58,22 @@ double pa2ew_misc_timenow_get( void )
 	result = (double)time_sp.tv_sec + (double)time_sp.tv_nsec * 1.0e-9;
 
 	return result;
+}
+
+/*
+ *
+ */
+int pa2ew_misc_recv_thrdnum_eval( int max_stations, const int server_switch, const int ext_switch )
+{
+	int result;
+/* */
+	if ( server_switch ) {
+		for ( result = 0; max_stations > 0; max_stations -= PA2EW_MAX_PALERTS_PER_THREAD )
+			result++;
+	}
+	else {
+		result = 1;
+	}
+
+	return ext_switch ? (result + 1) : result;
 }

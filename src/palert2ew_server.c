@@ -28,7 +28,6 @@ static int construct_listen_sock( const char * );
 static int accept_palert_raw( void );
 static int find_which_station( void *, CONNDESCRIP *, int );
 static int compare_serial( const void *, const void * );
-static int eval_threadnum( int );
 
 /* Define global variables */
 volatile int              MaxStationNum = 0;
@@ -50,7 +49,7 @@ int pa2ew_server_init( const int max_stations, const char *port )
 /* Setup constants */
 	AcceptEpoll   = epoll_create(2);
 	MaxStationNum = max_stations;
-	ThreadsNumber = eval_threadnum( max_stations );
+	ThreadsNumber = pa2ew_misc_recv_thrdnum_eval( max_stations, PA2EW_RECV_SERVER_ON, PA2EW_EXT_FUNC_OFF );
 	ThreadSets    = calloc(ThreadsNumber, sizeof(PALERT_THREAD_SET));
 /* Create epoll sets */
 	for ( i = 0; i < ThreadsNumber; i++ ) {
@@ -77,7 +76,7 @@ void pa2ew_server_end( void )
 
 /* */
 	logit("o", "palert2ew: Closing all the connections of Palerts!\n");
-	if ( AcceptSocket != -1 )
+	if ( AcceptSocket > 0 )
 		close(AcceptSocket);
 	if ( AcceptEpoll )
 		close(AcceptEpoll);
@@ -115,16 +114,20 @@ void pa2ew_server_pconnect_walk( void (*action)(const void *, const int, void *)
  */
 int pa2ew_server_palerts_accept( const int msec )
 {
-	int                i, nready;
+	int                i;
+	int                nready = 0;
 	struct epoll_event evts[LISTENQ];
 	int              (*accept_func)( void ) = NULL;
 
 /* */
-	nready = epoll_wait(AcceptEpoll, evts, LISTENQ, msec);
-	for ( i = 0; i < nready; i++ ) {
-		if ( evts[i].events & EPOLLIN ) {
-			accept_func = (int (*)( void ))evts[i].data.ptr;
-			accept_func();
+	if ( msec ) {
+		nready = epoll_wait(AcceptEpoll, evts, LISTENQ, msec);
+		for ( i = 0; i < nready; i++ ) {
+			if ( evts[i].events & EPOLLIN ) {
+				accept_func = (int (*)( void ))evts[i].data.ptr;
+				if ( accept_func() == -1 )
+					return -1;
+			}
 		}
 	}
 
@@ -326,8 +329,13 @@ int pa2ew_server_proc( const int countindex, const int msec )
 				else {
 					if ( conn->label.serial ) {
 					/* Just send it to the main queue */
-						buffer->label.serial = conn->label.serial;
-						if ( pa2ew_msgqueue_rawpacket( buffer, ret + offset, conn->packet_type ) ) {
+						buffer->label = conn->label;
+						if (
+							pa2ew_msgqueue_rawpacket(
+								buffer, ret + offset, conn->packet_type,
+								PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_SERVER_NORMAL )
+							)
+						) {
 							if ( ++conn->sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
 								logit(
 									"e","palert2ew: Palert %d TCP connection sync error, close connection!\n",
@@ -481,7 +489,7 @@ static int find_which_station( void *buffer, CONNDESCRIP *conn, int epoll )
 /* */
 	if ( !staptr ) {
 	/* Not found in Palert table */
-		printf("palert2ew: S/N %d not found in station list, maybe it's a new palert.\n", serial);
+		printf("palert2ew: Serial(%d) not found in station list, maybe it's a new palert.\n", serial);
 		result = -1;
 	/* Drop the connection */
 		pa2ew_server_common_pconnect_close( conn, epoll );
@@ -516,17 +524,4 @@ static int compare_serial( const void *node_a, const void *node_b )
 		return 1;
 	else
 		return 0;
-}
-
-/*
- *
- */
-static int eval_threadnum( int max_stations )
-{
-	int result;
-/* */
-	for ( result = 0; max_stations > 0; max_stations -= PA2EW_MAX_PALERTS_PER_THREAD )
-		result++;
-
-	return result;
 }

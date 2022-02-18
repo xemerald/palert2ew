@@ -50,6 +50,7 @@ thr_ret pa2ew_ext_rt_req_thread( void *arg )
 	__EXT_COMMAND_ARG *_req_queue = (__EXT_COMMAND_ARG *)arg;
 	__EXT_COMMAND_ARG *ext_arg    = NULL;
 	CONNDESCRIP       *conn;
+	_STAINFO          *staptr = NULL;
 /* */
 	int    retry_times = 0;
 	char   request[32] = { 0 };
@@ -59,21 +60,25 @@ thr_ret pa2ew_ext_rt_req_thread( void *arg )
 	for ( ext_arg = _req_queue; ext_arg->serial != 0; ext_arg++ ) {
 		timestamp = (time_t)ext_arg->lastend;
 	/* */
-		for ( ; (double)timestamp < ext_arg->starttime; timestamp++ ) {
-			sprintf(request, PA2EW_EXT_RT_COMMAND_FORMAT, ext_arg->serial, ext_arg->chan_seq, timestamp);
-			conn = pa2ew_server_ext_pconnect_find( ext_arg->serial );
-			if ( pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) ) {
-			/* */
-				for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
-					sleep_ew(500);
-					if ( !pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) )
+		if ( (conn = pa2ew_server_ext_pconnect_find( ext_arg->serial )) ) {
+			for ( ; (double)timestamp < ext_arg->starttime; timestamp++ ) {
+				sprintf(request, PA2EW_EXT_RT_COMMAND_FORMAT, ext_arg->serial, ext_arg->chan_seq, timestamp);
+				if ( pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) ) {
+				/* */
+					for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
+						sleep_ew(500);
+						if ( !pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) )
 						break;
-				}
-			/* */
-				if ( !retry_times )
+					}
+				/* */
+					if ( !retry_times )
 					break;
+				}
+				sleep_ew(50);
 			}
-			sleep_ew(50);
+		}
+		else if ( (staptr = pa2ew_list_find( ext_arg->serial )) ) {
+			staptr->ext_flag = PA2EW_PALERT_EXT_OFFLINE;
 		}
 	}
 /* Just exit this thread */
@@ -152,8 +157,9 @@ int pa2ew_ext_rt_packet_process(
  */
 int pa2ew_ext_soh_packet_process( void *dest, PalertExtPacket *packet, _STAINFO *stainfo )
 {
-	EXT_SOH_PACKET *ext_soh   = &packet->soh.soh_packet;
-	char           *output    = (char *)dest;
+	EXT_SOH_PACKET *ext_soh     = &packet->soh.soh_packet;
+	char           *output      = (char *)dest;
+	char           _string[256] = { 0 };
 
 	float _cpu_temp    = ext_soh->cpu_temp * PA2EW_EXT_SOH_INTVALUE_UNIT;
 	float _ext_volt    = ext_soh->ext_volt * PA2EW_EXT_SOH_INTVALUE_UNIT;
@@ -161,32 +167,42 @@ int pa2ew_ext_soh_packet_process( void *dest, PalertExtPacket *packet, _STAINFO 
 	float _rtc_battery = ext_soh->rtc_battery * PA2EW_EXT_SOH_INTVALUE_UNIT;
 
 /* */
+	*output = '\0';
+/* */
 	sprintf(
-		output, "#SOH:%s: <sensor status: %s>, <cpu temp: %.2f>, <ext volt: %.2f>, <int volt: %.2f>, <rtc battery: %.2f>\n"
-		"#SOH:%s: <ntp status: %s>, <gnss status: %s>, <gps lock: %s>, <satellite num: %d>\n"
-		"#SOH:%s: <latitude: %.6f>, <longitude: %.6f>",
-		stainfo->sta, GEN_EXT_STATUS_STRING(ext_soh->sensor_status), _cpu_temp, _ext_volt, _int_volt, _rtc_battery,
+		_string, "SOH of %s: <sensor status: %s>, <cpu temp: %.2f>, <ext volt: %.2f>, <int volt: %.2f>, <rtc battery: %.2f>\n",
+		stainfo->sta, GEN_EXT_STATUS_STRING(ext_soh->sensor_status), _cpu_temp, _ext_volt, _int_volt, _rtc_battery
+	);
+	strcat(output, _string);
+	logit("t", "%s", _string);
+/* */
+	sprintf(
+		_string, "SOH of %s: <ntp status: %s>, <gnss status: %s>, <gps lock: %s>, <satellite num: %d>\n",
 		stainfo->sta, GEN_EXT_STATUS_STRING(ext_soh->ntp_status), GEN_EXT_STATUS_STRING(ext_soh->gnss_status),
-		GEN_EXT_STATUS_STRING(ext_soh->gps_lock), ext_soh->satellite_num,
+		GEN_EXT_STATUS_STRING(ext_soh->gps_lock), ext_soh->satellite_num
+	);
+	strcat(output, _string);
+	logit("t", "%s", _string);
+/* */
+	sprintf(
+		_string, "SOH of %s: <latitude: %.6f>, <longitude: %.6f>\n",
 		stainfo->sta, ext_soh->latitude, ext_soh->longitude
 	);
+	strcat(output, _string);
+	logit("t", "%s", _string);
 
 	return strlen(output) + 1;
 }
 
 /*
- *
+ * pa2ew_ext_status_check()
  */
-int pa2ew_ext_flag_check( _STAINFO *staptr )
+int pa2ew_ext_status_check( _STAINFO *staptr )
 {
 /* */
 	if ( staptr->ext_flag == PA2EW_PALERT_EXT_UNCHECK ) {
-		if ( pa2ew_server_ext_pconnect_find( staptr->serial ) ) {
-			staptr->ext_flag = PA2EW_PALERT_EXT_ON;
-		}
-		else {
-			staptr->ext_flag = PA2EW_PALERT_EXT_OFF;
-		}
+		staptr->ext_flag =
+			pa2ew_server_ext_pconnect_find( staptr->serial ) ? PA2EW_PALERT_EXT_ONLINE : PA2EW_PALERT_EXT_OFFLINE;
 	}
 /* */
 	return staptr->ext_flag;

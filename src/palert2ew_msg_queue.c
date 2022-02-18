@@ -25,7 +25,6 @@ struct last_buffer {
 /* Define global variables */
 static mutex_t  QueueMutex;
 static QUEUE    MsgQueue;         /* from queue.h, queue.c; sets up linked */
-static MSG_LOGO RawLogo = { 0 };  /* Raw packet logo for module, type, instid */
 /* */
 static struct last_buffer *LastBuffer = NULL;
 static volatile int        LastBufferSize = 0;
@@ -34,8 +33,8 @@ static mutex_t             LastBufferMutex;
 
 /* */
 static LABELED_RECV_BUFFER *merge_last_buffer( void *, size_t * );
-static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t * );
-static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *, size_t * );
+static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
+static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
 static int validate_serial_pah1( const PALERTMODE1_HEADER *, const int );
 static int validate_serial_pah4( const PALERTMODE4_HEADER *, const int );
 /* */
@@ -49,14 +48,12 @@ static int compare_serial( const void *, const void * );
 /*
  * pa2ew_msgqueue_init() - Initialization function of message queue and mutex.
  */
-int pa2ew_msgqueue_init( const unsigned long queue_size, const unsigned long element_size, const MSG_LOGO raw_logo )
+int pa2ew_msgqueue_init( const unsigned long queue_size, const unsigned long element_size )
 {
 /* Create a Mutex to control access to queue */
 	CreateSpecificMutex(&QueueMutex);
 /* Initialize the message queue */
 	initqueue( &MsgQueue, queue_size, element_size + 1 );
-/* */
-	RawLogo = raw_logo;
 /* */
 	init_last_buffers( pa2ew_list_total_station_get() );
 
@@ -123,7 +120,7 @@ int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 /*
  * pa2ew_msgqueue_rawpacket() - Stack received message into queue of station.
  */
-int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, const int packet_type )
+int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type, MSG_LOGO logo )
 {
 	LABELED_RECV_BUFFER *lrbuf;
 	int                  sync_flag = 0;
@@ -136,9 +133,9 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, const int packet_
 
 /* */
 	if ( packet_type == 1 )
-		sync_flag = pre_enqueue_check_pah1( lrbuf, &buf_len );
+		sync_flag = pre_enqueue_check_pah1( lrbuf, &buf_len, logo );
 	else if ( packet_type == 4 )
-		sync_flag = pre_enqueue_check_pah4( lrbuf, &buf_len );
+		sync_flag = pre_enqueue_check_pah4( lrbuf, &buf_len, logo );
 	else
 		buf_len = 0;
 /* Try to store the remainder data into the buffer */
@@ -201,7 +198,7 @@ static LABELED_RECV_BUFFER *merge_last_buffer( void *label_buf, size_t *buf_len 
 /*
  *
  */
-static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
+static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
 	uint16_t            serial = lrbuf->label.serial;
 	const size_t        offset = lrbuf->recv_buffer - (uint8_t *)lrbuf;
@@ -239,7 +236,7 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
 			header_offset += PALERTMODE1_HEADER_LENGTH;
 		/* */
 			if ( header_offset == PALERTMODE1_PACKET_LENGTH ) {
-				if ( pa2ew_msgqueue_enqueue( lrbuf, PALERTMODE1_PACKET_LENGTH + offset, RawLogo ) )
+				if ( pa2ew_msgqueue_enqueue( lrbuf, PALERTMODE1_PACKET_LENGTH + offset, logo ) )
 					sleep_ew(100);
 				header_offset = 0;
 			}
@@ -257,7 +254,7 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
 /*
  *
  */
-static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
+static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
 	uint16_t            serial = lrbuf->label.serial;
 	const size_t        offset = lrbuf->recv_buffer - (uint8_t *)lrbuf;
@@ -278,7 +275,7 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len )
 			}
 		/* */
 			if ( *buf_len >= (size_t)ret ) {
-				if ( pa2ew_msgqueue_enqueue( lrbuf, ret + offset, RawLogo ) )
+				if ( pa2ew_msgqueue_enqueue( lrbuf, ret + offset, logo ) )
 					sleep_ew(100);
 			/* */
 				*buf_len -= ret;

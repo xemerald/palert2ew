@@ -30,7 +30,10 @@
 /* */
 #define PA2EW_EXT_RT_COMMAND_FORMAT   "%d:%d:%ld"
 #define PA2EW_EXT_SOH_COMMAND_FORMAT  "%d:SOH:%ld"
-
+/* */
+#define PA2EW_PALERT_EXT_UNCHECK  -1
+#define PA2EW_PALERT_EXT_OFFLINE   0
+#define PA2EW_PALERT_EXT_ONLINE    1
 /* */
 typedef struct {
 	uint16_t serial;
@@ -89,4 +92,4 @@ thr_ret pa2ew_ext_soh_req_thread( void * );
 int     pa2ew_ext_rt_packet_process( void *, PalertExtPacket *, _STAINFO *, const int );
 int     pa2ew_ext_soh_packet_process( void *, PalertExtPacket *, _STAINFO * );
 void   *pa2ew_ext_req_queue_insert( void **, _STAINFO *, _CHAINFO *, double, double, double );
-int     pa2ew_ext_flag_check( _STAINFO * );
+int     pa2ew_ext_status_check( _STAINFO * );

@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <search.h>
 #include <ctype.h>
 /* */
 #include <earthworm.h>
@@ -14,6 +15,7 @@
 #include <dl_chain_list.h>
 #include <palert2ew_misc.h>
 #include <palert2ew_list.h>
+#include <palert2ew_ext.h>
 
 /* */
 typedef struct {
@@ -462,7 +464,7 @@ static _STAINFO *append_stainfo_list( StaList *list, _STAINFO *stainfo, const in
 				free(stainfo);
 		}
 		else {
-			logit("o", "palert2ew: Serial %d is already in the list, skip it!\n", stainfo->serial);
+			logit("o", "palert2ew: Serial(%d) is already in the list, skip it!\n", stainfo->serial);
 			free_stainfo_and_chainfo( stainfo );
 		}
 	}
@@ -532,7 +534,6 @@ static _STAINFO *enrich_stainfo_raw(
 	strcpy(stainfo->sta, sta);
 	strcpy(stainfo->net, net);
 	strcpy(stainfo->loc, loc);
-	stainfo->parent = NULL;
 
 	return stainfo;
 }

@@ -29,14 +29,12 @@ extern volatile int       AcceptEpoll;
 static volatile int       AcceptSocketExt = -1;
 static PALERT_THREAD_SET *ThreadSetsExt   = NULL;
 static CONNDESCRIP       *PalertConnsExt  = NULL;
-static MSG_LOGO           ExtLogo         = { 0 };
-
 
 /*
  * pa2ew_server_ext_init() - Initialize the independent Palert extension server &
  *                           return the needed threads number.
  */
-int pa2ew_server_ext_init( const int max_stations, const char *port, const MSG_LOGO ext_logo )
+int pa2ew_server_ext_init( const int max_stations, const char *port )
 {
 /* Check the constants */
 	if ( !MaxStationNum || !AcceptEpoll ) {
@@ -55,8 +53,6 @@ int pa2ew_server_ext_init( const int max_stations, const char *port, const MSG_L
 	);
 	if ( AcceptSocketExt <= 0 )
 		return -1;
-/* */
-	ExtLogo = ext_logo;
 
 	return 1;
 }
@@ -198,9 +194,14 @@ int pa2ew_server_ext_proc( const int countindex, const int msec )
 					if ( conn->label.serial ) {
 					/* */
 						if ( exth->ext_type != PA2EW_EXT_TYPE_HEARTBEAT && ret == (int)exth->length ) {
-							buffer->label.serial = conn->label.serial;
-							if ( pa2ew_msgqueue_enqueue( buffer, ret + offset, ExtLogo ) )
+							buffer->label = conn->label;
+							if (
+								pa2ew_msgqueue_enqueue(
+									buffer, ret + offset, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_SERVER_EXT )
+								)
+							) {
 								sleep_ew(100);
+							}
 						}
 					}
 					else if ( ret >= PA2EW_EXT_HEADER_SIZE ) {
@@ -277,7 +278,7 @@ static int find_which_station( const uint16_t serial, CONNDESCRIP *conn, int epo
 /* */
 	if ( !staptr ) {
 	/* Not found in Palert table */
-		printf("palert2ew: S/N %d not found in station list, maybe it's a new palert.\n", serial);
+		printf("palert2ew: Serial(%d) not found in station list, maybe it's a new palert.\n", serial);
 	/* Drop the connection */
 		result = -1;
 		pa2ew_server_common_pconnect_close( conn, epoll );
@@ -290,7 +291,7 @@ static int find_which_station( const uint16_t serial, CONNDESCRIP *conn, int epo
 		}
 	/* */
 		conn->label.serial = staptr->serial;
-		staptr->ext_flag   = PA2EW_PALERT_EXT_ON;
+		staptr->ext_flag   = PA2EW_PALERT_EXT_ONLINE;
 		printf("palert2ew: Palert %s extension now online.\n", staptr->sta);
 	}
 

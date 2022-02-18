@@ -53,7 +53,7 @@ int pa2ew_client_init( const char *ip, const char *port )
 /* Construct the accept socket */
 	ClientSocket = construct_connect_sock( ip, port );
 /* Initialize the receiving buffer */
-	if ( Buffer == NULL && !BufferSize ) {
+	if ( Buffer == NULL ) {
 		if ( sizeof(LABELED_RECV_BUFFER) > sizeof(FW_PCK) )
 			BufferSize = sizeof(LABELED_RECV_BUFFER);
 		else
@@ -72,8 +72,10 @@ void pa2ew_client_end( void )
 {
 	close(ClientSocket);
 /* */
-	if ( Buffer != NULL )
+	if ( Buffer != NULL ) {
 		free(Buffer);
+		Buffer = NULL;
+	}
 
 	return;
 }
@@ -116,7 +118,7 @@ int pa2ew_client_stream( void )
 				continue;
 			}
 			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ) {
-				logit("e", "palert2ew: Connection to Palert server is timeout, reconnect...\n");
+				logit("e", "palert2ew: Receiving from Palert server is timeout, retry...\n");
 			}
 			else if ( ret == 0 ) {
 				logit("e", "palert2ew: Connection to Palert server is closed, reconnect...\n");
@@ -144,7 +146,7 @@ int pa2ew_client_stream( void )
 		ret = fwptr->length + offset;
 		lrbuf->label.serial = fwptr->serial;
 	/* Packet type temporary fixed on 1 */
-		if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1 ) ) {
+		if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
 			if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
 				logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
 				if ( reconstruct_connect_sock() < 0 )
@@ -173,9 +175,9 @@ static int reconstruct_connect_sock( void )
 /* */
 	if ( ClientSocket != -1 )
 		close(ClientSocket);
-/* Do until we success getting socket or exceed 100 times */
+/* Do until we success getting socket or exceed RECONNECT_TIMES */
 	while ( (ClientSocket = construct_connect_sock( _ServerIP, _ServerPort )) == -1 ) {
-	/* Try 10 times */
+	/* Try RECONNECT_TIMES */
 		if ( ++count > RECONNECT_TIMES ) {
 			logit("e", "palert2ew: Reconstruct socket failed; exiting this session!\n");
 			return -1;
@@ -222,7 +224,6 @@ static int construct_connect_sock( const char *ip, const char *port )
 		timeout.tv_usec = 0;
 	/* Setup characteristics of socket */
 		setsockopt(result, IPPROTO_TCP, TCP_QUICKACK, &sock_opt, sizeof(sock_opt));
-		setsockopt(result, SOL_SOCKET, SO_REUSEADDR, &sock_opt, sizeof(sock_opt));
 		setsockopt(result, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
 	/* Connect to the Palert server if we are using dependent client mode */
 		if ( connect(result, p->ai_addr, p->ai_addrlen) < 0 ) {

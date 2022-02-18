@@ -18,7 +18,7 @@
 /* */
 #include <palert2ew.h>
 /* */
-int  pa2ew_server_ext_init( const int, const char *, const MSG_LOGO ); /* Initialize the independent Palert server */
+int  pa2ew_server_ext_init( const int, const char * ); /* Initialize the independent Palert server */
 void pa2ew_server_ext_end( void );                                                   /* End process of Palert server */
 void pa2ew_server_ext_pconnect_walk( void (*)(const void *, const int, void *), void * );
 int  pa2ew_server_ext_proc( const int, const int );                                  /* Read the data from each Palert and put it into queue */

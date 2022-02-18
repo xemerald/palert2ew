@@ -26,8 +26,15 @@
 #define PA2EW_NTP_SYNC_ERR_LIMIT  30
 /* */
 #define PA2EW_PALERT_PORT            "502"
+#define PA2EW_PALERT_EXT_PORT        "24000"
 #define PA2EW_MAX_PALERTS_PER_THREAD  512
 #define PA2EW_IDLE_THRESHOLD          120
+/* */
+#define PA2EW_RECV_SERVER_OFF  0
+#define PA2EW_RECV_SERVER_ON   1
+/* */
+#define PA2EW_EXT_FUNC_OFF     0
+#define PA2EW_EXT_FUNC_ON      1  
 /* */
 #define PA2EW_RECV_BUFFER_LENGTH  16384
 #define PA2EW_RECV_NORMAL         0
@@ -35,10 +42,11 @@
 #define PA2EW_RECV_CONNECT_ERROR -2
 #define PA2EW_RECV_FATAL_ERROR   -3
 /* */
-#define PA2EW_PALERT_EXT_PORT      "24000"
-#define PA2EW_PALERT_EXT_UNCHECK  -1
-#define PA2EW_PALERT_EXT_OFF       0
-#define PA2EW_PALERT_EXT_ON        1
+#define PA2EW_MSG_SERVER_NORMAL  0
+#define PA2EW_MSG_SERVER_EXT     1
+#define PA2EW_MSG_CLIENT_STREAM  2
+#define PA2EW_MSG_LIST_BLOCK     3   /* Unused */
+#define PA2EW_MSG_MSG_QUEUE      4   /* Unused */
 /* */
 typedef union {
 	void    *staptr;

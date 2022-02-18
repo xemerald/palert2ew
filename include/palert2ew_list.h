@@ -12,8 +12,6 @@
  */
 #pragma once
 /* */
-#include <search.h>
-/* */
 #if defined( _USE_SQL )
 #include <stalist.h>
 #else
