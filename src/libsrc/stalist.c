@@ -147,15 +147,26 @@ MYSQL *stalist_start_persistent_sql( const DBINFO *dbinfo )
 }
 
 /*
- * stalist_free_result_sql() -
+ * stalist_close_persistent_sql() -
  */
 void stalist_close_persistent_sql( void )
 {
 /* */
 	if ( SQL != NULL ) {
 		mysql_close(SQL);
+		mysql_library_end();
 		SQL = NULL;
 	}
+	return;
+}
+
+/*
+ * stalist_end_thread_sql() - Specific function under thread.
+ */
+void stalist_end_thread_sql( void )
+{
+/* */
+	mysql_thread_end();
 	return;
 }
 
@@ -183,6 +194,7 @@ static MYSQL_RES *query_sql( const DBINFO *dbinfo, const char *query, const size
 			fprintf(stderr, "query_sql: Connecting to MySQL server error: %s!\n", mysql_error(sql) );
 		}
 		mysql_close(sql);
+		mysql_library_end();
 	}
 	else {
 		if ( !mysql_real_query(SQL, query, query_len) )

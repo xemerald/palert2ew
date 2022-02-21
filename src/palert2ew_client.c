@@ -119,6 +119,8 @@ int pa2ew_client_stream( void )
 			}
 			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ) {
 				logit("e", "palert2ew: Receiving from Palert server is timeout, retry...\n");
+				sleep_ew(RECONNECT_INTERVAL_MSEC);
+				continue;
 			}
 			else if ( ret == 0 ) {
 				logit("e", "palert2ew: Connection to Palert server is closed, reconnect...\n");

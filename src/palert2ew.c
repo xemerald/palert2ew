@@ -747,8 +747,6 @@ static void palert2ew_end( void )
 /* */
 	if ( ServerSwitch )
 		pa2ew_server_end();
-	else
-		pa2ew_client_end();
 /* */
 	if ( ExtFuncSwitch )
 		pa2ew_server_ext_end();

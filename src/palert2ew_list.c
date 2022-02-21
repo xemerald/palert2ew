@@ -290,6 +290,7 @@ static int fetch_list_sql( const char *table_sta, const char *table_chan, const 
 		dbinfo, table_sta, PA2EW_INFO_FROM_SQL,
 		COL_STA_SERIAL, COL_STA_STATION, COL_STA_NETWORK, COL_STA_LOCATION
 	);
+	stalist_end_thread_sql();
 	if ( sql_res == NULL )
 		return -1;
 	printf("palert2ew: Queried the station information success!\n");
@@ -328,6 +329,7 @@ static int fetch_list_sql( const char *table_sta, const char *table_chan, const 
 /* Close the connection for channel */
 	stalist_close_persistent_sql();
 	stalist_free_result_sql( sql_res );
+	stalist_end_thread_sql();
 
 	if ( result > 0 ) {
 		logit("o", "palert2ew: Read %d stations information from MySQL server success!\n", result);
