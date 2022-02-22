@@ -12,7 +12,7 @@
 #include <palert2ew_list.h>
 
 /* */
-#define RATIO_LBUF_SIZE_STATIONS  0.05
+#define RATIO_LBUF_SIZE_STATIONS  0.02
 #define MINIMUM_LBUF_SIZE         2
 
 /* Internal stack related struct */
@@ -32,7 +32,8 @@ static volatile int        LastBufferInuse = 0;
 static mutex_t             LastBufferMutex;
 
 /* */
-static LABELED_RECV_BUFFER *merge_last_buffer( void *, size_t * );
+static void                 save_last_buffer( void *, const size_t );
+static LABELED_RECV_BUFFER *draw_last_buffer( void *, size_t * );
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
 static int validate_serial_pah1( const PALERTMODE1_HEADER *, const int );
@@ -41,8 +42,8 @@ static int validate_serial_pah4( const PALERTMODE4_HEADER *, const int );
 static struct last_buffer *init_last_buffers( const int );
 static struct last_buffer *adjust_last_buffers( const int );
 static struct last_buffer *sort_last_buffers( void );
-static struct last_buffer *reg_last_buffer( void * );
-static struct last_buffer *find_last_buffer( void * );
+static struct last_buffer *reg_last_buffer( const uint16_t );
+static struct last_buffer *find_last_buffer( const uint16_t );
 static int compare_serial( const void *, const void * );
 
 /*
@@ -128,7 +129,7 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type, 
 /* */
 	buf_len -= lrbuf->recv_buffer - (uint8_t *)lrbuf;
 	RequestSpecificMutex(&LastBufferMutex);
-	lrbuf = merge_last_buffer( label_buf, &buf_len );
+	lrbuf = draw_last_buffer( label_buf, &buf_len );
 	ReleaseSpecificMutex(&LastBufferMutex);
 
 /* */
@@ -141,14 +142,7 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type, 
 /* Try to store the remainder data into the buffer */
 	if ( buf_len ) {
 		RequestSpecificMutex(&LastBufferMutex);
-		struct last_buffer *_lastbuf = find_last_buffer( lrbuf );
-	/* */
-		if ( _lastbuf == NULL )
-			_lastbuf = reg_last_buffer( lrbuf );
-	/* */
-		_lastbuf->buffer_rear = buf_len;
-		memcpy(_lastbuf->buffer, lrbuf->recv_buffer, buf_len);
-		sort_last_buffers();
+		save_last_buffer( lrbuf, buf_len );
 		ReleaseSpecificMutex(&LastBufferMutex);
 	}
 /* */
@@ -161,15 +155,35 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type, 
 /*
  *
  */
-static LABELED_RECV_BUFFER *merge_last_buffer( void *label_buf, size_t *buf_len )
+static void save_last_buffer( void *label_buf, const size_t buf_len )
+{
+	LABELED_RECV_BUFFER *lrbuf   = (LABELED_RECV_BUFFER *)label_buf;
+	struct last_buffer *_lastbuf = find_last_buffer( lrbuf->label.serial );
+/* */
+	if ( !_lastbuf )
+		_lastbuf = reg_last_buffer( lrbuf->label.serial );
+/* */
+	if ( buf_len < PA2EW_RECV_BUFFER_LENGTH ) {
+		_lastbuf->buffer_rear = buf_len;
+		memcpy(_lastbuf->buffer, lrbuf->recv_buffer, buf_len);
+	}
+	sort_last_buffers();
+
+	return;
+}
+
+/*
+ *
+ */
+static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 {
 	LABELED_RECV_BUFFER *result   = (LABELED_RECV_BUFFER *)label_buf;
-	struct last_buffer  *_lastbuf = find_last_buffer( result );
+	struct last_buffer  *_lastbuf = find_last_buffer( result->label.serial );
 
 /* First, deal the remainder data from last packet */
 	if ( _lastbuf != NULL && _lastbuf->buffer_rear ) {
 	/* */
-		if ( *buf_len + _lastbuf->buffer_rear <= PA2EW_RECV_BUFFER_LENGTH ) {
+		if ( (*buf_len + _lastbuf->buffer_rear) <= PA2EW_RECV_BUFFER_LENGTH ) {
 			memmove(result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
 			memcpy(result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear);
 		}
@@ -178,7 +192,7 @@ static LABELED_RECV_BUFFER *merge_last_buffer( void *label_buf, size_t *buf_len 
 			LABELED_RECV_BUFFER *_result =
 				(LABELED_RECV_BUFFER *)malloc(sizeof(LABELED_RECV_BUFFER) + _lastbuf->buffer_rear);
 
-			_result->label.serial = result->label.serial;
+			_result->label = result->label;
 			memcpy(_result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear);
 			memcpy(_result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
 			result = _result;
@@ -189,6 +203,7 @@ static LABELED_RECV_BUFFER *merge_last_buffer( void *label_buf, size_t *buf_len 
 	}
 	else if ( _lastbuf != NULL && !_lastbuf->buffer_rear ) {
 		_lastbuf->serial = 0;
+		sort_last_buffers();
 		LastBufferInuse--;
 	}
 
@@ -204,9 +219,9 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 	const size_t        offset = lrbuf->recv_buffer - (uint8_t *)lrbuf;
 	PALERTMODE1_HEADER *pah;
 /* */
-	int     ret           = 0;
-	int     sync_flag     = 0;
-	size_t  header_offset = 0;
+	int    ret           = 0;
+	int    sync_flag     = 0;
+	size_t header_offset = 0;
 
 /* */
 	for (
@@ -378,7 +393,7 @@ static struct last_buffer *sort_last_buffers( void )
 /*
  *
  */
-static struct last_buffer *reg_last_buffer( void *label_buf )
+static struct last_buffer *reg_last_buffer( const uint16_t serial )
 {
 	int i;
 	struct last_buffer *result = NULL;
@@ -391,12 +406,13 @@ static struct last_buffer *reg_last_buffer( void *label_buf )
 	}
 /* */
 	if ( !result ) {
+		logit("o", "palert2ew: Last buffer not enough, allocating more memory.\n");
 		LastBufferSize++;
 		LastBuffer = realloc(LastBuffer, LastBufferSize * sizeof(struct last_buffer));
 		result = LastBuffer + LastBufferSize;
 	}
 /* */
-	result->serial = ((LABELED_RECV_BUFFER *)label_buf)->label.serial;
+	result->serial = serial;
 	result->buffer_rear = 0;
 	LastBufferInuse++;
 
@@ -406,14 +422,14 @@ static struct last_buffer *reg_last_buffer( void *label_buf )
 /*
  *
  */
-static struct last_buffer *find_last_buffer( void *label_buf )
+static struct last_buffer *find_last_buffer( const uint16_t serial )
 {
-	struct last_buffer key;
+	uint16_t _key;
 
 /* */
-	key.serial = ((LABELED_RECV_BUFFER *)label_buf)->label.serial;
+	_key = serial;
 
-	return (struct last_buffer *)bsearch(&key, LastBuffer, LastBufferSize, sizeof(struct last_buffer), compare_serial);
+	return (struct last_buffer *)bsearch(&_key, LastBuffer, LastBufferSize, sizeof(struct last_buffer), compare_serial);
 }
 
 /*

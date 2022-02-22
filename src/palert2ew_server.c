@@ -30,10 +30,10 @@ static int find_which_station( void *, CONNDESCRIP *, int );
 static int compare_serial( const void *, const void * );
 
 /* Define global variables */
-volatile int              MaxStationNum = 0;
 volatile int              AcceptEpoll   = 0;
 static volatile int       AcceptSocket  = -1;
 static volatile int       ThreadsNumber = 0;
+static volatile int       MaxStationNum = 0;
 static PALERT_THREAD_SET *ThreadSets    = NULL;
 static CONNDESCRIP       *PalertConns   = NULL;
 
@@ -320,11 +320,13 @@ int pa2ew_server_proc( const int countindex, const int msec )
 				CONNDESCRIP *conn = (CONNDESCRIP *)evts[i].data.ptr;
 			/* */
 				if ( (ret = recv(conn->sock, buffer->recv_buffer, PA2EW_RECV_BUFFER_LENGTH, 0)) <= 0 ) {
-					printf(
-						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
-						conn->ip, ret, errno, strerror(errno)
-					);
-					pa2ew_server_common_pconnect_close( conn, epoll );
+					if ( errno != EINTR ) {
+						printf(
+							"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
+							conn->ip, ret, errno, strerror(errno)
+						);
+						pa2ew_server_common_pconnect_close( conn, epoll );
+					}
 				}
 				else {
 					if ( conn->label.serial ) {

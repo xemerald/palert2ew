@@ -24,9 +24,9 @@ static int accept_palert_ext( void );
 static int find_which_station( const uint16_t, CONNDESCRIP *, int );
 
 /* Define global variables */
-extern volatile int       MaxStationNum;
 extern volatile int       AcceptEpoll;
 static volatile int       AcceptSocketExt = -1;
+static volatile int       MaxStationNum   = 0;
 static PALERT_THREAD_SET *ThreadSetsExt   = NULL;
 static CONNDESCRIP       *PalertConnsExt  = NULL;
 
@@ -37,11 +37,12 @@ static CONNDESCRIP       *PalertConnsExt  = NULL;
 int pa2ew_server_ext_init( const int max_stations, const char *port )
 {
 /* Check the constants */
-	if ( !MaxStationNum || !AcceptEpoll ) {
-		MaxStationNum = max_stations;
-		AcceptEpoll   = epoll_create(1);
+	if ( !AcceptEpoll ) {
+		logit("o", "palert2ew: Independent extension server initilaizing!\n");
+		AcceptEpoll = epoll_create(1);
 	}
 /* */
+	MaxStationNum = max_stations;
 	ThreadSetsExt = calloc(1, sizeof(PALERT_THREAD_SET));
 /* Construct the accept socket for retransmission */
 	ThreadSetsExt->epoll_fd = epoll_create(MaxStationNum);
@@ -184,11 +185,13 @@ int pa2ew_server_ext_proc( const int countindex, const int msec )
 				CONNDESCRIP *conn = (CONNDESCRIP *)evts[i].data.ptr;
 			/* */
 				if ( (ret = recv(conn->sock, &buffer->recv_buffer, PA2EW_EXT_MAX_PACKET_SIZE, 0)) <= 0 ) {
-					printf(
-						"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
-						conn->ip, ret, errno, strerror(errno)
-					);
-					pa2ew_server_common_pconnect_close( conn, epoll );
+					if ( errno != EINTR ) {
+						printf(
+							"palert2ew: Palert IP:%s, read length:%d, errno:%d(%s), close connection!\n",
+							conn->ip, ret, errno, strerror(errno)
+						);
+						pa2ew_server_common_pconnect_close( conn, epoll );
+					}
 				}
 				else {
 					if ( conn->label.serial ) {

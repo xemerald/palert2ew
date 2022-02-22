@@ -290,7 +290,6 @@ static int fetch_list_sql( const char *table_sta, const char *table_chan, const 
 		dbinfo, table_sta, PA2EW_INFO_FROM_SQL,
 		COL_STA_SERIAL, COL_STA_STATION, COL_STA_NETWORK, COL_STA_LOCATION
 	);
-	stalist_end_thread_sql();
 	if ( sql_res == NULL )
 		return -1;
 	printf("palert2ew: Queried the station information success!\n");

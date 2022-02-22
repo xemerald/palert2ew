@@ -267,17 +267,13 @@ int main ( int argc, char **argv )
 			palert2ew_status( TypeHeartBeat, 0, "" );
 		}
 	/* Start the check of updating list thread */
-		if (
-			UpdateInterval &&
-			UpdateFlag == LIST_NEED_UPDATED &&
-			timeNow - timeLastUpd >= (int64_t)UpdateInterval
-		) {
+		if ( UpdateInterval && UpdateFlag == LIST_NEED_UPDATED && (timeNow - timeLastUpd) >= (int64_t)UpdateInterval ) {
 			timeLastUpd = timeNow;
 			if ( StartThreadWithArg(update_list_thread, argv[1], (uint32_t)THREAD_STACK, &UpdateThreadID) == -1 )
 				logit("e", "palert2ew: Error starting update_list thread, just skip it!\n");
 		}
 	/* Start the request of SOH thread */
-		if ( ExtFuncSwitch && ReqSOHInterval && timeNow - timeLastReqSOH >= (int64_t)ReqSOHInterval ) {
+		if ( ExtFuncSwitch && ReqSOHInterval && (timeNow - timeLastReqSOH) >= (int64_t)ReqSOHInterval ) {
 			timeLastReqSOH = timeNow;
 			if ( StartThread(pa2ew_ext_soh_req_thread, (uint32_t)THREAD_STACK, &ReqSOHThreadID) == -1 )
 				logit("e", "palert2ew: Error starting request_soh thread, just skip it!\n");
@@ -335,8 +331,8 @@ int main ( int argc, char **argv )
 				MSG_LOGO *ext_logo = NULL;
 			/* Initialize the extension output buffer */
 				if ( !ext_buffer ) {
-					ext_buffer = calloc(
-						1, MAX_TRACEBUF_SIZ > PA2EW_EXT_MAX_PACKET_SIZE ? MAX_TRACEBUF_SIZ : PA2EW_EXT_MAX_PACKET_SIZE
+					ext_buffer = malloc(
+						MAX_TRACEBUF_SIZ > PA2EW_EXT_MAX_PACKET_SIZE ? MAX_TRACEBUF_SIZ : PA2EW_EXT_MAX_PACKET_SIZE
 					);
 				}
 			/* */
@@ -1158,8 +1154,10 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 			msrlength = (smsr->smsrlength[0] << 8) + smsr->smsrlength[1];
 			memset(msbuffer, 0, sizeof(msbuffer));
 			memcpy(msbuffer, dataptr, msrlength);
-			msr_parse((char *)msbuffer, msrlength, &msr, msrlength, 1, 0);
-
+		/* */
+			if ( msr_parse((char *)msbuffer, msrlength, &msr, msrlength, 1, 0) )
+				continue;
+		/* */
 			pa2ew_misc_trh2_enrich(
 				&tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc,
 				msr->numsamples, msr->samprate, (double)(MS_HPTIME2EPOCH(msr->starttime))
@@ -1168,6 +1166,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 
 			msg_size = tracebuf.trh2.nsamp * ms_samplesize(msr->sampletype);
 			memcpy((int *)(&tracebuf.trh2 + 1), msr->datasamples, msg_size);
+			msr_free(&msr);
 			msg_size += sizeof(TRACE2_HEADER);
 			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
 				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);

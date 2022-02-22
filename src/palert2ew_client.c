@@ -91,9 +91,9 @@ int pa2ew_client_stream( void )
 	static size_t               offset = 0;
 	static uint8_t              sync_errors = 0;
 
-	int       ret       = 0;
-	int       data_read = 0;
-	int       data_req  = FW_PCK_HEADER_LENGTH;
+	int ret       = 0;
+	int data_read = 0;
+	int data_req  = FW_PCK_HEADER_LENGTH;
 
 /* Try to align the two different data structure pointer */
 	if ( lrbuf == NULL || fwptr == NULL ) {
@@ -114,34 +114,41 @@ int pa2ew_client_stream( void )
 	do {
 		if ( (ret = recv(ClientSocket, (uint8_t *)fwptr + data_read, data_req, 0)) <= 0 ) {
 			if ( errno == EINTR ) {
-				sleep_ew(100);
-				continue;
+				sleep_ew(25);
 			}
 			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ) {
 				logit("e", "palert2ew: Receiving from Palert server is timeout, retry...\n");
 				sleep_ew(RECONNECT_INTERVAL_MSEC);
-				continue;
 			}
 			else if ( ret == 0 ) {
 				logit("e", "palert2ew: Connection to Palert server is closed, reconnect...\n");
+				if ( reconstruct_connect_sock() < 0 )
+					return PA2EW_RECV_CONNECT_ERROR;
+
+				data_read = 0;
+				data_req  = FW_PCK_HEADER_LENGTH;
 			}
 			else {
 				logit("e", "palert2ew: Fatal error on Palert server, exiting this session!\n");
 				return PA2EW_RECV_FATAL_ERROR;
 			}
-		/* Wait for additional time, then do the reconnection */
-			sleep_ew(RECONNECT_INTERVAL_MSEC);
-			if ( reconstruct_connect_sock() < 0 )
-				return PA2EW_RECV_CONNECT_ERROR;
-
-			data_read = 0;
-			data_req  = FW_PCK_HEADER_LENGTH;
 			continue;
 		}
 	/* */
-		if ( (data_read += ret) >= FW_PCK_HEADER_LENGTH )
-			data_req = fwptr->length + FW_PCK_HEADER_LENGTH - data_read;
-	} while ( data_req );
+		if ( (data_read += ret) >= FW_PCK_HEADER_LENGTH ) {
+			if ( fwptr->length > PA2EW_RECV_BUFFER_LENGTH ) {
+				logit("e", "palert2ew: TCP connection error: recv. length(%d) too large, reconnect!\n", fwptr->length);
+				if ( reconstruct_connect_sock() < 0 )
+					return PA2EW_RECV_CONNECT_ERROR;
+
+				data_read = 0;
+				data_req  = FW_PCK_HEADER_LENGTH;
+			}
+			else {
+				data_req = fwptr->length + FW_PCK_HEADER_LENGTH - data_read;
+			}
+		}
+	} while ( data_req > 0 );
 
 /* Serial should always larger than 0, if so send the update request */
 	if ( fwptr->serial > 0 ) {
@@ -175,8 +182,10 @@ static int reconstruct_connect_sock( void )
 	static uint8_t count = 0;
 
 /* */
-	if ( ClientSocket != -1 )
+	if ( ClientSocket != -1 ) {
 		close(ClientSocket);
+		sleep_ew(2000);
+	}
 /* Do until we success getting socket or exceed RECONNECT_TIMES */
 	while ( (ClientSocket = construct_connect_sock( _ServerIP, _ServerPort )) == -1 ) {
 	/* Try RECONNECT_TIMES */
@@ -238,7 +247,7 @@ static int construct_connect_sock( const char *ip, const char *port )
 	freeaddrinfo(servinfo);
 
 	if ( p != NULL ) {
-		logit("o", "palert2ew: Connection to Palert server %s success!\n", ip);
+		logit("o", "palert2ew: Connection to Palert server %s success(sock: %d)!\n", ip, result);
 	}
 	else {
 		logit("e", "palert2ew: Construct Palert connection socket failed!\n");

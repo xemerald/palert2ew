@@ -93,7 +93,7 @@ thr_ret pa2ew_ext_rt_req_thread( void *arg )
  */
 thr_ret pa2ew_ext_soh_req_thread( void *dummy )
 {
-	time_t timestamp;
+	static time_t timestamp;
 /* */
 	time(&timestamp);
 	pa2ew_server_ext_pconnect_walk( request_soh_stations, &timestamp );
