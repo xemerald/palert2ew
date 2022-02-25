@@ -302,13 +302,8 @@ int main ( int argc, char **argv )
 			_serial = data_ptr->label.serial;
 			data_ptr->label.staptr = pa2ew_list_find( _serial );
 		/* */
-			if ( data_ptr->label.staptr == NULL ) {
-				if ( msg_logo.type == PA2EW_MSG_CLIENT_STREAM ) {
-					printf("palert2ew: Serial(%d) not found in station list, maybe it's a new palert.\n", _serial);
-					UpdateFlag = LIST_NEED_UPDATED;
-				}
+			if ( data_ptr->label.staptr == NULL )
 				continue;
-			}
 
 		/* Process the raw packet */
 			if ( msg_logo.type == PA2EW_MSG_CLIENT_STREAM || msg_logo.type == PA2EW_MSG_SERVER_NORMAL ) {

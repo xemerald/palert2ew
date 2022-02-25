@@ -136,35 +136,30 @@ int pa2ew_client_stream( void )
 		}
 	/* */
 		if ( (data_read += ret) >= FW_PCK_HEADER_LENGTH ) {
-			if ( fwptr->length > PA2EW_RECV_BUFFER_LENGTH ) {
-				logit("e", "palert2ew: TCP connection error: recv. length(%d) too large, reconnect!\n", fwptr->length);
-				if ( reconstruct_connect_sock() < 0 )
-					return PA2EW_RECV_CONNECT_ERROR;
-
-				data_read = 0;
-				data_req  = FW_PCK_HEADER_LENGTH;
-			}
-			else {
-				data_req = fwptr->length + FW_PCK_HEADER_LENGTH - data_read;
-			}
+			data_req = fwptr->length + FW_PCK_HEADER_LENGTH - data_read;
 		}
 	} while ( data_req > 0 );
 
 /* Serial should always larger than 0, if so send the update request */
 	if ( fwptr->serial > 0 ) {
-		ret = fwptr->length + offset;
-		lrbuf->label.serial = fwptr->serial;
-	/* Packet type temporary fixed on 1 */
-		if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
-			if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
-				logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
-				if ( reconstruct_connect_sock() < 0 )
+		if ( pa2ew_list_find( fwptr->serial ) ) {
+			ret = fwptr->length + offset;
+			lrbuf->label.serial = fwptr->serial;
+		/* Packet type temporary fixed on 1 */
+			if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
+				if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
+					logit("e", "palert2ew: TCP connection sync error, reconnect!\n");
+					if ( reconstruct_connect_sock() < 0 )
 					return PA2EW_RECV_CONNECT_ERROR;
+					sync_errors = 0;
+				}
+			}
+			else {
 				sync_errors = 0;
 			}
 		}
 		else {
-			sync_errors = 0;
+			printf("palert2ew: Serial(%d) not found in station list, maybe it's a new palert.\n", fwptr->serial);
 		}
 	}
 	else {

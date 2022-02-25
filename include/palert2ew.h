@@ -34,9 +34,9 @@
 #define PA2EW_RECV_SERVER_ON   1
 /* */
 #define PA2EW_EXT_FUNC_OFF     0
-#define PA2EW_EXT_FUNC_ON      1  
+#define PA2EW_EXT_FUNC_ON      1
 /* */
-#define PA2EW_RECV_BUFFER_LENGTH  16384
+#define PA2EW_RECV_BUFFER_LENGTH  65536
 #define PA2EW_RECV_NORMAL         0
 #define PA2EW_RECV_NEED_UPDATE   -1
 #define PA2EW_RECV_CONNECT_ERROR -2
