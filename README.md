@@ -47,6 +47,10 @@ and
 ```
 Message  TYPE_PALERTRAW     XXX   # XXX can be any number that is unused by other message type
 ```
+furthermore if you want to enable extension function, add the line below too
+```
+Message  TYPE_PALERTEXT     XXX   # XXX can be any number that is unused by other message type
+```
 
 2. Second, copy the configuration file **palert2ew.d** to the param directory of Earthworm.
 
@@ -55,7 +59,10 @@ Message  TYPE_PALERTRAW     XXX   # XXX can be any number that is unused by othe
 ```
 $ sudo setcap cap_net_bind_service=+ep <PATH_TO_THE_BINARY_FILE>
 ```
-
+or
+```
+$ make cap_set
+```
 Then you are able to execute this module under startstop module!
 
 ## Configuration

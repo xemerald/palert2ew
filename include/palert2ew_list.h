@@ -29,11 +29,11 @@
 int       pa2ew_list_db_fetch( const char *, const char *, const DBINFO *, const int );
 int       pa2ew_list_station_line_parse( const char *, const int );
 void      pa2ew_list_end( void );
-void      pa2ew_list_lock( void );
-void      pa2ew_list_release( void );
 _STAINFO *pa2ew_list_find( const int );
 void      pa2ew_list_update_status_set( const int );
 void      pa2ew_list_obsolete_clear( void );
+void      pa2ew_list_tree_activate( void );
+void      pa2ew_list_tree_abandon( void );
 int       pa2ew_list_total_station_get( void );
 double    pa2ew_list_timestamp_get( void );
 void      pa2ew_list_walk( void (*)(const void *, const int, void *), void * );

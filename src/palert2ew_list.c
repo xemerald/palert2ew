@@ -23,7 +23,7 @@ typedef struct {
 	double  timestamp;  /* Time of the last time updated */
 	void   *entry;      /* Pointer to first client       */
 	void   *root;       /* Root of binary searching tree */
-	mutex_t mutex;
+	void   *root_t;     /* Temporary root of binary searching tree */
 } StaList;
 
 /* Internal functions' prototypes */
@@ -149,26 +149,6 @@ void pa2ew_list_end( void )
 }
 
 /*
- * pa2ew_list_lock() -
- */
-void pa2ew_list_lock( void )
-{
-	RequestSpecificMutex(&SList->mutex);
-
-	return;
-}
-
-/*
- * pa2ew_list_release() -
- */
-void pa2ew_list_release( void )
-{
-	ReleaseSpecificMutex(&SList->mutex);
-
-	return;
-}
-
-/*
  * pa2ew_list_find() -
  */
 _STAINFO *pa2ew_list_find( const int serial )
@@ -179,12 +159,10 @@ _STAINFO *pa2ew_list_find( const int serial )
 /* */
 	key.serial = serial;
 /* Find which station */
-	RequestSpecificMutex(&SList->mutex);
 	if ( (result = tfind(&key, &SList->root, compare_serial)) != NULL ) {
 	/* Found in the main Palert table */
 		result = *(_STAINFO **)result;
 	}
-	ReleaseSpecificMutex(&SList->mutex);
 
 	return result;
 }
@@ -217,12 +195,41 @@ void pa2ew_list_obsolete_clear( void )
 /* */
 	for ( current = (DL_NODE *)SList->entry; current != NULL; current = DL_NODE_GET_NEXT(current) ) {
 		stainfo = (_STAINFO *)DL_NODE_GET_DATA(current);
-		if ( stainfo->update == PA2EW_PALERT_INFO_OBSOLETE ) {
-			tdelete(stainfo, &SList->root, compare_serial);
+		if ( stainfo->update == PA2EW_PALERT_INFO_OBSOLETE )
 			dl_node_delete( current, free_stainfo_and_chainfo );
-		}
 	}
+
+	return;
+}
+
+/*
+ * pa2ew_list_tree_activate() -
+ */
+void pa2ew_list_tree_activate( void )
+{
+	void *_root = SList->root;
+
+	SList->root      = SList->root_t;
+	SList->root_t    = NULL;
 	SList->timestamp = pa2ew_misc_timenow_get();
+
+	if ( _root ) {
+		sleep_ew(1000);
+		tdestroy(_root, dummy_func);
+	}
+
+	return;
+}
+
+/*
+ * pa2ew_list_tree_activate() -
+ */
+void pa2ew_list_tree_abandon( void )
+{
+	if ( SList->root_t )
+		tdestroy(SList->root_t, dummy_func);
+
+	SList->root_t = NULL;
 
 	return;
 }
@@ -413,7 +420,7 @@ static StaList *init_sta_list( void )
 		result->timestamp = pa2ew_misc_timenow_get();
 		result->entry     = NULL;
 		result->root      = NULL;
-		CreateSpecificMutex(&result->mutex);
+		result->root_t    = NULL;
 	}
 
 	return result;
@@ -426,11 +433,8 @@ static void destroy_sta_list( StaList *list )
 {
 	if ( list != (StaList *)NULL ) {
 	/* */
-		RequestSpecificMutex(&list->mutex);
 		tdestroy(list->root, dummy_func);
 		dl_list_destroy( (DL_NODE **)&list->entry, free_stainfo_and_chainfo );
-		ReleaseSpecificMutex(&list->mutex);
-		CloseSpecificMutex(&list->mutex);
 		free(list);
 	}
 
@@ -442,23 +446,28 @@ static void destroy_sta_list( StaList *list )
  */
 static _STAINFO *append_stainfo_list( StaList *list, _STAINFO *stainfo, const int update )
 {
-	_STAINFO *result  = NULL;
+	_STAINFO *result = NULL;
+	void    **_root  = update == PA2EW_LIST_UPDATING ? &list->root : &list->root_t;
 
 /* */
 	if ( list && stainfo ) {
-		if ( (result = tfind(stainfo, &list->root, compare_serial)) == NULL ) {
+		if ( (result = tfind(stainfo, _root, compare_serial)) == NULL ) {
 		/* Insert the station information into binary tree */
 			if ( dl_node_append( (DL_NODE **)&list->entry, stainfo ) == NULL ) {
 				logit("e", "palert2ew: Error insert station into linked list!\n");
 				goto except;
 			}
-			if ( (result = tsearch(stainfo, &list->root, compare_serial)) == NULL ) {
+			if ( (result = tsearch(stainfo, &list->root_t, compare_serial)) == NULL ) {
 				logit("e", "palert2ew: Error insert station into binary tree!\n");
 				goto except;
 			}
 		}
 		else if ( update == PA2EW_LIST_UPDATING ) {
 			update_stainfo_and_chainfo( *(_STAINFO **)result, stainfo );
+			if ( (result = tsearch(stainfo, &list->root_t, compare_serial)) == NULL ) {
+				logit("e", "palert2ew: Error insert station into binary tree!\n");
+				goto except;
+			}
 			if ( (*(_STAINFO **)result)->chaptr != stainfo->chaptr )
 				free_stainfo_and_chainfo(stainfo);
 			else
@@ -532,6 +541,8 @@ static _STAINFO *enrich_stainfo_raw(
 	stainfo->update   = PA2EW_PALERT_INFO_UPDATED;
 	stainfo->ext_flag = PA2EW_PALERT_EXT_UNCHECK;
 	stainfo->serial   = serial;
+	stainfo->chaptr   = NULL;
+	stainfo->buffer   = NULL;
 	strcpy(stainfo->sta, sta);
 	strcpy(stainfo->net, net);
 	strcpy(stainfo->loc, loc);
@@ -630,6 +641,10 @@ static void free_stainfo_and_chainfo( void *node )
 {
 	_STAINFO *stainfo = (_STAINFO *)node;
 
+/* */
+	if ( stainfo->buffer )
+		free(stainfo->buffer);
+/* */
 	free(stainfo->chaptr);
 	free(stainfo);
 

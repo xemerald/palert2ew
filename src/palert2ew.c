@@ -161,7 +161,6 @@ int main ( int argc, char **argv )
 	uint8_t *buffer     = NULL;
 	uint8_t *ext_buffer = NULL;
 	uint32_t count      = 0;
-	uint16_t _serial    = 0;
 	size_t   msg_size   = 0;
 	MSG_LOGO msg_logo   = { 0 };
 
@@ -195,6 +194,7 @@ int main ( int argc, char **argv )
 	}
 	else {
 		logit("o", "palert2ew: There are total %d stations in the list.\n", i);
+		pa2ew_list_tree_activate();
 	}
 
 /* Look up important info from earthworm.h tables */
@@ -298,10 +298,7 @@ int main ( int argc, char **argv )
 		/* */
 			if ( pa2ew_msgqueue_dequeue( buffer, &msg_size, &msg_logo ) < 0 )
 				break;
-		/* */
-			_serial = data_ptr->label.serial;
-			data_ptr->label.staptr = pa2ew_list_find( _serial );
-		/* */
+		/* Just in case */
 			if ( data_ptr->label.staptr == NULL )
 				continue;
 
@@ -965,10 +962,9 @@ static thr_ret update_list_thread( void *arg )
 {
 	int update_flag = 0;
 
-	logit("o", "palert2ew: Updating the Palert list...\n");
+	logit("ot", "palert2ew: Updating the Palert list...\n");
 	UpdateFlag = LIST_UNDER_UPDATE;
 /* */
-	pa2ew_list_lock();
 	pa2ew_list_update_status_set( PA2EW_PALERT_INFO_OBSOLETE );
 	if ( pa2ew_list_db_fetch( SQLStationTable, SQLChannelTable, &DBInfo, PA2EW_LIST_UPDATING ) < 0 ) {
 		logit("e", "palert2ew: Fetching Palert list from remote database error!\n");
@@ -982,17 +978,18 @@ static thr_ret update_list_thread( void *arg )
 /* */
 	if ( update_flag ) {
 		pa2ew_list_update_status_set( PA2EW_PALERT_INFO_UPDATED );
+		pa2ew_list_tree_abandon();
 		logit("e", "palert2ew: Failed to update the Palert list!\n");
-		logit("o", "palert2ew: Keep using the previous Palert list(%.6lf)!\n", pa2ew_list_timestamp_get());
+		logit("ot", "palert2ew: Keep using the previous Palert list(%.6lf)!\n", pa2ew_list_timestamp_get());
 	}
 	else {
-		pa2ew_list_obsolete_clear();
-		logit("o", "palert2ew: Successfully updated the Palert list(%.6lf)!\n", pa2ew_list_timestamp_get());
+		pa2ew_list_tree_activate();
+		//pa2ew_list_obsolete_clear(); /* Still under testing... */
+		logit("ot", "palert2ew: Successfully updated the Palert list(%.6lf)!\n", pa2ew_list_timestamp_get());
 		logit(
-			"o", "palert2ew: There are total %d stations in the new Palert list.\n", pa2ew_list_total_station_get()
+			"ot", "palert2ew: There are total %d stations in the new Palert list.\n", pa2ew_list_total_station_get()
 		);
 	}
-	pa2ew_list_release();
 
 /* */
 	UpdateFlag = LIST_IS_UPDATED;
@@ -1203,7 +1200,7 @@ static int examine_ntp_sync( _STAINFO *stainfo, const void *header )
 /* Check NTP SYNC. */
 	if ( palert_check_ntp_common( header ) ) {
 		if ( *ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT )
-			logit("o", "palert2ew: Station %s NTP resync, now back online.\n", stainfo->sta);
+			logit("ot", "palert2ew: Station %s NTP resync, now back online.\n", stainfo->sta);
 		*ntp_errors = 0;
 	}
 	else {
@@ -1213,7 +1210,7 @@ static int examine_ntp_sync( _STAINFO *stainfo, const void *header )
 			}
 			else {
 				if ( *ntp_errors == PA2EW_NTP_SYNC_ERR_LIMIT ) {
-					logit("e", "palert2ew: Station %s NTP sync error, drop the packet.\n", stainfo->sta);
+					logit("et", "palert2ew: Station %s NTP sync error, drop the packet.\n", stainfo->sta);
 					(*ntp_errors)++;
 				}
 				return 0;

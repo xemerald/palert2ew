@@ -117,7 +117,7 @@ int pa2ew_server_ext_pconnect_check( void )
 					);
 					pa2ew_server_common_pconnect_close( conn, ThreadSetsExt->epoll_fd );
 				}
-				if ( conn->label.serial )
+				if ( conn->label.staptr )
 					result++;
 			}
 		}
@@ -148,8 +148,8 @@ int pa2ew_server_ext_req_send( CONNDESCRIP *conn, const char *request, const int
 		}
 		else {
 			logit(
-				"e", "palert2ew: Error sending the extension request to S/N %s; close connection!\n",
-				conn->label.serial
+				"et", "palert2ew: Error sending the extension request to serial(%d); close connection!\n",
+				((_STAINFO *)conn->label.staptr)->serial
 			);
 			result = -2;
 			pa2ew_server_common_pconnect_close( conn, ThreadSetsExt->epoll_fd );
@@ -194,7 +194,7 @@ int pa2ew_server_ext_proc( const int countindex, const int msec )
 					}
 				}
 				else {
-					if ( conn->label.serial ) {
+					if ( conn->label.staptr ) {
 					/* */
 						if ( exth->ext_type != PA2EW_EXT_TYPE_HEARTBEAT && ret == (int)exth->length ) {
 							buffer->label = conn->label;
@@ -293,7 +293,7 @@ static int find_which_station( const uint16_t serial, CONNDESCRIP *conn, int epo
 			pa2ew_server_common_pconnect_close( _conn, epoll );
 		}
 	/* */
-		conn->label.serial = staptr->serial;
+		conn->label.staptr = staptr;
 		staptr->ext_flag   = PA2EW_PALERT_EXT_ONLINE;
 		printf("palert2ew: Palert %s extension now online.\n", staptr->sta);
 	}

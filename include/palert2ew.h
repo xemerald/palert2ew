@@ -72,6 +72,8 @@ typedef struct {
 	uint16_t nchannel;
 /* */
 	void *chaptr;
+/* */
+	void *buffer;
 } _STAINFO;
 
 /* */

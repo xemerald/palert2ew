@@ -125,10 +125,10 @@ void *pa2ew_ext_req_queue_insert(
 			}
 		}
 		if ( i == staptr->nchannel )
-			logit("e", "palert2ew: Too much request in the queue of station %s; skip it!\n", staptr->sta);
+			logit("et", "palert2ew: Too much request in the queue of station %s; skip it!\n", staptr->sta);
 	}
 	else {
-		logit("e", "palert2ew: Error inserting the extension request for station %s; skip it!\n", staptr->sta);
+		logit("et", "palert2ew: Error inserting the extension request for station %s; skip it!\n", staptr->sta);
 	}
 
 	return result;
@@ -214,13 +214,14 @@ int pa2ew_ext_status_check( _STAINFO *staptr )
 static void request_soh_stations( const void *nodep, const int seq, void *arg )
 {
 	CONNDESCRIP *conn        = (CONNDESCRIP *)nodep;
+	_STAINFO    *staptr      = (_STAINFO *)conn->label.staptr;
 	int          retry_times = 0;
 	char         request[32] = { 0 };
 	time_t       timestamp   = *(time_t *)arg;
 
 /* */
-	if ( conn->sock > 0 && conn->label.serial ) {
-		sprintf(request, PA2EW_EXT_SOH_COMMAND_FORMAT, conn->label.serial, timestamp);
+	if ( conn->sock > 0 && staptr ) {
+		sprintf(request, PA2EW_EXT_SOH_COMMAND_FORMAT, staptr->serial, timestamp);
 		if ( pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) ) {
 		/* */
 			for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
