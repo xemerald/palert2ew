@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <search.h>
+#include <signal.h>
 #include <ctype.h>
 #include <time.h>
 /* Earthworm environment header include */
@@ -63,6 +64,7 @@ static void           process_packet_pm1( PalertPacket *, _STAINFO * );
 static void           process_packet_pm4( PalertPacket *, _STAINFO * );
 static int            examine_ntp_sync( _STAINFO *, const void * );
 static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
+static void           handle_signal( void );
 
 /* Ring messages things */
 #define WAVE_MSG_LOGO  0
@@ -174,6 +176,8 @@ int main ( int argc, char **argv )
 	}
 	Finish = 1;
 	UpdateFlag = LIST_IS_UPDATED;
+/* */
+	handle_signal();
 
 /* Initialize name of log-file & open it */
 	logit_init(argv[1], 0, 256, 1);
@@ -1234,4 +1238,22 @@ static TRACE2_HEADER *enrich_trh2_pm1(
 		UniSampRate ? (double)UniSampRate : (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah ),
 		palert_get_systime( pah, LocalTimeShift )
 	);
+}
+
+/*
+ * handle_signal() -
+ */
+static void handle_signal( void )
+{
+	struct sigaction   act;
+
+/* Signal handling */
+	sigemptyset(&act.sa_mask);
+	act.sa_sigaction = NULL;
+	act.sa_flags     = 0;
+	act.sa_handler   = SIG_IGN;
+
+	sigaction(SIGPIPE, &act, (struct sigaction *)NULL);
+
+	return;
 }

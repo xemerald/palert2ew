@@ -48,16 +48,18 @@ static __EXT_COMMAND_ARG *enrich_ext_command_arg(
 thr_ret pa2ew_ext_rt_req_thread( void *arg )
 {
 	__EXT_COMMAND_ARG *_req_queue = (__EXT_COMMAND_ARG *)arg;
-	__EXT_COMMAND_ARG *ext_arg    = NULL;
+	__EXT_COMMAND_ARG *ext_arg    = _req_queue;
 	CONNDESCRIP       *conn;
-	_STAINFO          *staptr = NULL;
 /* */
-	int    retry_times = 0;
+	int    recheck = 0;
+	int    retry;
 	char   request[32] = { 0 };
 	time_t timestamp   = 0;
 
 /* */
-	for ( ext_arg = _req_queue; ext_arg->serial != 0; ext_arg++ ) {
+	sleep_ew(1000);
+/* */
+	while ( ext_arg->serial != 0 ) {
 		timestamp = (time_t)ext_arg->lastend;
 	/* */
 		if ( (conn = pa2ew_server_ext_pconnect_find( ext_arg->serial )) ) {
@@ -65,21 +67,28 @@ thr_ret pa2ew_ext_rt_req_thread( void *arg )
 				sprintf(request, PA2EW_EXT_RT_COMMAND_FORMAT, ext_arg->serial, ext_arg->chan_seq, timestamp);
 				if ( pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) ) {
 				/* */
-					for ( retry_times = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry_times > 0; retry_times-- ) {
+					for ( retry = PA2EW_EXT_REQUEST_RETRY_LIMIT; retry > 0; retry-- ) {
 						sleep_ew(500);
 						if ( !pa2ew_server_ext_req_send( conn, request, strlen(request) + 1 ) )
-						break;
+							break;
 					}
 				/* */
-					if ( !retry_times )
-					break;
+					if ( !retry )
+						break;
 				}
 				sleep_ew(50);
 			}
 		}
-		else if ( (staptr = pa2ew_list_find( ext_arg->serial )) ) {
-			staptr->ext_flag = PA2EW_PALERT_EXT_OFFLINE;
+		else {
+		/* */
+			if ( recheck++ > PA2EW_EXT_RECHECK_LIMIT )
+				break;
+		/* */
+			sleep_ew(1000);
+			continue;
 		}
+	/* */
+		ext_arg++;
 	}
 /* Just exit this thread */
 	free(_req_queue);
@@ -94,6 +103,7 @@ thr_ret pa2ew_ext_rt_req_thread( void *arg )
 thr_ret pa2ew_ext_soh_req_thread( void *dummy )
 {
 	static time_t timestamp;
+
 /* */
 	time(&timestamp);
 	pa2ew_server_ext_pconnect_walk( request_soh_stations, &timestamp );
@@ -202,7 +212,7 @@ int pa2ew_ext_status_check( _STAINFO *staptr )
 /* */
 	if ( staptr->ext_flag == PA2EW_PALERT_EXT_UNCHECK ) {
 		staptr->ext_flag =
-			pa2ew_server_ext_pconnect_find( staptr->serial ) ? PA2EW_PALERT_EXT_ONLINE : PA2EW_PALERT_EXT_OFFLINE;
+			pa2ew_server_ext_pconnect_find( staptr->serial ) ? PA2EW_PALERT_EXT_ON : PA2EW_PALERT_EXT_OFF;
 	}
 /* */
 	return staptr->ext_flag;

@@ -294,7 +294,7 @@ static int find_which_station( const uint16_t serial, CONNDESCRIP *conn, int epo
 		}
 	/* */
 		conn->label.staptr = staptr;
-		staptr->ext_flag   = PA2EW_PALERT_EXT_ONLINE;
+		staptr->ext_flag   = PA2EW_PALERT_EXT_ON;
 		printf("palert2ew: Palert %s extension now online.\n", staptr->sta);
 	}
 

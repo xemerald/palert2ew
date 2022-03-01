@@ -20,6 +20,7 @@
 #define PA2EW_EXT_HEADER_SIZE           8
 #define PA2EW_EXT_REQUEST_RETRY_LIMIT   3
 #define PA2EW_EXT_CONNECT_RETRY_LIMIT   3
+#define PA2EW_EXT_RECHECK_LIMIT         5
 #define PA2EW_EXT_REQUEST_SOH_INTERVAL  60
 #define PA2EW_EXT_MAX_PACKET_SIZE       4096
 #define PA2EW_EXT_SOH_INTVALUE_UNIT     0.01
@@ -32,8 +33,9 @@
 #define PA2EW_EXT_SOH_COMMAND_FORMAT  "%d:SOH:%ld"
 /* */
 #define PA2EW_PALERT_EXT_UNCHECK  -1
-#define PA2EW_PALERT_EXT_OFFLINE   0
-#define PA2EW_PALERT_EXT_ONLINE    1
+#define PA2EW_PALERT_EXT_OFF       0
+#define PA2EW_PALERT_EXT_ON        1
+
 /* */
 typedef struct {
 	uint16_t serial;

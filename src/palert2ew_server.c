@@ -297,6 +297,7 @@ void pa2ew_server_common_pconnect_close( CONNDESCRIP *conn, const int epoll )
 	/* */
 		close(conn->sock);
 		RESET_CONNDESCRIP( conn );
+
 	}
 	return;
 }
