@@ -28,8 +28,7 @@ typedef struct {
 	double   endtime;
 } __EXT_COMMAND_ARG;
 
-/* Functions prototype in this source file
- *******************************/
+/* Functions prototype in this source file */
 static void               request_soh_stations( const void *, const int, void * );
 static int32_t           *copydata_tracebuf_rt( int32_t *, const EXT_RT_PACKET * );
 static TRACE2_HEADER     *enrich_trh2_rt( TRACE2_HEADER *, const _STAINFO *, const EXT_RT_PACKET *, const int );

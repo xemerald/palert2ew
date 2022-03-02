@@ -124,7 +124,7 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type, 
 /* */
 	if ( lrbuf != (LABELED_RECV_BUFFER *)label_buf )
 		free(lrbuf);
-/* */
+/* If it did sync. return no error with 0, otherwise return error with -1. */
 	return sync_flag ? 0 : -1;
 }
 
@@ -139,7 +139,7 @@ static void save_last_buffer( void *label_buf, const size_t buf_len )
 	if ( !_lastbuf )
 		_lastbuf = create_last_buffer( (_STAINFO *)lrbuf->label.staptr );
 /* */
-	if ( buf_len < PA2EW_RECV_BUFFER_LENGTH ) {
+	if ( buf_len < PA2EW_RECV_BUFFER_LENGTH && _lastbuf ) {
 		_lastbuf->buffer_rear = buf_len;
 		memcpy(_lastbuf->buffer, lrbuf->recv_buffer, buf_len);
 	}
@@ -238,7 +238,7 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 		/* */
 			if ( header_offset == PALERTMODE1_PACKET_LENGTH ) {
 				if ( pa2ew_msgqueue_enqueue( lrbuf, PALERTMODE1_PACKET_LENGTH + offset, logo ) )
-					sleep_ew(100);
+					sleep_ew(50);
 				header_offset = 0;
 			}
 		}
@@ -246,7 +246,7 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 /* */
 	if ( header_offset )
 		*buf_len += header_offset;
-	else
+	else if ( *buf_len )
 		memmove(lrbuf->recv_buffer, pah, *buf_len);
 
 	return sync_flag;

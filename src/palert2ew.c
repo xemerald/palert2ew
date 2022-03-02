@@ -286,8 +286,7 @@ int main ( int argc, char **argv )
 		check_receiver_func( 50 );
 
 	/* Process all new messages */
-		count    = 0;
-		msg_size = 0;
+		count = 0;
 		do {
 		/* See if a termination has been requested */
 			if ( tport_getflag( &Region[0] ) == TERMINATE ||
@@ -295,7 +294,6 @@ int main ( int argc, char **argv )
 			/* write a termination msg to log file */
 				logit("t", "palert2ew: Termination requested; exiting!\n");
 				fflush(stdout);
-			/* should check the return of these if we really care */
 				goto exit_procedure;
 			}
 
@@ -357,14 +355,13 @@ int main ( int argc, char **argv )
 	}
 /*-----------------------------end of main loop-------------------------------*/
 exit_procedure:
-/* should check other return of these if we really care? */
 	Finish = 0;
-	sleep_ew(500);
+	sleep_ew(1000);
 /* Free local memory */
 	free(buffer);
 	if ( ext_buffer )
 		free(ext_buffer);
-/* detach from shared memory */
+/* Detach from all the shared memory */
 	palert2ew_end();
 /* Close & remove the locking file descriptor */
 	ew_unlockfile(lockfile_fd);
@@ -895,8 +892,9 @@ static thr_ret receiver_client_thread( void *dummy )
 		}
 	} while ( Finish );
 /* we're quitting */
+	pa2ew_client_end();
+/* File a complaint to the main thread */
 	if ( Finish ) {
-		pa2ew_client_end();
 		sleep_ew(1000);
 		MessageReceiverStatus[0] = THREAD_ERR;
 	}
@@ -924,7 +922,7 @@ static thr_ret receiver_server_thread( void *arg )
 				if ( UpdateFlag == LIST_IS_UPDATED )
 					UpdateFlag = LIST_NEED_UPDATED;
 	} while ( Finish );
-/* file a complaint to the main thread */
+/* File a complaint to the main thread */
 	if ( Finish )
 		MessageReceiverStatus[countindex] = THREAD_ERR;
 
@@ -950,7 +948,7 @@ static thr_ret ext_server_thread( void *arg )
 				if ( UpdateFlag == LIST_IS_UPDATED )
 					UpdateFlag = LIST_NEED_UPDATED;
 	} while ( Finish );
-/* file a complaint to the main thread */
+/* File a complaint to the main thread */
 	if ( Finish )
 		MessageReceiverStatus[countindex] = THREAD_ERR;
 

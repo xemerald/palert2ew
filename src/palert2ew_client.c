@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stropts.h>
 #include <errno.h>
 /* Network related header include */
 #include <netdb.h>
@@ -20,9 +21,10 @@
 #include <palert2ew_msg_queue.h>
 
 /* */
-#define FW_PCK_HEADER_LENGTH    4
-#define RECONNECT_TIMES         10
-#define RECONNECT_INTERVAL_MSEC 15000
+#define FW_PCK_HEADER_LENGTH     4
+#define RECONNECT_TIMES          10
+#define RECONNECT_INTERVAL_MSEC  15000
+#define SOCKET_RCVBUFFER_LENGTH  1048576
 
 /* */
 typedef struct {
@@ -32,8 +34,9 @@ typedef struct {
 } FW_PCK;
 
 /* */
-static int reconstruct_connect_sock( void );
-static int construct_connect_sock( const char *, const char * );
+static void flush_sock_buffer( const int );
+static int  reconstruct_connect_sock( void );
+static int  construct_connect_sock( const char *, const char * );
 
 /* */
 static volatile int  ClientSocket = -1;
@@ -70,6 +73,7 @@ int pa2ew_client_init( const char *ip, const char *port )
  */
 void pa2ew_client_end( void )
 {
+	logit("o", "palert2ew: Closing the connections to Palert server!\n");
 	close(ClientSocket);
 /* */
 	if ( Buffer != NULL ) {
@@ -82,7 +86,7 @@ void pa2ew_client_end( void )
 
 /*
  * pa2ew_client_stream() - Receive the messages from the socket of forward server
- *                         and send it to the MessageStacker.
+ *                         and send it to the queue.
  */
 int pa2ew_client_stream( void )
 {
@@ -143,14 +147,13 @@ int pa2ew_client_stream( void )
 	if ( fwptr->serial ) {
 		if ( (staptr = pa2ew_list_find( fwptr->serial )) ) {
 			ret = fwptr->length + offset;
-		/* This should be done after the last command 'cause it whould effect the length memory space */
+		/* This should be done after the last command 'cause it will effect the length's memory space */
 			lrbuf->label.staptr = staptr;
 		/* Packet type temporary fixed on 1 */
 			if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
 				if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
-					logit("et", "palert2ew: TCP connection sync error, reconnect!\n");
-					if ( reconstruct_connect_sock() < 0 )
-						return PA2EW_RECV_CONNECT_ERROR;
+					logit("et", "palert2ew: TCP connection sync error, flush the buffer!\n");
+					flush_sock_buffer( ClientSocket );
 					sync_errors = 0;
 				}
 			}
@@ -172,11 +175,24 @@ int pa2ew_client_stream( void )
 }
 
 /*
+ * flush_sock_buffer()
+ */
+static void flush_sock_buffer( const int sock )
+{
+	if ( sock > 0 )
+		if ( ioctl(sock, I_FLUSH, FLUSHR) < 0 )
+			logit("et", "palert2ew: NOTICE! Flushed socket buffer error:%d(%s)!\n", errno, strerror(errno));
+
+	return;
+}
+
+/*
  * reconstruct_connect_sock() - Reconstruct the socket connect to the Palert server.
  */
 static int reconstruct_connect_sock( void )
 {
 	static uint8_t count = 0;
+/* */
 	int sock = ClientSocket;
 
 /* Do until we success getting socket or exceed RECONNECT_TIMES */
@@ -233,6 +249,9 @@ static int construct_connect_sock( const char *ip, const char *port )
 	/* Setup characteristics of socket */
 		setsockopt(result, IPPROTO_TCP, TCP_QUICKACK, &sock_opt, sizeof(sock_opt));
 		setsockopt(result, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
+	/* Set recv. buffer size */
+		sock_opt = SOCKET_RCVBUFFER_LENGTH;
+		setsockopt(result, SOL_SOCKET, SO_RCVBUFFORCE, &sock_opt, sizeof(sock_opt));
 	/* Connect to the Palert server if we are using dependent client mode */
 		if ( connect(result, p->ai_addr, p->ai_addrlen) < 0 ) {
 			logit("e", "palert2ew: Connect to Palert server error!\n");
