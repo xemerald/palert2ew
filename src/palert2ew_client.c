@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <stropts.h>
 #include <errno.h>
 /* Network related header include */
 #include <netdb.h>
@@ -22,7 +21,9 @@
 
 /* */
 #define FW_PCK_HEADER_LENGTH     4
-#define RECONNECT_TIMES          10
+#define RECONNECT_TIMES_LIMIT    10
+#define RETRY_TIMES_LIMIT        5
+#define FLUSHING_TIMES_LIMIT     5
 #define RECONNECT_INTERVAL_MSEC  15000
 #define SOCKET_RCVBUFFER_LENGTH  1048576
 
@@ -95,10 +96,11 @@ int pa2ew_client_stream( void )
 	static size_t               offset = 0;
 	static uint8_t              sync_errors = 0;
 
-	int ret       = 0;
-	int data_read = 0;
-	int data_req  = FW_PCK_HEADER_LENGTH;
-	_STAINFO *staptr = NULL;
+	int       ret       = 0;
+	int       retry     = 0;
+	int       data_read = 0;
+	int       data_req  = FW_PCK_HEADER_LENGTH;
+	_STAINFO *staptr    = NULL;
 
 /* Try to align the two different data structure pointer */
 	if ( lrbuf == NULL || fwptr == NULL ) {
@@ -121,16 +123,16 @@ int pa2ew_client_stream( void )
 				sleep_ew(10);
 			}
 			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ) {
-				logit("et", "palert2ew: Receiving from Palert server is timeout, retry...\n");
+				logit("et", "palert2ew: Receiving from Palert server is timeouted, retry #%d...\n", ++retry);
+				if ( retry >= RETRY_TIMES_LIMIT ) {
+					logit("et", "palert2ew: Retry over %d time(s), reconnect...\n", retry);
+					goto reconnect;
+				}
 				sleep_ew(RECONNECT_INTERVAL_MSEC);
 			}
 			else if ( ret == 0 ) {
 				logit("et", "palert2ew: Connection to Palert server is closed, reconnect...\n");
-				if ( reconstruct_connect_sock() < 0 )
-					return PA2EW_RECV_CONNECT_ERROR;
-
-				data_read = 0;
-				data_req  = FW_PCK_HEADER_LENGTH;
+				goto reconnect;
 			}
 			else {
 				logit("et", "palert2ew: Fatal error on Palert server, exiting this session!\n");
@@ -152,7 +154,7 @@ int pa2ew_client_stream( void )
 		/* Packet type temporary fixed on 1 */
 			if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
 				if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
-					logit("et", "palert2ew: TCP connection sync error, flush the buffer!\n");
+					logit("et", "palert2ew: TCP connection sync error, flush the buffer...\n");
 					flush_sock_buffer( ClientSocket );
 					sync_errors = 0;
 				}
@@ -172,6 +174,12 @@ int pa2ew_client_stream( void )
 	}
 */
 	return PA2EW_RECV_NORMAL;
+/* */
+reconnect:
+	if ( reconstruct_connect_sock() < 0 )
+		return PA2EW_RECV_CONNECT_ERROR;
+	else
+		return PA2EW_RECV_NORMAL;
 }
 
 /*
@@ -179,9 +187,16 @@ int pa2ew_client_stream( void )
  */
 static void flush_sock_buffer( const int sock )
 {
-	if ( sock > 0 )
-		if ( ioctl(sock, I_FLUSH, FLUSHR) < 0 )
-			logit("et", "palert2ew: NOTICE! Flushed socket buffer error:%d(%s)!\n", errno, strerror(errno));
+	int     times, ret;
+	uint8_t buf[SOCKET_RCVBUFFER_LENGTH];
+
+	if ( sock > 0 ) {
+		times = 0;
+		do {
+			logit("ot", "palert2ew: NOTICE! Flushing socket(%d) buffer #%d...\n", sock, ++times);
+			ret = recv(sock, buf, SOCKET_RCVBUFFER_LENGTH, 0);
+		} while ( ret >= SOCKET_RCVBUFFER_LENGTH );
+	}
 
 	return;
 }
@@ -195,10 +210,10 @@ static int reconstruct_connect_sock( void )
 /* */
 	int sock = ClientSocket;
 
-/* Do until we success getting socket or exceed RECONNECT_TIMES */
+/* Do until we success getting socket or exceed RECONNECT_TIMES_LIMIT */
 	while ( (ClientSocket = construct_connect_sock( _ServerIP, _ServerPort )) == -1 ) {
-	/* Try RECONNECT_TIMES */
-		if ( ++count > RECONNECT_TIMES ) {
+	/* Try RECONNECT_TIMES_LIMIT */
+		if ( ++count > RECONNECT_TIMES_LIMIT ) {
 			logit("et", "palert2ew: Reconstruct socket failed; exiting this session!\n");
 			ClientSocket = sock;
 			return -1;
@@ -206,7 +221,7 @@ static int reconstruct_connect_sock( void )
 	/* Waiting for a while */
 		sleep_ew(RECONNECT_INTERVAL_MSEC);
 	}
-	logit("t", "palert2ew: Reconstruct socket success!\n");
+	logit("ot", "palert2ew: Reconstruct socket success!\n");
 	count = 0;
 /* */
 	if ( sock > 0 )
@@ -233,14 +248,14 @@ static int construct_connect_sock( const char *ip, const char *port )
 	hints.ai_socktype = SOCK_STREAM;
 /* Get IP & port information */
 	if ( getaddrinfo(ip, port, &hints, &servinfo) ) {
-		logit("e", "palert2ew: Get connection address info error!\n");
+		logit("et", "palert2ew: Get connection address info error!\n");
 		return -1;
 	}
 
 /* Setup socket */
 	for ( p = servinfo; p != NULL; p = p->ai_next) {
 		if ( (result = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1 ) {
-			logit("e", "palert2ew: Construct Palert connection socket error!\n");
+			logit("et", "palert2ew: Construct Palert connection socket error!\n");
 			return -1;
 		}
 	/* Set connection timeout to 15 seconds */
@@ -254,7 +269,7 @@ static int construct_connect_sock( const char *ip, const char *port )
 		setsockopt(result, SOL_SOCKET, SO_RCVBUFFORCE, &sock_opt, sizeof(sock_opt));
 	/* Connect to the Palert server if we are using dependent client mode */
 		if ( connect(result, p->ai_addr, p->ai_addrlen) < 0 ) {
-			logit("e", "palert2ew: Connect to Palert server error!\n");
+			logit("et", "palert2ew: Connect to Palert server error!\n");
 			continue;
 		}
 
@@ -263,10 +278,10 @@ static int construct_connect_sock( const char *ip, const char *port )
 	freeaddrinfo(servinfo);
 
 	if ( p != NULL ) {
-		logit("o", "palert2ew: Connection to Palert server %s success(sock: %d)!\n", ip, result);
+		logit("ot", "palert2ew: Connection to Palert server %s success(sock: %d)!\n", ip, result);
 	}
 	else {
-		logit("e", "palert2ew: Construct Palert connection socket failed!\n");
+		logit("et", "palert2ew: Construct Palert connection socket failed!\n");
 		close(result);
 		result = -1;
 	}

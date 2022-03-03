@@ -49,7 +49,8 @@ ver_710_sql: ver_710
 
 #
 cap_set:
-	sudo setcap cap_net_bind_service=+ep $(B)/$(BIN_NAME)
+	@echo Enabling the capability of binding the port below 1024...
+	@sudo setcap cap_net_bind_service=+ep $(B)/$(BIN_NAME)
 
 
 # Clean-up rules
