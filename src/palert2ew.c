@@ -484,7 +484,7 @@ static void palert2ew_config( char *configfile )
 				UpdateInterval = k_long();
 				if ( UpdateInterval )
 					logit(
-						"o", "palert2ew: Change to auto updating mode, the updating interval is %d seconds!\n",
+						"o", "palert2ew: Change to auto updating mode, the updating interval is %ld seconds!\n",
 						UpdateInterval
 					);
 			}

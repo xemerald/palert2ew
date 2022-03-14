@@ -23,7 +23,6 @@
 #define FW_PCK_HEADER_LENGTH     4
 #define RECONNECT_TIMES_LIMIT    10
 #define RETRY_TIMES_LIMIT        5
-#define FLUSHING_TIMES_LIMIT     5
 #define RECONNECT_INTERVAL_MSEC  15000
 #define SOCKET_RCVBUFFER_LENGTH  1048576
 
@@ -187,15 +186,14 @@ reconnect:
  */
 static void flush_sock_buffer( const int sock )
 {
-	int     times, ret;
+	int     times;
 	uint8_t buf[SOCKET_RCVBUFFER_LENGTH];
 
 	if ( sock > 0 ) {
 		times = 0;
 		do {
 			logit("ot", "palert2ew: NOTICE! Flushing socket(%d) buffer #%d...\n", sock, ++times);
-			ret = recv(sock, buf, SOCKET_RCVBUFFER_LENGTH, 0);
-		} while ( ret >= SOCKET_RCVBUFFER_LENGTH );
+		} while ( recv(sock, buf, SOCKET_RCVBUFFER_LENGTH, 0) >= SOCKET_RCVBUFFER_LENGTH );
 	}
 
 	return;

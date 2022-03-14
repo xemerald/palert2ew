@@ -11,10 +11,6 @@
 #include <palert2ew.h>
 #include <palert2ew_list.h>
 
-/* */
-#define RATIO_LBUF_SIZE_STATIONS  0.02
-#define MINIMUM_LBUF_SIZE         2
-
 /* Internal stack related struct */
 struct last_buffer {
 	uint16_t buffer_rear;

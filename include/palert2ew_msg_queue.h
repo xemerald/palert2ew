@@ -13,8 +13,6 @@
 #pragma once
 /* */
 #include <mem_circ_queue.h>
-/* Header needed for PACKET, PREPACKET & _STAINFO */
-#include <palert2ew.h>
 /* */
 #define PA2EW_GEN_MSG_LOGO_BY_SRC(PA2EW_MSG_SRC) \
 		((MSG_LOGO){ (PA2EW_MSG_SRC), (PA2EW_MSG_SRC), (PA2EW_MSG_SRC) })
