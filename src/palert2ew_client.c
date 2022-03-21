@@ -21,8 +21,8 @@
 
 /* */
 #define FW_PCK_HEADER_LENGTH     4
-#define RECONNECT_TIMES_LIMIT    10
 #define RETRY_TIMES_LIMIT        5
+#define RECONNECT_TIMES_LIMIT    10
 #define RECONNECT_INTERVAL_MSEC  15000
 #define SOCKET_RCVBUFFER_LENGTH  1048576
 
@@ -57,12 +57,9 @@ int pa2ew_client_init( const char *ip, const char *port )
 	ClientSocket = construct_connect_sock( ip, port );
 /* Initialize the receiving buffer */
 	if ( Buffer == NULL ) {
-		if ( sizeof(LABELED_RECV_BUFFER) > sizeof(FW_PCK) )
-			BufferSize = sizeof(LABELED_RECV_BUFFER);
-		else
-			BufferSize = sizeof(FW_PCK);
 	/* */
-		Buffer = (uint8_t *)malloc(BufferSize);
+		BufferSize = sizeof(LABELED_RECV_BUFFER) > sizeof(FW_PCK) ? sizeof(LABELED_RECV_BUFFER) : sizeof(FW_PCK);
+		Buffer = (uint8_t *)calloc(1, BufferSize);
 	}
 
 	return ClientSocket;
@@ -92,7 +89,6 @@ int pa2ew_client_stream( void )
 {
 	static LABELED_RECV_BUFFER *lrbuf = NULL;
 	static FW_PCK              *fwptr = NULL;
-	static size_t               offset = 0;
 	static uint8_t              sync_errors = 0;
 
 	int       ret       = 0;
@@ -104,15 +100,13 @@ int pa2ew_client_stream( void )
 /* Try to align the two different data structure pointer */
 	if ( lrbuf == NULL || fwptr == NULL ) {
 	/* */
-		lrbuf  = (LABELED_RECV_BUFFER *)Buffer;
-		fwptr  = (FW_PCK *)Buffer;
+		lrbuf = (LABELED_RECV_BUFFER *)Buffer;
+		fwptr = (FW_PCK *)Buffer;
 	/* */
 		if ( lrbuf->recv_buffer > fwptr->recv_buffer )
 			fwptr = (FW_PCK *)(Buffer + (lrbuf->recv_buffer - fwptr->recv_buffer));
 		else
 			lrbuf = (LABELED_RECV_BUFFER *)(Buffer + (fwptr->recv_buffer - lrbuf->recv_buffer));
-	/* */
-		offset = lrbuf->recv_buffer - (uint8_t *)lrbuf;
 	}
 
 /* */
@@ -122,7 +116,7 @@ int pa2ew_client_stream( void )
 				sleep_ew(10);
 			}
 			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ) {
-				logit("et", "palert2ew: Receiving from Palert server is timeouted, retry #%d...\n", ++retry);
+				logit("et", "palert2ew: Receiving from Palert server is timeout, retry #%d...\n", ++retry);
 				if ( retry >= RETRY_TIMES_LIMIT ) {
 					logit("et", "palert2ew: Retry over %d time(s), reconnect...\n", retry);
 					goto reconnect;
@@ -146,14 +140,15 @@ int pa2ew_client_stream( void )
 
 /* Serial should always larger than 0, if so send the update request */
 	if ( fwptr->serial ) {
+	/* Find which one palert */
 		if ( (staptr = pa2ew_list_find( fwptr->serial )) ) {
-			ret = fwptr->length + offset;
-		/* This should be done after the last command 'cause it will effect the length's memory space */
+			ret = fwptr->length;
+		/* This should be done after the command above 'cause it will effect the length's memory space */
 			lrbuf->label.staptr = staptr;
 		/* Packet type temporary fixed on 1 */
 			if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
 				if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
-					logit("et", "palert2ew: TCP connection sync error, flush the buffer...\n");
+					logit("et", "palert2ew: TCP connection sync error, flushing the buffer...\n");
 					flush_sock_buffer( ClientSocket );
 					sync_errors = 0;
 				}

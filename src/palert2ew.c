@@ -289,9 +289,9 @@ int main ( int argc, char **argv )
 		count = 0;
 		do {
 		/* See if a termination has been requested */
-			if ( tport_getflag( &Region[0] ) == TERMINATE ||
-				tport_getflag( &Region[0] ) == MyPid ) {
-			/* write a termination msg to log file */
+			i = tport_getflag( &Region[0] );
+			if ( i == TERMINATE || i == MyPid ) {
+			/* Write a termination msg to log file */
 				logit("t", "palert2ew: Termination requested; exiting!\n");
 				fflush(stdout);
 				goto exit_procedure;
@@ -489,9 +489,9 @@ static void palert2ew_config( char *configfile )
 					);
 			}
 			else if( k_its("ReqSOHInterval") ) {
-				ReqSOHInterval = k_int();
+				ReqSOHInterval = k_long();
 				logit(
-					"o", "palert2ew: Change the interval of requesting SOH to %d seconds, default is %d seconds!\n",
+					"o", "palert2ew: Change the interval of requesting SOH to %d seconds, default is %ld seconds!\n",
 					ReqSOHInterval, PA2EW_EXT_REQUEST_SOH_INTERVAL
 				);
 			}

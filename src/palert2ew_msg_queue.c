@@ -20,6 +20,7 @@ struct last_buffer {
 /* Define global variables */
 static mutex_t  QueueMutex;
 static QUEUE    MsgQueue;         /* from queue.h, queue.c; sets up linked */
+static size_t   LRBufferOffset = 0;
 
 /* */
 static void                 save_last_buffer( void *, const size_t );
@@ -35,10 +36,14 @@ static int validate_serial_pah4( const PALERTMODE4_HEADER *, const int );
  */
 int pa2ew_msgqueue_init( const unsigned long queue_size, const unsigned long element_size )
 {
+	LABELED_RECV_BUFFER _lrbuf;
+
 /* Create a Mutex to control access to queue */
 	CreateSpecificMutex(&QueueMutex);
 /* Initialize the message queue */
 	initqueue( &MsgQueue, queue_size, element_size + 1 );
+/* Initialize the labeled buffer real offset */
+	LRBufferOffset = _lrbuf.recv_buffer - (uint8_t *)&_lrbuf;
 
 	return 0;
 }
@@ -105,7 +110,6 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type, 
 	int                  sync_flag = 0;
 
 /* */
-	buf_len -= lrbuf->recv_buffer - (uint8_t *)lrbuf;
 	lrbuf = draw_last_buffer( label_buf, &buf_len );
 /* */
 	if ( packet_type == 1 )
@@ -198,7 +202,6 @@ static struct last_buffer *create_last_buffer( _STAINFO *staptr )
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
 	uint16_t            serial = ((_STAINFO *)lrbuf->label.staptr)->serial;
-	const size_t        offset = lrbuf->recv_buffer - (uint8_t *)lrbuf;
 	PALERTMODE1_HEADER *pah;
 /* */
 	int    ret           = 0;
@@ -211,10 +214,14 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 		*buf_len >= PALERTMODE1_HEADER_LENGTH;
 		*buf_len -= PALERTMODE1_HEADER_LENGTH, pah++
 	) {
-	/* */
+	/* Testing for the mode 1 packet header */
 		if ( (ret = validate_serial_pah1( pah, serial )) > 0 ) {
 			if ( ret == PALERTMODE1_PACKET_LENGTH ) {
-			/* */
+			/*
+			 * Once it is the mode 1 packet header incoming,
+			 * we should flush the existed buffer and move the
+			 * incoming header to beginning of buffer.
+			 */
 				if ( (uint8_t *)pah != lrbuf->recv_buffer ) {
 					memmove(lrbuf->recv_buffer, pah, *buf_len);
 					pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
@@ -231,9 +238,9 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 	/* */
 		else if ( header_offset ) {
 			header_offset += PALERTMODE1_HEADER_LENGTH;
-		/* */
+		/* Reach the required mode 1 packet length */
 			if ( header_offset == PALERTMODE1_PACKET_LENGTH ) {
-				if ( pa2ew_msgqueue_enqueue( lrbuf, PALERTMODE1_PACKET_LENGTH + offset, logo ) )
+				if ( pa2ew_msgqueue_enqueue( lrbuf, PALERTMODE1_PACKET_LENGTH + LRBufferOffset, logo ) )
 					sleep_ew(50);
 				header_offset = 0;
 			}
@@ -254,7 +261,6 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
 	uint16_t            serial = ((_STAINFO *)lrbuf->label.staptr)->serial;
-	const size_t        offset = lrbuf->recv_buffer - (uint8_t *)lrbuf;
 	PALERTMODE4_HEADER *pah4   = (PALERTMODE4_HEADER *)lrbuf->recv_buffer;
 /* */
 	int ret       = 0;
@@ -272,7 +278,7 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 			}
 		/* */
 			if ( *buf_len >= (size_t)ret ) {
-				if ( pa2ew_msgqueue_enqueue( lrbuf, ret + offset, logo ) )
+				if ( pa2ew_msgqueue_enqueue( lrbuf, ret + LRBufferOffset, logo ) )
 					sleep_ew(100);
 			/* */
 				*buf_len -= ret;
