@@ -59,7 +59,7 @@ int pa2ew_client_init( const char *ip, const char *port )
 	if ( Buffer == NULL ) {
 	/* */
 		BufferSize = sizeof(LABELED_RECV_BUFFER) > sizeof(FW_PCK) ? sizeof(LABELED_RECV_BUFFER) : sizeof(FW_PCK);
-		Buffer = (uint8_t *)calloc(1, BufferSize);
+		Buffer = (uint8_t *)calloc(1, BufferSize + 1);  /* Plus one just in case */
 	}
 
 	return ClientSocket;
@@ -150,6 +150,7 @@ int pa2ew_client_stream( void )
 				if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
 					logit("et", "palert2ew: TCP connection sync error, flushing the buffer...\n");
 					flush_sock_buffer( ClientSocket );
+					pa2ew_msgqueue_lastbufs_reset();
 					sync_errors = 0;
 				}
 			}
@@ -170,6 +171,7 @@ int pa2ew_client_stream( void )
 	return PA2EW_RECV_NORMAL;
 /* */
 reconnect:
+	pa2ew_msgqueue_lastbufs_reset();
 	if ( reconstruct_connect_sock() < 0 )
 		return PA2EW_RECV_CONNECT_ERROR;
 	else
@@ -181,14 +183,15 @@ reconnect:
  */
 static void flush_sock_buffer( const int sock )
 {
-	int     times;
-	uint8_t buf[SOCKET_RCVBUFFER_LENGTH];
+	int      times;
+	uint8_t *buf = (uint8_t *)malloc(SOCKET_RCVBUFFER_LENGTH + 1);
 
-	if ( sock > 0 ) {
+	if ( sock > 0 && buf ) {
 		times = 0;
 		do {
 			logit("ot", "palert2ew: NOTICE! Flushing socket(%d) buffer #%d...\n", sock, ++times);
 		} while ( recv(sock, buf, SOCKET_RCVBUFFER_LENGTH, 0) >= SOCKET_RCVBUFFER_LENGTH );
+		free(buf);
 	}
 
 	return;

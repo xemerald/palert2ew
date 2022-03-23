@@ -26,6 +26,7 @@ static size_t   LRBufferOffset = 0;
 static void                 save_last_buffer( void *, const size_t );
 static LABELED_RECV_BUFFER *draw_last_buffer( void *, size_t * );
 static struct last_buffer  *create_last_buffer( _STAINFO * );
+static void                 free_last_buffer_act( void *, const int, void * );
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
 static int validate_serial_pah1( const PALERTMODE1_HEADER *, const int );
@@ -129,6 +130,17 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type, 
 }
 
 /*
+ * pa2ew_msgqueue_lastbufs_reset() - Stack received message into queue of station.
+ */
+void pa2ew_msgqueue_lastbufs_reset( void )
+{
+/* */
+	pa2ew_list_walk( free_last_buffer_act, NULL );
+/* */
+	return;
+}
+
+/*
  *
  */
 static void save_last_buffer( void *label_buf, const size_t buf_len )
@@ -140,8 +152,8 @@ static void save_last_buffer( void *label_buf, const size_t buf_len )
 		_lastbuf = create_last_buffer( (_STAINFO *)lrbuf->label.staptr );
 /* */
 	if ( buf_len < PA2EW_RECV_BUFFER_LENGTH && _lastbuf ) {
-		_lastbuf->buffer_rear = buf_len;
 		memcpy(_lastbuf->buffer, lrbuf->recv_buffer, buf_len);
+		_lastbuf->buffer_rear = buf_len;
 	}
 
 	return;
@@ -165,7 +177,7 @@ static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 	/* */
 		else {
 			LABELED_RECV_BUFFER *_result =
-				(LABELED_RECV_BUFFER *)malloc(sizeof(LABELED_RECV_BUFFER) + _lastbuf->buffer_rear);
+				(LABELED_RECV_BUFFER *)malloc(sizeof(LABELED_RECV_BUFFER) + _lastbuf->buffer_rear + 1);
 
 			_result->label = result->label;
 			memcpy(_result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear);
@@ -191,9 +203,27 @@ static struct last_buffer *create_last_buffer( _STAINFO *staptr )
 {
 	struct last_buffer *result = (struct last_buffer *)calloc(1, sizeof(struct last_buffer));
 
+	result->buffer_rear = 0;
 	staptr->buffer = result;
 
 	return result;
+}
+
+/*
+ *
+ */
+static void free_last_buffer_act( void *node, const int index, void *arg )
+{
+	_STAINFO           *staptr  = (_STAINFO *)node;
+	struct last_buffer *lastbuf = (struct last_buffer *)staptr->buffer;
+/* */
+	if ( lastbuf ) {
+		lastbuf->buffer_rear = 0;
+		free(lastbuf);
+		staptr->buffer = NULL;
+	}
+
+	return;
 }
 
 /*
@@ -218,7 +248,7 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 		if ( (ret = validate_serial_pah1( pah, serial )) > 0 ) {
 			if ( ret == PALERTMODE1_PACKET_LENGTH ) {
 			/*
-			 * Once it is the mode 1 packet header incoming,
+			 * Once the mode 1 packet header is incoming,
 			 * we should flush the existed buffer and move the
 			 * incoming header to beginning of buffer.
 			 */
@@ -279,7 +309,7 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 		/* */
 			if ( *buf_len >= (size_t)ret ) {
 				if ( pa2ew_msgqueue_enqueue( lrbuf, ret + LRBufferOffset, logo ) )
-					sleep_ew(100);
+					sleep_ew(50);
 			/* */
 				*buf_len -= ret;
 				pah4 = (PALERTMODE4_HEADER *)(lrbuf->recv_buffer + ret);

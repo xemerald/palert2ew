@@ -36,4 +36,4 @@ void      pa2ew_list_tree_activate( void );
 void      pa2ew_list_tree_abandon( void );
 int       pa2ew_list_total_station_get( void );
 double    pa2ew_list_timestamp_get( void );
-void      pa2ew_list_walk( void (*)(const void *, const int, void *), void * );
+void      pa2ew_list_walk( void (*)(void *, const int, void *), void * );

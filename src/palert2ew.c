@@ -214,7 +214,7 @@ int main ( int argc, char **argv )
 /* Get process ID for heartbeat messages */
 	MyPid = getpid();
 	if ( MyPid == -1 ) {
-		logit("e","palert2ew: Cannot get pid. Exiting!\n");
+		logit("e", "palert2ew: Cannot get pid. Exiting!\n");
 		pa2ew_list_end();
 		exit(-1);
 	}
@@ -491,7 +491,7 @@ static void palert2ew_config( char *configfile )
 			else if( k_its("ReqSOHInterval") ) {
 				ReqSOHInterval = k_long();
 				logit(
-					"o", "palert2ew: Change the interval of requesting SOH to %d seconds, default is %ld seconds!\n",
+					"o", "palert2ew: Change the interval of requesting SOH to %ld seconds, default is %d seconds!\n",
 					ReqSOHInterval, PA2EW_EXT_REQUEST_SOH_INTERVAL
 				);
 			}
@@ -686,7 +686,7 @@ static void palert2ew_lookup( void )
 static void palert2ew_status( unsigned char type, short ierr, char *note )
 {
 	MSG_LOGO    logo;
-	char        msg[256];
+	char        msg[512];
 	uint64_t    size;
 	time_t      t;
 
@@ -1085,7 +1085,7 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 		msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
 	/* Each channel part */
 		for ( i = 0; i < stainfo->nchannel; i++, chaptr++ ) {
-			strcpy(tracebuf.trh2.chan, chaptr->chan);
+			memcpy(tracebuf.trh2.chan, chaptr->chan, TRACE2_CHAN_LEN);
 			COPYDATA_TRACEBUF_PM1( &tracebuf, packet, chaptr->seq );
 			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
 				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
@@ -1156,7 +1156,7 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 				&tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc,
 				msr->numsamples, msr->samprate, (double)(MS_HPTIME2EPOCH(msr->starttime))
 			);
-			strcpy(tracebuf.trh2.chan, chaptr->chan);
+			memcpy(tracebuf.trh2.chan, chaptr->chan, TRACE2_CHAN_LEN);
 
 			msg_size = tracebuf.trh2.nsamp * ms_samplesize(msr->sampletype);
 			memcpy((int *)(&tracebuf.trh2 + 1), msr->datasamples, msg_size);
@@ -1197,7 +1197,8 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
  */
 static int examine_ntp_sync( _STAINFO *stainfo, const void *header )
 {
-	uint8_t *ntp_errors = &stainfo->ntp_errors;
+	static const uint8_t pre_threshold = PA2EW_NTP_SYNC_ERR_LIMIT * 0.8;
+	uint8_t *const       ntp_errors    = &stainfo->ntp_errors;
 
 /* Check NTP SYNC. */
 	if ( palert_check_ntp_common( header ) ) {
@@ -1206,9 +1207,9 @@ static int examine_ntp_sync( _STAINFO *stainfo, const void *header )
 		*ntp_errors = 0;
 	}
 	else {
-		if ( *ntp_errors >= 25 ) {
+		if ( *ntp_errors >= pre_threshold ) {
 			if ( *ntp_errors < PA2EW_NTP_SYNC_ERR_LIMIT ) {
-				printf("palert2ew: Station %s NTP sync error, please check it!\n", stainfo->sta);
+				printf("palert2ew: Station %s NTP not sync, please check it!\n", stainfo->sta);
 			}
 			else {
 				if ( *ntp_errors == PA2EW_NTP_SYNC_ERR_LIMIT ) {

@@ -24,9 +24,9 @@ TRACE2_HEADER *pa2ew_misc_trh2_enrich(
 	dest->starttime = starttime;
 	dest->endtime   = dest->starttime + (dest->nsamp - 1) / dest->samprate;
 /* */
-	strcpy(dest->sta, sta);
-	strcpy(dest->net, net);
-	strcpy(dest->loc, loc);
+	memcpy(dest->sta, sta, TRACE2_STA_LEN);
+	memcpy(dest->net, net, TRACE2_NET_LEN);
+	memcpy(dest->loc, loc, TRACE2_LOC_LEN);
 /* */
 	dest->version[0] = TRACE2_VERSION0;
 	dest->version[1] = TRACE2_VERSION1;
@@ -34,10 +34,12 @@ TRACE2_HEADER *pa2ew_misc_trh2_enrich(
 	strcpy(dest->quality, TRACE2_NO_QUALITY);
 	strcpy(dest->pad    , TRACE2_NO_PAD    );
 
+	dest->datatype[1] = '4';
+	dest->datatype[2] = '\0';
 #if defined( _SPARC )
-	strcpy(dest->datatype, "s4");   /* SUN IEEE integer */
+	dest->datatype[0] = 's';   /* SUN IEEE integer       */
 #elif defined( _INTEL )
-	strcpy(dest->datatype, "i4");   /* VAX/Intel IEEE integer */
+	dest->datatype[0] = 'i';   /* VAX/Intel IEEE integer */
 #else
 	fprintf(stderr, "palert2ew: warning _INTEL and _SPARC are both undefined.");
 #endif

@@ -262,7 +262,7 @@ double pa2ew_list_timestamp_get( void )
 /*
  * pa2ew_list_walk() -
  */
-void pa2ew_list_walk( void (*action)(const void *, const int, void *), void *arg )
+void pa2ew_list_walk( void (*action)(void *, const int, void *), void *arg )
 {
 	int      i;
 	DL_NODE *current = NULL;
