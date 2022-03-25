@@ -427,60 +427,64 @@ static void palert2ew_config( char *configfile )
 		/* Process anything else as a command
 		 ************************************/
 		/* 0 */
-			if( k_its("LogFile") ) {
+			if ( k_its("LogFile") ) {
 				LogSwitch = k_int();
 				init[0] = 1;
 			}
-			else if( k_its("ExtFunc") ) {
+			else if ( k_its("ExtFunc") ) {
 				ExtFuncSwitch = k_int();
 				if ( ExtFuncSwitch )
 					logit("o", "palert2ew: Turn on the extension function for Palerts!\n");
 			}
 		/* 1 */
-			else if( k_its("MyModuleId") ) {
+			else if ( k_its("MyModuleId") ) {
 				str = k_str();
-				if ( str ) strcpy(MyModName, str);
+				if ( str )
+					strcpy(MyModName, str);
 				init[1] = 1;
 			}
 		/* 2 */
-			else if( k_its("OutWaveRing") ) {
+			else if ( k_its("OutWaveRing") ) {
 				str = k_str();
-				if ( str ) strcpy(&RingName[WAVE_MSG_LOGO][0], str);
+				if ( str )
+					strcpy(&RingName[WAVE_MSG_LOGO][0], str);
 				init[2] = 1;
 			}
-			else if( k_its("OutRawRing") ) {
+			else if ( k_its("OutRawRing") ) {
 				str = k_str();
-				if ( str ) strcpy(&RingName[RAW_MSG_LOGO][0], str);
+				if ( str )
+					strcpy(&RingName[RAW_MSG_LOGO][0], str);
 				RawOutputSwitch = 1;
 			}
-			else if( k_its("OutExtendRing") ) {
+			else if ( k_its("OutExtendRing") ) {
 				str = k_str();
-				if ( str ) strcpy(&RingName[EXT_MSG_LOGO][0], str);
+				if ( str )
+					strcpy(&RingName[EXT_MSG_LOGO][0], str);
 				ExtOutputSwitch = 1;
 			}
 		/* 3 */
-			else if( k_its("HeartBeatInterval") ) {
+			else if ( k_its("HeartBeatInterval") ) {
 				HeartBeatInterval = k_long();
 				init[3] = 1;
 			}
 		/* 4 */
-			else if( k_its("QueueSize") ) {
+			else if ( k_its("QueueSize") ) {
 				QueueSize = k_long();
 				init[4] = 1;
 			}
 		/* 5 */
-			else if( k_its("MaxStationNum") ) {
+			else if ( k_its("MaxStationNum") ) {
 				MaxStationNum = k_long();
 				init[5] = 1;
 			}
-			else if( k_its("UniSampRate") ) {
+			else if ( k_its("UniSampRate") ) {
 				UniSampRate = k_int();
 				logit(
 					"o", "palert2ew: Change to unified sampling rate mode, the unified sampling rate is %d Hz!\n",
 					UniSampRate
 				);
 			}
-			else if( k_its("UpdateInterval") ) {
+			else if ( k_its("UpdateInterval") ) {
 				UpdateInterval = k_long();
 				if ( UpdateInterval )
 					logit(
@@ -488,7 +492,7 @@ static void palert2ew_config( char *configfile )
 						UpdateInterval
 					);
 			}
-			else if( k_its("ReqSOHInterval") ) {
+			else if ( k_its("ReqSOHInterval") ) {
 				ReqSOHInterval = k_long();
 				logit(
 					"o", "palert2ew: Change the interval of requesting SOH to %ld seconds, default is %d seconds!\n",
@@ -496,67 +500,77 @@ static void palert2ew_config( char *configfile )
 				);
 			}
 		/* 6 */
-			else if( k_its("ServerSwitch") ) {
+			else if ( k_its("ServerSwitch") ) {
 				if ( (ServerSwitch = k_int()) >= 1 ) {
 					ServerSwitch = PA2EW_RECV_SERVER_ON;
 					for ( i = 7; i < 9; i++ )
 						init[i] = 1;
 				}
-				else ServerSwitch = PA2EW_RECV_SERVER_OFF;
+				else {
+					ServerSwitch = PA2EW_RECV_SERVER_OFF;
+				}
 				init[6] = 1;
 			}
 		/* 7 */
-			else if( k_its("ServerIP") ) {
+			else if ( k_its("ServerIP") ) {
 				str = k_str();
-				if ( str ) strcpy( ServerIP, str );
+				if ( str )
+					strcpy( ServerIP, str );
 				init[7] = 1;
 			}
 		/* 8 */
-			else if( k_its("ServerPort") ) {
+			else if ( k_its("ServerPort") ) {
 				str = k_str();
-				if ( str ) strcpy( ServerPort, str );
+				if ( str )
+					strcpy( ServerPort, str );
 				init[8] = 1;
 			}
-			else if( k_its("SQLHost") ) {
+			else if ( k_its("SQLHost") ) {
 				str = k_str();
-				if ( str ) strcpy(DBInfo.host, str);
+				if ( str )
+					strcpy(DBInfo.host, str);
 #if defined( _USE_SQL )
 				for ( i = 9; i < 14; i++ )
 					init[i] = 0;
 #endif
 			}
 		/* 9 */
-			else if( k_its("SQLPort") ) {
+			else if ( k_its("SQLPort") ) {
 				DBInfo.port = k_long();
 				init[9] = 1;
 			}
 		/* 10 */
-			else if( k_its("SQLUser") ) {
+			else if ( k_its("SQLUser") ) {
 				str = k_str();
-				if ( str ) strcpy(DBInfo.user, str);
+				if ( str )
+					strcpy(DBInfo.user, str);
 				init[10] = 1;
 			}
 		/* 11 */
-			else if( k_its("SQLPassword") ) {
+			else if ( k_its("SQLPassword") ) {
 				str = k_str();
-				if ( str ) strcpy(DBInfo.password, str);
+				if ( str )
+					strcpy(DBInfo.password, str);
 				init[11] = 1;
 			}
 		/* 12 */
-			else if( k_its("SQLDatabase") ) {
+			else if ( k_its("SQLDatabase") ) {
 				str = k_str();
-				if ( str ) strcpy(DBInfo.database, str);
+				if ( str )
+					strcpy(DBInfo.database, str);
 				init[12] = 1;
 			}
 		/* 13 */
 			else if ( k_its("SQLStationTable") ) {
 				str = k_str();
-				if ( str ) strcpy(SQLStationTable, str);
+				if ( str )
+					strcpy(SQLStationTable, str);
 				init[13] = 1;
 			}
 			else if ( k_its("SQLChannelTable") ) {
 				str = k_str();
-				if ( str ) strcpy(SQLChannelTable, str);
+				if ( str )
+					strcpy(SQLChannelTable, str);
 			}
 			else if ( k_its("Palert") ) {
 				str = k_get();
@@ -587,9 +601,12 @@ static void palert2ew_config( char *configfile )
 
 /* After all files are closed, check init flags for missed commands */
 	nmiss = 0;
-	for ( i = 0; i < ncommand; i++ ) if ( !init[i] ) nmiss++;
+	for ( i = 0; i < ncommand; i++ )
+		if ( !init[i] )
+			nmiss++;
+/* */
 	if ( nmiss ) {
-		logit( "e", "palert2ew: ERROR, no " );
+		logit("e", "palert2ew: ERROR, no ");
 		if ( !init[0] )  logit( "e", "<LogFile> "           );
 		if ( !init[1] )  logit( "e", "<MyModuleId> "        );
 		if ( !init[2] )  logit( "e", "<OutWaveRing> "       );
