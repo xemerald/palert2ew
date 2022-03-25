@@ -387,7 +387,7 @@ static void palert2ew_config( char *configfile )
 
 /* Set to zero one init flag for each required command */
 	ncommand = 14;
-	for( i = 0; i < ncommand; i++ ) {
+	for ( i = 0; i < ncommand; i++ ) {
 		if ( i < 9 )
 			init[i] = 0;
 		else
@@ -396,7 +396,7 @@ static void palert2ew_config( char *configfile )
 /* */
 	DBINFO_INIT( DBInfo );
 /* Open the main configuration file */
-	nfiles = k_open( configfile );
+	nfiles = k_open(configfile);
 	if ( nfiles == 0 ) {
 		logit("e","palert2ew: Error opening command file <%s>; exiting!\n", configfile);
 		exit(-1);
@@ -607,20 +607,20 @@ static void palert2ew_config( char *configfile )
 /* */
 	if ( nmiss ) {
 		logit("e", "palert2ew: ERROR, no ");
-		if ( !init[0] )  logit( "e", "<LogFile> "           );
-		if ( !init[1] )  logit( "e", "<MyModuleId> "        );
-		if ( !init[2] )  logit( "e", "<OutWaveRing> "       );
-		if ( !init[3] )  logit( "e", "<HeartBeatInterval> " );
-		if ( !init[4] )  logit( "e", "<QueueSize> "         );
-		if ( !init[5] )  logit( "e", "<MaxStationNum> "     );
-		if ( !init[6] )  logit( "e", "<ServerSwitch> "      );
-		if ( !init[7] )  logit( "e", "<ServerIP> "          );
-		if ( !init[8] )  logit( "e", "<ServerPort> "        );
-		if ( !init[9] )  logit( "e", "<SQLPort> "           );
-		if ( !init[10] ) logit( "e", "<SQLUser> "           );
-		if ( !init[11] ) logit( "e", "<SQLPassword> "       );
-		if ( !init[12] ) logit( "e", "<SQLDatabase> "       );
-		if ( !init[13] ) logit( "e", "<SQLStationTable> "   );
+		if ( !init[0] )  logit("e", "<LogFile> "          );
+		if ( !init[1] )  logit("e", "<MyModuleId> "       );
+		if ( !init[2] )  logit("e", "<OutWaveRing> "      );
+		if ( !init[3] )  logit("e", "<HeartBeatInterval> ");
+		if ( !init[4] )  logit("e", "<QueueSize> "        );
+		if ( !init[5] )  logit("e", "<MaxStationNum> "    );
+		if ( !init[6] )  logit("e", "<ServerSwitch> "     );
+		if ( !init[7] )  logit("e", "<ServerIP> "         );
+		if ( !init[8] )  logit("e", "<ServerPort> "       );
+		if ( !init[9] )  logit("e", "<SQLPort> "          );
+		if ( !init[10] ) logit("e", "<SQLUser> "          );
+		if ( !init[11] ) logit("e", "<SQLPassword> "      );
+		if ( !init[12] ) logit("e", "<SQLDatabase> "      );
+		if ( !init[13] ) logit("e", "<SQLStationTable> "  );
 
 		logit("e", "command(s) in <%s>; exiting!\n", configfile);
 		exit(-1);
