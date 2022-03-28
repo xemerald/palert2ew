@@ -9,7 +9,7 @@ The P-alert sensor messages receiving module based on Earthworm that developed b
 
 ## Installation
 
-The version of Earthworm is under **7.9**:
+The version of Earthworm is under **7.9** (this might be obsoleted later):
 
 ```
 $ make ver_709
@@ -67,7 +67,7 @@ Then you are able to execute this module under startstop module!
 
 ## Configuration
 
-In fact, inside the palert2ew.d file already providing a lot of detailed information. Therefore, if you are reallly urgent, just skip the content below directly read the configuration file.
+In fact, inside the palert2ew.d file already providing a lot of detailed information. Therefore, if you are really urgent, just skip the content below directly read the configuration file.
 
 ### Basic Earthworm setup:
 
@@ -97,7 +97,7 @@ Where to list P-alerts that will receive by this program. By the way, the priori
 Palert    1993      TEST      TW         --         3         HLZ          HLN        HLE
 ```
 
-- Example withour any channel code:
+- Example without any channel code:
 
 ```
 Palert    1993      TEST      TW         --         0     
