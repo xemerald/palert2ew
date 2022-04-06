@@ -23,8 +23,8 @@ static QUEUE    MsgQueue;         /* from queue.h, queue.c; sets up linked */
 static size_t   LRBufferOffset = 0;
 
 /* */
-static void                 save_last_buffer( void *, const size_t );
 static LABELED_RECV_BUFFER *draw_last_buffer( void *, size_t * );
+static void                 save_last_buffer( void *, const size_t );
 static struct last_buffer  *create_last_buffer( _STAINFO * );
 static void                 free_last_buffer_act( void *, const int, void * );
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
@@ -143,25 +143,6 @@ void pa2ew_msgqueue_lastbufs_reset( void )
 /*
  *
  */
-static void save_last_buffer( void *label_buf, const size_t buf_len )
-{
-	LABELED_RECV_BUFFER *lrbuf   = (LABELED_RECV_BUFFER *)label_buf;
-	struct last_buffer *_lastbuf = (struct last_buffer *)((_STAINFO *)lrbuf->label.staptr)->buffer;
-/* */
-	if ( !_lastbuf )
-		_lastbuf = create_last_buffer( (_STAINFO *)lrbuf->label.staptr );
-/* */
-	if ( buf_len < PA2EW_RECV_BUFFER_LENGTH && _lastbuf ) {
-		memcpy(_lastbuf->buffer, lrbuf->recv_buffer, buf_len);
-		_lastbuf->buffer_rear = buf_len;
-	}
-
-	return;
-}
-
-/*
- *
- */
 static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 {
 	LABELED_RECV_BUFFER *result   = (LABELED_RECV_BUFFER *)label_buf;
@@ -170,7 +151,7 @@ static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 /* First, deal the remainder data from last packet */
 	if ( _lastbuf != NULL && _lastbuf->buffer_rear ) {
 	/* */
-		if ( (*buf_len + _lastbuf->buffer_rear) <= PA2EW_RECV_BUFFER_LENGTH ) {
+		if ( (*buf_len + _lastbuf->buffer_rear) < PA2EW_RECV_BUFFER_LENGTH ) {
 			memmove(result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
 			memcpy(result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear);
 		}
@@ -194,6 +175,25 @@ static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 	}
 
 	return result;
+}
+
+/*
+ *
+ */
+static void save_last_buffer( void *label_buf, const size_t buf_len )
+{
+	LABELED_RECV_BUFFER *lrbuf   = (LABELED_RECV_BUFFER *)label_buf;
+	struct last_buffer *_lastbuf = (struct last_buffer *)((_STAINFO *)lrbuf->label.staptr)->buffer;
+/* */
+	if ( !_lastbuf )
+		_lastbuf = create_last_buffer( (_STAINFO *)lrbuf->label.staptr );
+/* */
+	if ( buf_len < PA2EW_RECV_BUFFER_LENGTH && _lastbuf ) {
+		memcpy(_lastbuf->buffer, lrbuf->recv_buffer, buf_len);
+		_lastbuf->buffer_rear = buf_len;
+	}
+
+	return;
 }
 
 /*
@@ -250,9 +250,9 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 			/*
 			 * Once the mode 1 packet header is incoming,
 			 * we should flush the existed buffer and move the
-			 * incoming header to beginning of buffer.
+			 * incoming header to the beginning of buffer.
 			 */
-				if ( (uint8_t *)pah != lrbuf->recv_buffer ) {
+				if ( (uint8_t *)pah > lrbuf->recv_buffer ) {
 					memmove(lrbuf->recv_buffer, pah, *buf_len);
 					pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
 				}
@@ -302,7 +302,7 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 		/* */
 			sync_flag = 1;
 		/* */
-			if ( (uint8_t *)pah4 != lrbuf->recv_buffer ) {
+			if ( (uint8_t *)pah4 > lrbuf->recv_buffer ) {
 				memmove(lrbuf->recv_buffer, pah4, *buf_len);
 				pah4 = (PALERTMODE4_HEADER *)lrbuf->recv_buffer;
 			}

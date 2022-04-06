@@ -108,7 +108,9 @@ int pa2ew_client_stream( void )
 		else
 			lrbuf = (LABELED_RECV_BUFFER *)(Buffer + (fwptr->recv_buffer - lrbuf->recv_buffer));
 	}
-
+/* Reset the header of forward packet, just in case! */
+	fwptr->serial = 0;
+	fwptr->length = 0;
 /* */
 	do {
 		if ( (ret = recv(ClientSocket, (uint8_t *)fwptr + data_read, data_req, 0)) <= 0 ) {
@@ -191,8 +193,10 @@ static void flush_sock_buffer( const int sock )
 		do {
 			logit("ot", "palert2ew: NOTICE! Flushing socket(%d) buffer #%d...\n", sock, ++times);
 		} while ( recv(sock, buf, SOCKET_RCVBUFFER_LENGTH, 0) >= SOCKET_RCVBUFFER_LENGTH );
-		free(buf);
 	}
+/* */
+	if ( buf )
+		free(buf);
 
 	return;
 }

@@ -165,17 +165,19 @@ int32_t *palert_get_data( const PalertPacket *palertp, const int ncmp, int32_t *
 	int i;
 	const PALERTDATA *_data = palertp->data;
 
+	if ( ncmp < PALERTMODE1_CHAN_COUNT ) {
 #ifdef _SPARC
-	uint32_t hbyte;
-	for ( i = 0; i < PALERTMODE1_SAMPLE_NUMBER; i++, palert_data++, buffer++ ) {
-		hbyte   = _data->cmp[ncmp][1];
-		*buffer = (hbyte << 8) + _data->cmp[ncmp][0];
-		if ( hbyte & 0x80 ) *buffer |= 0xffff0000;
-	}
+		uint32_t hbyte;
+		for ( i = 0; i < PALERTMODE1_SAMPLE_NUMBER; i++, palert_data++, buffer++ ) {
+			hbyte   = _data->cmp[ncmp][1];
+			*buffer = (hbyte << 8) + _data->cmp[ncmp][0];
+			if ( hbyte & 0x80 ) *buffer |= 0xffff0000;
+		}
 #else
-	for ( i = 0; i < PALERTMODE1_SAMPLE_NUMBER; i++, _data++, buffer++ )
-		*buffer = _data->cmp[ncmp];
+		for ( i = 0; i < PALERTMODE1_SAMPLE_NUMBER; i++, _data++, buffer++ )
+			*buffer = _data->cmp[ncmp];
 #endif
+	}
 
 	return buffer;
 }
