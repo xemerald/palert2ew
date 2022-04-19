@@ -117,7 +117,7 @@ int pa2ew_client_stream( void )
 			printf("Recv: %p, read %d bytes, req %d bytes, total %d bytes.\n", fwptr, data_read, data_req, fwptr->length);
 		if ( (ret = recv(ClientSocket, (uint8_t *)fwptr + data_read, data_req, 0)) <= 0 ) {
 			if ( errno == EINTR ) {
-				sleep_ew(10);
+				usleep(1);
 			}
 			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ) {
 				logit("et", "palert2ew: Receiving from Palert server is timeout, retry #%d...\n", ++retry);

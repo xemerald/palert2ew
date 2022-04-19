@@ -315,7 +315,6 @@ int pa2ew_server_proc( const int countindex, const int msec )
 	int                  epoll  = ThreadSets[countindex].epoll_fd;
 	LABELED_RECV_BUFFER *buffer = (LABELED_RECV_BUFFER *)ThreadSets[countindex].buffer;
 	struct epoll_event  *evts   = ThreadSets[countindex].evts;
-	const size_t         offset = buffer->recv_buffer - (uint8_t *)buffer;
 
 /* Wait the epoll for msec minisec */
 	if ( (nready = epoll_wait(epoll, evts, PA2EW_MAX_PALERTS_PER_THREAD, msec)) ) {
@@ -341,8 +340,7 @@ int pa2ew_server_proc( const int countindex, const int msec )
 						buffer->label = conn->label;
 						if (
 							pa2ew_msgqueue_rawpacket(
-								buffer, ret + offset, conn->packet_type,
-								PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_SERVER_NORMAL )
+								buffer, ret, conn->packet_type, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_SERVER_NORMAL )
 							)
 						) {
 							if ( ++conn->sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
