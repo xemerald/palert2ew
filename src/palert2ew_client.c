@@ -113,7 +113,8 @@ int pa2ew_client_stream( void )
 	fwptr->length = 0;
 /* */
 	do {
-		printf("Recv: %p, read %d bytes, req %d bytes, total %d bytes.\n", fwptr, data_read, data_req, fwptr->length);
+		if ( data_read != 0 && data_read != FW_PCK_HEADER_LENGTH )
+			printf("Recv: %p, read %d bytes, req %d bytes, total %d bytes.\n", fwptr, data_read, data_req, fwptr->length);
 		if ( (ret = recv(ClientSocket, (uint8_t *)fwptr + data_read, data_req, 0)) <= 0 ) {
 			if ( errno == EINTR ) {
 				sleep_ew(10);
