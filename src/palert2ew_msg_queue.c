@@ -13,8 +13,8 @@
 
 /* Internal stack related struct */
 struct last_buffer {
-	uint16_t buffer_rear;
-	uint8_t  buffer[PA2EW_RECV_BUFFER_LENGTH];
+	size_t  buffer_rear;
+	uint8_t buffer[PA2EW_RECV_BUFFER_LENGTH];
 };
 
 /* Define global variables */
@@ -152,6 +152,10 @@ static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 	if ( _lastbuf != NULL && _lastbuf->buffer_rear ) {
 	/* */
 		if ( (*buf_len + _lastbuf->buffer_rear) < PA2EW_RECV_BUFFER_LENGTH ) {
+			printf(
+				"draw_last_buffer memmove: %p to %p, offset %ld bytes, move %ld bytes.\n",
+				result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear, *buf_len
+			);
 			memmove(result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
 			memcpy(result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear);
 		}
@@ -161,6 +165,10 @@ static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 				(LABELED_RECV_BUFFER *)malloc(sizeof(LABELED_RECV_BUFFER) + _lastbuf->buffer_rear + 1);
 
 			_result->label = result->label;
+			printf(
+				"draw_last_buffer memcpy: %p to %p, offset %ld bytes, move %ld bytes.\n",
+				result->recv_buffer, _result->recv_buffer, _lastbuf->buffer_rear, *buf_len
+			);
 			memcpy(_result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear);
 			memcpy(_result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
 			result = _result;
@@ -189,6 +197,10 @@ static void save_last_buffer( void *label_buf, const size_t buf_len )
 		_lastbuf = create_last_buffer( (_STAINFO *)lrbuf->label.staptr );
 /* */
 	if ( buf_len < PA2EW_RECV_BUFFER_LENGTH && _lastbuf ) {
+		printf(
+			"save_last_buffer memcpy: %p to %p, offset %ld bytes, move %ld bytes.\n",
+			_lastbuf->buffer, lrbuf->recv_buffer, _lastbuf->buffer_rear, buf_len
+		);
 		memcpy(_lastbuf->buffer, lrbuf->recv_buffer, buf_len);
 		_lastbuf->buffer_rear = buf_len;
 	}
@@ -253,6 +265,10 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 			 * incoming header to the beginning of buffer.
 			 */
 				if ( (uint8_t *)pah > lrbuf->recv_buffer ) {
+					printf(
+						"pre_enqueue_check_pah1 memmove(1): %p to %p, offset %ld bytes, move %ld bytes.\n",
+						pah, lrbuf->recv_buffer, header_offset, *buf_len
+					);
 					memmove(lrbuf->recv_buffer, pah, *buf_len);
 					pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
 				}
@@ -260,6 +276,10 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 			}
 		/* */
 			else if ( header_offset ) {
+				printf(
+					"pre_enqueue_check_pah1 memmove(2): %p to %p, offset %ld bytes, move %ld bytes.\n",
+					pah + 1, pah, header_offset, *buf_len - PALERTMODE1_HEADER_LENGTH
+				);
 				memmove(pah, pah + 1, *buf_len - PALERTMODE1_HEADER_LENGTH);
 				pah--;
 			}
@@ -279,8 +299,13 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 /* */
 	if ( header_offset )
 		*buf_len += header_offset;
-	else if ( *buf_len )
+	else if ( *buf_len ) {
+		printf(
+			"pre_enqueue_check_pah1 memmove(3): %p to %p, offset %ld bytes, move %ld bytes.\n",
+			lrbuf->recv_buffer, pah, header_offset, *buf_len
+		);
 		memmove(lrbuf->recv_buffer, pah, *buf_len);
+	}
 
 	return sync_flag;
 }

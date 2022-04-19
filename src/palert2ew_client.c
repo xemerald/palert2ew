@@ -98,7 +98,7 @@ int pa2ew_client_stream( void )
 	_STAINFO *staptr    = NULL;
 
 /* Try to align the two different data structure pointer */
-	if ( lrbuf == NULL || fwptr == NULL ) {
+	if ( (uint8_t *)lrbuf != Buffer && (uint8_t *)fwptr != Buffer ) {
 	/* */
 		lrbuf = (LABELED_RECV_BUFFER *)Buffer;
 		fwptr = (FW_PCK *)Buffer;
@@ -113,6 +113,7 @@ int pa2ew_client_stream( void )
 	fwptr->length = 0;
 /* */
 	do {
+		printf("Recv: %p, read %d bytes, req %d bytes, total %d bytes.\n", fwptr, data_read, data_req, fwptr->length);
 		if ( (ret = recv(ClientSocket, (uint8_t *)fwptr + data_read, data_req, 0)) <= 0 ) {
 			if ( errno == EINTR ) {
 				sleep_ew(10);
