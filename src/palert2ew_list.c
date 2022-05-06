@@ -36,8 +36,6 @@ static _CHAINFO *enrich_chainfo_default( _STAINFO * );
 static _STAINFO *enrich_stainfo_raw( _STAINFO *, const int, const char *, const char *, const char * );
 static _CHAINFO *enrich_chainfo_raw( _STAINFO *, const int, const char *[] );
 static _STAINFO *update_stainfo_and_chainfo( _STAINFO *, const _STAINFO * );
-static void      update_status_action( void *, const int, void * );
-static void      total_station_action( void *, const int, void * );
 static int       obsolete_clear_cond( void *, void * );
 static int       compare_serial( const void *, const void * );	/* The compare function of binary tree search */
 static void      dummy_func( void * );
@@ -175,8 +173,13 @@ _STAINFO *pa2ew_list_find( const int serial )
  */
 void pa2ew_list_update_status_set( const int update_status )
 {
+	DL_NODE  *node    = NULL;
+	_STAINFO *stainfo = NULL;
+
 /* */
-	dl_node_walk( (DL_NODE *)SList->entry, update_status_action, (int *)&update_status );
+	DL_LIST_FOR_EACH_DATA( (DL_NODE *)SList->entry, node, stainfo ) {
+		stainfo->update = update_status;
+	}
 
 	return;
 }
@@ -229,10 +232,15 @@ void pa2ew_list_tree_abandon( void )
  */
 int pa2ew_list_total_station_get( void )
 {
-	int result = 0;
+	DL_NODE  *node    = NULL;
+	_STAINFO *stainfo = NULL;
+	int       result = 0;
 
 /* */
-	dl_node_walk( (DL_NODE *)SList->entry, total_station_action, &result );
+	DL_LIST_FOR_EACH_DATA( (DL_NODE *)SList->entry, node, stainfo ) {
+		if ( stainfo )
+			result++;
+	}
 /* */
 	SList->count = result;
 
@@ -252,8 +260,13 @@ double pa2ew_list_timestamp_get( void )
  */
 void pa2ew_list_walk( void (*action)( void *, const int, void * ), void *arg )
 {
+	DL_NODE *node = NULL;
+	int      i    = 0;
+
 /* */
-	dl_node_walk( (DL_NODE *)SList->entry, action, arg );
+	DL_LIST_FOR_EACH( (DL_NODE *)SList->entry, node ) {
+		action( DL_NODE_GET_DATA( node ), i++, arg );
+	}
 
 	return;
 }
@@ -592,31 +605,6 @@ static _STAINFO *update_stainfo_and_chainfo( _STAINFO *dest, const _STAINFO *src
 	dest->update = PA2EW_PALERT_INFO_UPDATED;
 
 	return dest;
-}
-
-/*
- *
- */
-static void update_status_action( void *node, const int index, void *arg )
-{
-	_STAINFO *stainfo = (_STAINFO *)node;
-	int       status  = *(int *)arg;
-
-	stainfo->update = status;
-
-	return;
-}
-
-/*
- *
- */
-static void total_station_action( void *node, const int index, void *arg )
-{
-	int *total = (int *)arg;
-
-	*total += 1;
-
-	return;
 }
 
 /*
