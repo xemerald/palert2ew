@@ -52,4 +52,4 @@ clean:
 	@(cd ./src/libsrc; make -f makefile.unix clean; make -f makefile.unix clean_lib;);
 
 clean_bin:
-	@(cd ./src; make clean_bin;);
+	@(cd ./src; make -f makefile.unix clean_bin;);

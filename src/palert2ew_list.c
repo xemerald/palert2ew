@@ -190,7 +190,7 @@ void pa2ew_list_update_status_set( const int update_status )
 void pa2ew_list_obsolete_clear( void )
 {
 /* */
-	dl_node_pickout( (DL_NODE **)&SList->entry, obsolete_clear_cond, NULL, free_stainfo_and_chainfo );
+	dl_list_pickout( (DL_NODE **)&SList->entry, obsolete_clear_cond, NULL, free_stainfo_and_chainfo );
 
 	return;
 }
