@@ -232,14 +232,12 @@ void pa2ew_list_tree_abandon( void )
  */
 int pa2ew_list_total_station_get( void )
 {
-	DL_NODE  *node    = NULL;
-	_STAINFO *stainfo = NULL;
+	DL_NODE  *node   = NULL;
 	int       result = 0;
 
 /* */
-	DL_LIST_FOR_EACH_DATA( (DL_NODE *)SList->entry, node, stainfo ) {
-		if ( stainfo )
-			result++;
+	DL_LIST_FOR_EACH( (DL_NODE *)SList->entry, node ) {
+		result++;
 	}
 /* */
 	SList->count = result;
