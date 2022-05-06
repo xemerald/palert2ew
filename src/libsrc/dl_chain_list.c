@@ -237,7 +237,7 @@ DL_NODE *dl_node_pickout( DL_NODE **head, int (*condition)( void *, void * ), vo
 	/* */
 		data = (*current)->data;
 	/* */
-		if ( condition( data, arg ) )
+		if ( data && condition( data, arg ) )
 			*current = dl_node_delete( *current, func );
 		else
 			current = &(*current)->next;
