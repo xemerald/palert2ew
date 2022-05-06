@@ -36,6 +36,9 @@ static _CHAINFO *enrich_chainfo_default( _STAINFO * );
 static _STAINFO *enrich_stainfo_raw( _STAINFO *, const int, const char *, const char *, const char * );
 static _CHAINFO *enrich_chainfo_raw( _STAINFO *, const int, const char *[] );
 static _STAINFO *update_stainfo_and_chainfo( _STAINFO *, const _STAINFO * );
+static void      update_status_action( void *, const int, void * );
+static void      total_station_action( void *, const int, void * );
+static int       obsolete_clear_cond( void *, void * );
 static int       compare_serial( const void *, const void * );	/* The compare function of binary tree search */
 static void      dummy_func( void * );
 static void      free_stainfo_and_chainfo( void * );
@@ -172,14 +175,8 @@ _STAINFO *pa2ew_list_find( const int serial )
  */
 void pa2ew_list_update_status_set( const int update_status )
 {
-	DL_NODE  *current = NULL;
-	_STAINFO *stainfo = NULL;
-
 /* */
-	for ( current = (DL_NODE *)SList->entry; current != NULL; current = DL_NODE_GET_NEXT(current) ) {
-		stainfo = (_STAINFO *)DL_NODE_GET_DATA(current);
-		stainfo->update = update_status;
-	}
+	dl_node_walk( (DL_NODE *)SList->entry, update_status_action, (int *)&update_status );
 
 	return;
 }
@@ -189,15 +186,8 @@ void pa2ew_list_update_status_set( const int update_status )
  */
 void pa2ew_list_obsolete_clear( void )
 {
-	DL_NODE  *current = NULL;
-	_STAINFO *stainfo = NULL;
-
 /* */
-	for ( current = (DL_NODE *)SList->entry; current != NULL; current = DL_NODE_GET_NEXT(current) ) {
-		stainfo = (_STAINFO *)DL_NODE_GET_DATA(current);
-		if ( stainfo->update == PA2EW_PALERT_INFO_OBSOLETE )
-			dl_node_delete( current, free_stainfo_and_chainfo );
-	}
+	dl_node_pickout( (DL_NODE **)&SList->entry, obsolete_clear_cond, NULL, free_stainfo_and_chainfo );
 
 	return;
 }
@@ -239,12 +229,10 @@ void pa2ew_list_tree_abandon( void )
  */
 int pa2ew_list_total_station_get( void )
 {
-	DL_NODE *current = NULL;
-	int      result  = 0;
+	int result = 0;
 
 /* */
-	for ( current = (DL_NODE *)SList->entry; current != NULL; current = DL_NODE_GET_NEXT(current) )
-		result++;
+	dl_node_walk( (DL_NODE *)SList->entry, total_station_action, &result );
 /* */
 	SList->count = result;
 
@@ -262,14 +250,10 @@ double pa2ew_list_timestamp_get( void )
 /*
  * pa2ew_list_walk() -
  */
-void pa2ew_list_walk( void (*action)(void *, const int, void *), void *arg )
+void pa2ew_list_walk( void (*action)( void *, const int, void * ), void *arg )
 {
-	int      i;
-	DL_NODE *current = NULL;
-
 /* */
-	for ( current = (DL_NODE *)SList->entry, i = 0; current != NULL; current = DL_NODE_GET_NEXT(current), i++ )
-		action( DL_NODE_GET_DATA(current), i, arg );
+	dl_node_walk( (DL_NODE *)SList->entry, action, arg );
 
 	return;
 }
@@ -608,6 +592,44 @@ static _STAINFO *update_stainfo_and_chainfo( _STAINFO *dest, const _STAINFO *src
 	dest->update = PA2EW_PALERT_INFO_UPDATED;
 
 	return dest;
+}
+
+/*
+ *
+ */
+static void update_status_action( void *node, const int index, void *arg )
+{
+	_STAINFO *stainfo = (_STAINFO *)node;
+	int       status  = *(int *)arg;
+
+	stainfo->update = status;
+
+	return;
+}
+
+/*
+ *
+ */
+static void total_station_action( void *node, const int index, void *arg )
+{
+	int *total = (int *)arg;
+
+	*total += 1;
+
+	return;
+}
+
+/*
+ *
+ */
+static int obsolete_clear_cond( void *node, void *arg )
+{
+	_STAINFO *stainfo = (_STAINFO *)node;
+
+	if ( stainfo->update == PA2EW_PALERT_INFO_OBSOLETE )
+		return 1;
+
+	return 0;
 }
 
 /*
