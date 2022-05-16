@@ -1163,6 +1163,12 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 			smsr = (SMSRECORD *)dataptr;
 		/* Need to check the byte order */
 			msrlength = (smsr->smsrlength[0] << 8) + smsr->smsrlength[1];
+		/* */
+			if ( msrlength > sizeof(msbuffer) ) {
+				logit("et", "palert2ew: Unexpected error with the mode 4 packet from %s, skip it!\n", stainfo->sta);
+				break;
+			}
+		/* */
 			memset(msbuffer, 0, sizeof(msbuffer));
 			memcpy(msbuffer, dataptr, msrlength);
 		/* */

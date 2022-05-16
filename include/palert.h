@@ -17,7 +17,10 @@
 
 /* */
 #define PALERTMODE1_HEADER_LENGTH  200
+#define PALERTMODE2_HEADER_LENGTH  PALERTMODE1_HEADER_LENGTH
+#define PALERTMODE4_HEADER_LENGTH  64
 #define PALERTMODE1_PACKET_LENGTH  1200
+#define PALERTMODE2_PACKET_LENGTH  PALERTMODE1_HEADER_LENGTH
 
 /*
  * Definition of Palert mode 1 header, total size is 200 bytes
@@ -284,19 +287,19 @@ typedef struct {
  * PALERT_IS_MODE1_HEADER()
  */
 #define PALERT_IS_MODE1_HEADER(PAH) \
-		(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] & 0x01)
+		(!(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] ^ 0x01))
 
 /*
  * PALERT_IS_MODE2_HEADER()
  */
 #define PALERT_IS_MODE2_HEADER(PAH) \
-		(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] & 0x02)
+		(!(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] ^ 0x02))
 
 /*
  * PALERT_IS_MODE4_HEADER()
  */
 #define PALERT_IS_MODE4_HEADER(PAH) \
-		(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] & 0x04)
+		(!(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] ^ 0x04))
 
 /*
  * PALERTMODE1_HEADER_GET_WORD()

@@ -190,7 +190,7 @@ void pa2ew_list_update_status_set( const int update_status )
 void pa2ew_list_obsolete_clear( void )
 {
 /* */
-	dl_list_pickout( (DL_NODE **)&SList->entry, obsolete_clear_cond, NULL, free_stainfo_and_chainfo );
+	dl_list_filter( (DL_NODE **)&SList->entry, obsolete_clear_cond, NULL, free_stainfo_and_chainfo );
 
 	return;
 }
@@ -551,7 +551,7 @@ static _STAINFO *enrich_stainfo_raw(
 static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, const char *chan[] )
 {
 	int       i;
-	_CHAINFO *chainfo = calloc(nchannel, sizeof(_CHAINFO));
+	_CHAINFO *chainfo = (_CHAINFO *)calloc(nchannel, sizeof(_CHAINFO));
 
 /* */
 	stainfo->nchannel = nchannel;

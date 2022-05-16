@@ -113,7 +113,7 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type, 
 /* */
 	lrbuf = draw_last_buffer( label_buf, &buf_len );
 /* */
-	if ( packet_type == 1 )
+	if ( packet_type == 1 || packet_type == 2 )
 		sync_flag = pre_enqueue_check_pah1( lrbuf, &buf_len, logo );
 	else if ( packet_type == 4 )
 		sync_flag = pre_enqueue_check_pah4( lrbuf, &buf_len, logo );
@@ -152,10 +152,6 @@ static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 	if ( _lastbuf != NULL && _lastbuf->buffer_rear ) {
 	/* */
 		if ( (*buf_len + _lastbuf->buffer_rear) < PA2EW_RECV_BUFFER_LENGTH ) {
-			printf(
-				"draw_last_buffer memmove: %p to %p, offset %ld bytes, move %ld bytes.\n",
-				result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear, *buf_len
-			);
 			memmove(result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
 			memcpy(result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear);
 		}
@@ -165,10 +161,6 @@ static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 				(LABELED_RECV_BUFFER *)malloc(sizeof(LABELED_RECV_BUFFER) + _lastbuf->buffer_rear + 1);
 
 			_result->label = result->label;
-			printf(
-				"draw_last_buffer memcpy: %p to %p, offset %ld bytes, move %ld bytes.\n",
-				result->recv_buffer, _result->recv_buffer, _lastbuf->buffer_rear, *buf_len
-			);
 			memcpy(_result->recv_buffer, _lastbuf->buffer, _lastbuf->buffer_rear);
 			memcpy(_result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
 			result = _result;
@@ -197,10 +189,6 @@ static void save_last_buffer( void *label_buf, const size_t buf_len )
 		_lastbuf = create_last_buffer( (_STAINFO *)lrbuf->label.staptr );
 /* */
 	if ( buf_len < PA2EW_RECV_BUFFER_LENGTH && _lastbuf ) {
-		printf(
-			"save_last_buffer memcpy: %p to %p, offset %ld bytes, move %ld bytes.\n",
-			_lastbuf->buffer, lrbuf->recv_buffer, _lastbuf->buffer_rear, buf_len
-		);
 		memcpy(_lastbuf->buffer, lrbuf->recv_buffer, buf_len);
 		_lastbuf->buffer_rear = buf_len;
 	}
@@ -215,8 +203,10 @@ static struct last_buffer *create_last_buffer( _STAINFO *staptr )
 {
 	struct last_buffer *result = (struct last_buffer *)calloc(1, sizeof(struct last_buffer));
 
-	result->buffer_rear = 0;
-	staptr->buffer = result;
+	if ( result ) {
+		result->buffer_rear = 0;
+		staptr->buffer = result;
+	}
 
 	return result;
 }
@@ -265,10 +255,6 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 			 * incoming header to the beginning of buffer.
 			 */
 				if ( (uint8_t *)pah > lrbuf->recv_buffer ) {
-					printf(
-						"pre_enqueue_check_pah1 memmove(1): %p to %p, offset %ld bytes, move %ld bytes.\n",
-						pah, lrbuf->recv_buffer, header_offset, *buf_len
-					);
 					memmove(lrbuf->recv_buffer, pah, *buf_len);
 					pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
 				}
@@ -276,10 +262,6 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 			}
 		/* */
 			else if ( header_offset ) {
-				printf(
-					"pre_enqueue_check_pah1 memmove(2): %p to %p, offset %ld bytes, move %ld bytes.\n",
-					pah + 1, pah, header_offset, *buf_len - PALERTMODE1_HEADER_LENGTH
-				);
 				memmove(pah, pah + 1, *buf_len - PALERTMODE1_HEADER_LENGTH);
 				pah--;
 			}
@@ -299,13 +281,8 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 /* */
 	if ( header_offset )
 		*buf_len += header_offset;
-	else if ( *buf_len ) {
-		printf(
-			"pre_enqueue_check_pah1 memmove(3): %p to %p, offset %ld bytes, move %ld bytes.\n",
-			lrbuf->recv_buffer, pah, header_offset, *buf_len
-		);
+	else if ( *buf_len )
 		memmove(lrbuf->recv_buffer, pah, *buf_len);
-	}
 
 	return sync_flag;
 }
@@ -345,9 +322,9 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 		}
 		else {
 			pah4++;
-			*buf_len -= sizeof(PALERTMODE4_HEADER);
+			*buf_len -= PALERTMODE4_HEADER_LENGTH;
 		}
-	} while ( *buf_len > sizeof(PALERTMODE4_HEADER) );
+	} while ( *buf_len > PALERTMODE4_HEADER_LENGTH );
 
 	if ( *buf_len && (uint8_t *)pah4 != lrbuf->recv_buffer )
 		memmove(lrbuf->recv_buffer, pah4, *buf_len);
@@ -362,10 +339,18 @@ static int validate_serial_pah1( const PALERTMODE1_HEADER *pah, const int serial
 {
 	if ( PALERTMODE1_HEADER_CHECK_SYNC( pah ) ) {
 		if ( PALERTMODE1_HEADER_GET_SERIAL( pah ) == (uint16_t)serial ) {
-			if ( PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTMODE1_PACKET_LENGTH )
+			if (
+				PALERT_IS_MODE1_HEADER( pah ) &&
+				PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTMODE1_PACKET_LENGTH
+			) {
 				return PALERTMODE1_PACKET_LENGTH;
-			else if ( PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTMODE1_HEADER_LENGTH )
-				return PALERTMODE1_HEADER_LENGTH;
+			}
+			else if (
+				PALERT_IS_MODE2_HEADER( pah ) &&
+				PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTMODE2_PACKET_LENGTH
+			) {
+				return PALERTMODE2_PACKET_LENGTH;
+			}
 		}
 	}
 
@@ -379,8 +364,10 @@ static int validate_serial_pah4( const PALERTMODE4_HEADER *pah4, const int seria
 {
 	if ( PALERTMODE4_HEADER_CHECK_SYNC( pah4 ) ) {
 		if ( PALERTMODE4_HEADER_GET_SERIAL( pah4 ) == (uint16_t)serial ) {
-		/* Still need to check the CRC16 */
-			return PALERTMODE4_HEADER_GET_PACKETLEN( pah4 );
+			if ( PALERT_IS_MODE4_HEADER( pah4 ) ) {
+			/* Still need to check the CRC16 */
+				return PALERTMODE4_HEADER_GET_PACKETLEN( pah4 );
+			}
 		}
 	}
 

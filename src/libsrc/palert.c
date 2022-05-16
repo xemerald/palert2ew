@@ -250,6 +250,8 @@ int palert_get_packet_type_common( const void *header )
 
 	if ( PALERT_IS_MODE1_HEADER(pah) )
 		return 1;
+	if ( PALERT_IS_MODE2_HEADER(pah) )
+		return 2;
 	else if ( PALERT_IS_MODE4_HEADER(pah) )
 		return 4;
 

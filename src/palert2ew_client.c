@@ -113,11 +113,6 @@ int pa2ew_client_stream( void )
 	fwptr->length = 0;
 /* */
 	do {
-		if (
-			data_read != 0 && data_read != FW_PCK_HEADER_LENGTH &&
-			fwptr->length != PALERTMODE1_PACKET_LENGTH && fwptr->length != 0
-		)
-			printf("Recv: %p, read %d bytes, req %d bytes, total %d bytes.\n", fwptr, data_read, data_req, fwptr->length);
 		if ( (ret = recv(ClientSocket, (uint8_t *)fwptr + data_read, data_req, 0)) <= 0 ) {
 			if ( errno == EINTR ) {
 				usleep(1);
@@ -150,9 +145,9 @@ int pa2ew_client_stream( void )
 	/* Find which one palert */
 		if ( (staptr = pa2ew_list_find( fwptr->serial )) ) {
 			ret = fwptr->length;
-		/* This should be done after the command above 'cause it will effect the length's memory space */
+		/* This should be done after the statement above 'cause it will effect the length's memory space */
 			lrbuf->label.staptr = staptr;
-		/* Packet type temporary fixed on 1 */
+		/* Packet type temporary fixed on 1, later this information should be provided by server side */
 			if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
 				if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
 					logit("et", "palert2ew: TCP connection sync error, flushing the buffer...\n");
