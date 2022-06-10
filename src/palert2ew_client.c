@@ -23,7 +23,7 @@
 #define FW_PCK_HEADER_LENGTH     4
 #define RETRY_TIMES_LIMIT        5
 #define RECONNECT_TIMES_LIMIT    10
-#define RECONNECT_INTERVAL_MSEC  15000
+#define RECONNECT_INTERVAL_MSEC  PA2EW_RECONNECT_INTERVAL
 #define SOCKET_RCVBUFFER_LENGTH  1048576
 
 /* */
@@ -72,6 +72,7 @@ void pa2ew_client_end( void )
 {
 	logit("o", "palert2ew: Closing the connections to Palert server!\n");
 	close(ClientSocket);
+	ClientSocket = -1;
 /* */
 	if ( Buffer != NULL ) {
 		free(Buffer);
@@ -253,7 +254,7 @@ static int construct_connect_sock( const char *ip, const char *port )
 	}
 
 /* Setup socket */
-	for ( p = servinfo; p != NULL; p = p->ai_next) {
+	for ( p = servinfo; p != NULL; p = p->ai_next ) {
 		if ( (result = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1 ) {
 			logit("et", "palert2ew: Construct Palert connection socket error!\n");
 			return -1;

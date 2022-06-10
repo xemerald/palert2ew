@@ -770,9 +770,17 @@ static void check_receiver_client( const int wait_msec )
 {
 	if ( MessageReceiverStatus[0] != THREAD_ALIVE ) {
 		if ( pa2ew_client_init( ServerIP, ServerPort ) < 0 ) {
-			logit("e", "palert2ew: Cannot initialize the connection to Palert server. Exiting!\n");
-			palert2ew_end();
-			exit(-1);
+			if ( MessageReceiverStatus[0] != THREAD_ERR ) {
+				logit("e", "palert2ew: Cannot initialize the connection to Palert server. Exiting!\n");
+				palert2ew_end();
+				exit(-1);
+			}
+			else {
+			/* We might encounter some disconnection situations, then try to reconnect until it recover */
+				logit("et", "palert2ew: Re-initialize the connection to Palert server failed, try next time!\n");
+				sleep_ew(PA2EW_RECONNECT_INTERVAL);
+				return;
+			}
 		}
 		if ( StartThread(receiver_client_thread, (uint32_t)THREAD_STACK, ReceiverThreadID) == -1 ) {
 			logit("e", "palert2ew: Error starting receiver_client thread. Exiting!\n");
@@ -810,7 +818,10 @@ static void check_receiver_server( const int wait_msec )
 		number = calloc(thread_num, sizeof(uint8_t));
 		for ( i = 0; i < thread_num; i++ )
 			number[i] = i;
-	/* */
+	/*
+	 * 'cause these sockets are local, it should be much more stable.
+	 * Therefore we just need to check once in the beginning
+	 */
 		if ( pa2ew_server_init( MaxStationNum, PA2EW_PALERT_PORT ) < 1 ) {
 			logit("e","palert2ew: Cannot initialize the Palert server process. Exiting!\n");
 			palert2ew_end();
