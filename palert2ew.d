@@ -13,19 +13,19 @@ OutWaveRing        WAVE_RING      # shared memory ring for output wave trace
 LogFile            1              # 0 to turn off disk log file; 1 to turn it on
                                   # to log to module log but not stderr/stdout
 ExtFunc            0              # 0 to turn off extension function; 1 to turn it on
-								  # like, retransmissioned wave trace,
+                                  # like, retransmissioned wave trace,
 HeartBeatInterval  15             # seconds between heartbeats
 
 QueueSize          1000           # max messages in internal circular msg buffer
 MaxStationNum      1024           # max number of stations which will receive data from
 UniSampRate        100            # setting for unified sampling rate (Hz), if set this parameter,
                                   # all of the P-alerts will be applied by this value; or just
-								  # comment it out, let the program detect the sampling rate
-								  # from the packet.
+                                  # comment it out, let the program detect the sampling rate
+                                  # from the packet.
 UpdateInterval     0              # setting for automatical updating interval (seconds). If set this
-								  # parameter larger than 0, the program will update the P-alerts
-								  # list with this interval; or the program will ignore the new
-								  # incoming P-alerts' packets.
+                                  # parameter larger than 0, the program will update the P-alerts
+                                  # list with this interval; or the program will ignore the new
+                                  # incoming P-alerts' packets.
 # Palert server setup:
 #
 # There are two independent mode in this module: first, as a client-side program connect to the P-alert

@@ -7,7 +7,7 @@ The P-alert sensor messages receiving module based on Earthworm that developed b
 1. It needs the [Earthworm](http://love.isti.com/trac/ew/wiki/Earthworm) environment so you need to finish the installation before compilation!
 2. And you might need the MySQL optional function if so please install the **lib-mysqlclient**.
 
-## Installation
+## Build & Installation
 
 The version of Earthworm is under **7.9** (this might be obsoleted later):
 
@@ -100,7 +100,7 @@ Palert    1993      TEST      TW         --         3         HLZ          HLN  
 - Example without any channel code:
 
 ```
-Palert    1993      TEST      TW         --         0     
+Palert    1993      TEST      TW         --         0
 ```
 
 - Optional example with maximum channel number:

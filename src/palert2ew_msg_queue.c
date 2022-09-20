@@ -229,18 +229,17 @@ static void free_last_buffer_act( void *node, const int index, void *arg )
 }
 
 /*
- *
+ * pre_enqueue_check_pah1() -
  */
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
 	uint16_t            serial = ((_STAINFO *)lrbuf->label.staptr)->serial;
 	PALERTMODE1_HEADER *pah;
 /* */
-	int    ret           = 0;
-	int    sync_flag     = 0;
-	size_t header_offset = 0;
+	int    ret = 0;
+	size_t comfirm_offset = 0;
 
-/* */
+/* Go through the data with 200 bytes step */
 	for (
 		pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
 		*buf_len >= PALERTMODE1_HEADER_LENGTH;
@@ -258,33 +257,45 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 					memmove(lrbuf->recv_buffer, pah, *buf_len);
 					pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
 				}
-				header_offset = PALERTMODE1_HEADER_LENGTH;
+				comfirm_offset = PALERTMODE1_HEADER_LENGTH;
 			}
-		/* */
-			else if ( header_offset ) {
+		/* Since it is the 200 bytes triggered packet(mode 2), we should simply drop it */
+			else {
+			/* However, if we still need the triggered packet, we can add actions here... */
 				memmove(pah, pah + 1, *buf_len - PALERTMODE1_HEADER_LENGTH);
 				pah--;
 			}
-			sync_flag = 1;
 		}
-	/* */
-		else if ( header_offset ) {
-			header_offset += PALERTMODE1_HEADER_LENGTH;
+	/* There is indeed a header in previous section, then accept following data section */
+		else if ( comfirm_offset ) {
+			comfirm_offset += PALERTMODE1_HEADER_LENGTH;
 		/* Reach the required mode 1 packet length */
-			if ( header_offset == PALERTMODE1_PACKET_LENGTH ) {
+			if ( comfirm_offset == PALERTMODE1_PACKET_LENGTH ) {
+			/* */
 				if ( pa2ew_msgqueue_enqueue( lrbuf, PALERTMODE1_PACKET_LENGTH + LRBufferOffset, logo ) )
 					sleep_ew(50);
-				header_offset = 0;
+			/* */
+				comfirm_offset = 0;
 			}
 		}
+	/* Not any header in previous section, then we should drop all the data & send the sync error message to caller */
+		else {
+			goto tcp_not_sync;
+		}
 	}
-/* */
-	if ( header_offset )
-		*buf_len += header_offset;
+/* The left data is larger than 200 bytes & already pass the header test, therefore we should keep it */
+	if ( comfirm_offset )
+		*buf_len += comfirm_offset;
+/* The left data is less than 200 bytes, can't go through the header pass, wait for the rest data incoming */
 	else if ( *buf_len )
 		memmove(lrbuf->recv_buffer, pah, *buf_len);
 
-	return sync_flag;
+	return 1;
+
+tcp_not_sync:
+	*buf_len = 0;
+
+	return 0;
 }
 
 /*
