@@ -161,6 +161,15 @@ typedef struct {
 #define PALERTMODE1_SAMPLE_NUMBER    100
 
 /*
+ * Palert tcp packet type define
+ */
+#define PALERT_PACKETTYPE_NORMAL     1
+#define PALERT_PACKETTYPE_PWAVE      119
+#define PALERT_PACKETTYPE_PD3        300
+#define PALERT_PACKETTYPE_PDWATCH    1191
+#define PALERT_PACKETTYPE_PDWARNING  1192
+
+/*
  * Palert default channel information
  */
 #define PALERT_DEFAULT_SAMPRATE  100
@@ -284,24 +293,6 @@ typedef struct {
 */
 
 /*
- * PALERT_IS_MODE1_HEADER()
- */
-#define PALERT_IS_MODE1_HEADER(PAH) \
-		(!(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] ^ 0x01))
-
-/*
- * PALERT_IS_MODE2_HEADER()
- */
-#define PALERT_IS_MODE2_HEADER(PAH) \
-		(!(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] ^ 0x02))
-
-/*
- * PALERT_IS_MODE4_HEADER()
- */
-#define PALERT_IS_MODE4_HEADER(PAH) \
-		(!(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] ^ 0x04))
-
-/*
  * PALERTMODE1_HEADER_GET_WORD()
  */
 #define PALERTMODE1_HEADER_GET_WORD(PAM1H_WORD) \
@@ -393,6 +384,24 @@ typedef struct {
 #define PALERTMODE4_HEADER_GET_SERIAL(PAM4H) \
 		PALERTMODE4_HEADER_GET_WORD((PAM4H)->serial)
 
+/*
+ * PALERT_IS_MODE1_HEADER()
+ */
+#define PALERT_IS_MODE1_HEADER(PAH) \
+		((((PALERTMODE1_HEADER *)(PAH))->packet_type[0] ^ 0x04) && PALERTMODE1_HEADER_GET_PACKETLEN(PAH) == PALERTMODE1_PACKET_LENGTH)
+
+/*
+ * PALERT_IS_MODE2_HEADER()
+ */
+#define PALERT_IS_MODE2_HEADER(PAH) \
+		((((PALERTMODE1_HEADER *)(PAH))->packet_type[0] ^ 0x04) && PALERTMODE1_HEADER_GET_PACKETLEN(PAH) == PALERTMODE2_PACKET_LENGTH)
+
+/*
+ * PALERT_IS_MODE4_HEADER()
+ */
+#define PALERT_IS_MODE4_HEADER(PAH) \
+		(!(((PALERTMODE1_HEADER *)(PAH))->packet_type[0] ^ 0x04))
+
 
 /* Export functions's prototypes */
 double   palert_get_systime( const PALERTMODE1_HEADER *, long );
@@ -404,6 +413,7 @@ char    *palert_get_ip( const PALERTMODE1_HEADER *, const int, char * );
 int32_t *palert_get_data( const PalertPacket *, const int, int32_t * );
 int      palert_translate_cwb2020_int( const int );
 /* */
+int      palert_get_header_mode( const void * );
 int      palert_check_sync_common( const void * );
 int      palert_check_ntp_common( const void * );
 int      palert_get_packet_type_common( const void * );

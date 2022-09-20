@@ -23,7 +23,7 @@ typedef struct {
 	int       port;
 	char      ip[INET6_ADDRSTRLEN];
 	uint8_t   sync_errors;
-	uint16_t  packet_type;
+	uint16_t  header_mode;
 	double    last_act;
 	LABEL     label;
 } CONNDESCRIP;

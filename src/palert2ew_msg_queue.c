@@ -105,17 +105,17 @@ int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 /*
  * pa2ew_msgqueue_rawpacket() - Stack received message into queue of station.
  */
-int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int packet_type, MSG_LOGO logo )
+int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int header_mode, MSG_LOGO logo )
 {
 	LABELED_RECV_BUFFER *lrbuf;
 	int                  sync_flag = 0;
 
 /* */
 	lrbuf = draw_last_buffer( label_buf, &buf_len );
-/* */
-	if ( packet_type == 1 || packet_type == 2 )
+/* We don't care about the mode 2 header packet */
+	if ( header_mode == 1 )
 		sync_flag = pre_enqueue_check_pah1( lrbuf, &buf_len, logo );
-	else if ( packet_type == 4 )
+	else if ( header_mode == 4 )
 		sync_flag = pre_enqueue_check_pah4( lrbuf, &buf_len, logo );
 	else
 		buf_len = 0;
@@ -234,7 +234,7 @@ static void free_last_buffer_act( void *node, const int index, void *arg )
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
 	uint16_t            serial = ((_STAINFO *)lrbuf->label.staptr)->serial;
-	PALERTMODE1_HEADER *pah;
+	PALERTMODE1_HEADER *pah  = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
 /* */
 	int    ret = 0;
 	size_t comfirm_offset = 0;
@@ -271,9 +271,10 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 			comfirm_offset += PALERTMODE1_HEADER_LENGTH;
 		/* Reach the required mode 1 packet length */
 			if ( comfirm_offset == PALERTMODE1_PACKET_LENGTH ) {
-			/* */
-				if ( pa2ew_msgqueue_enqueue( lrbuf, PALERTMODE1_PACKET_LENGTH + LRBufferOffset, logo ) )
-					sleep_ew(50);
+			/* We only deal with the Normal Streaming packet(1) in this program!! */
+				if ( palert_get_packet_type_common( lrbuf->recv_buffer ) == PALERT_PACKETTYPE_NORMAL )
+					if ( pa2ew_msgqueue_enqueue( lrbuf, PALERTMODE1_PACKET_LENGTH + LRBufferOffset, logo ) )
+						sleep_ew(50);
 			/* */
 				comfirm_offset = 0;
 			}
@@ -350,18 +351,7 @@ static int validate_serial_pah1( const PALERTMODE1_HEADER *pah, const int serial
 {
 	if ( PALERTMODE1_HEADER_CHECK_SYNC( pah ) ) {
 		if ( PALERTMODE1_HEADER_GET_SERIAL( pah ) == (uint16_t)serial ) {
-			if (
-				PALERT_IS_MODE1_HEADER( pah ) &&
-				PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTMODE1_PACKET_LENGTH
-			) {
-				return PALERTMODE1_PACKET_LENGTH;
-			}
-			else if (
-				PALERT_IS_MODE2_HEADER( pah ) &&
-				PALERTMODE1_HEADER_GET_PACKETLEN( pah ) == PALERTMODE2_PACKET_LENGTH
-			) {
-				return PALERTMODE2_PACKET_LENGTH;
-			}
+			return PALERTMODE1_HEADER_GET_PACKETLEN( pah );
 		}
 	}
 

@@ -340,7 +340,7 @@ int pa2ew_server_proc( const int countindex, const int msec )
 						buffer->label = conn->label;
 						if (
 							pa2ew_msgqueue_rawpacket(
-								buffer, ret, conn->packet_type, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_SERVER_NORMAL )
+								buffer, ret, conn->header_mode, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_SERVER_NORMAL )
 							)
 						) {
 							if ( ++conn->sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
@@ -510,7 +510,7 @@ static int find_which_station( void *buffer, CONNDESCRIP *conn, int epoll )
 		}
 	/* */
 		conn->label.staptr = staptr;
-		conn->packet_type  = palert_get_packet_type_common( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
+		conn->header_mode  = palert_get_header_mode( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
 		printf("palert2ew: Palert %s now online.\n", staptr->sta);
 	}
 
