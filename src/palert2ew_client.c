@@ -145,8 +145,6 @@ int pa2ew_client_stream( void )
 	if ( fwptr->serial ) {
 	/* Find which one palert */
 		if ( (staptr = pa2ew_list_find( fwptr->serial )) ) {
-			if ( fwptr->serial == 1507 )
-				printf("%ld serial: %d, length: %d\n", time(NULL), fwptr->serial, fwptr->length);
 			ret = fwptr->length;
 		/* This should be done after the statement above 'cause it will effect the length's memory space */
 			lrbuf->label.staptr = staptr;
