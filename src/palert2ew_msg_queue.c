@@ -23,14 +23,14 @@ static QUEUE    MsgQueue;         /* from queue.h, queue.c; sets up linked */
 static size_t   LRBufferOffset = 0;
 
 /* */
-static LABELED_RECV_BUFFER *draw_last_buffer( void *, size_t * );
+static LABELED_RECV_BUFFER *draw_last_buffer( void *, size_t *, const int );
 static void                 save_last_buffer( void *, const size_t );
 static struct last_buffer  *create_last_buffer( _STAINFO * );
 static void                 free_last_buffer_act( void *, const int, void * );
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
-static int validate_serial_pah1( const PALERTMODE1_HEADER *, const int );
-static int validate_serial_pah4( const PALERTMODE4_HEADER *, const int );
+static int validate_serial_pah1( const void *, const int );
+static int validate_serial_pah4( const void *, const int );
 
 /*
  * pa2ew_msgqueue_init() - Initialization function of message queue and mutex.
@@ -108,10 +108,10 @@ int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int header_mode, MSG_LOGO logo )
 {
 	LABELED_RECV_BUFFER *lrbuf;
-	int                  sync_flag = 0;
+	int                  sync_flag = 1;
 
 /* */
-	lrbuf = draw_last_buffer( label_buf, &buf_len );
+	lrbuf = draw_last_buffer( label_buf, &buf_len, header_mode );
 /* We don't care about the mode 2 header packet */
 	if ( header_mode == 1 )
 		sync_flag = pre_enqueue_check_pah1( lrbuf, &buf_len, logo );
@@ -143,13 +143,23 @@ void pa2ew_msgqueue_lastbufs_reset( void )
 /*
  *
  */
-static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
+static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len, const int header_mode )
 {
-	LABELED_RECV_BUFFER *result   = (LABELED_RECV_BUFFER *)label_buf;
-	struct last_buffer  *_lastbuf = (struct last_buffer *)((_STAINFO *)result->label.staptr)->buffer;
+	LABELED_RECV_BUFFER *result    = (LABELED_RECV_BUFFER *)label_buf;
+	struct last_buffer  *_lastbuf  = (struct last_buffer *)((_STAINFO *)result->label.staptr)->buffer;
+	const uint16_t       serial    = ((_STAINFO *)result->label.staptr)->serial;
+	const size_t         limit_len = header_mode == 4 ? PALERTMODE4_HEADER_LENGTH : PALERTMODE1_HEADER_LENGTH;
+/* First, decide which validate function to use */
+	int (* validate_func)(const void *, const int) = header_mode == 4 ? validate_serial_pah4 : validate_serial_pah1;
 
-/* First, deal the remainder data from last packet */
+/* Then, deal the remainder data from last packet */
 	if ( _lastbuf != NULL && _lastbuf->buffer_rear ) {
+	/* Pre checking for preventing header contamination, especially the incoming data buffer */
+		if ( *buf_len >= limit_len && validate_func( result->recv_buffer, serial ) > 0 ) {
+			_lastbuf->buffer_rear = 0;
+		/* Early return... */
+			return result;
+		}
 	/* */
 		if ( (*buf_len + _lastbuf->buffer_rear) < PA2EW_RECV_BUFFER_LENGTH ) {
 			memmove(result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
@@ -234,9 +244,10 @@ static void free_last_buffer_act( void *node, const int index, void *arg )
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
 	uint16_t            serial = ((_STAINFO *)lrbuf->label.staptr)->serial;
-	PALERTMODE1_HEADER *pah  = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
+	PALERTMODE1_HEADER *pah    = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
 /* */
 	int    ret = 0;
+	int    sync_flag = 0;
 	size_t comfirm_offset = 0;
 
 /* Go through the data with 200 bytes step */
@@ -265,6 +276,8 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 				memmove(pah, pah + 1, *buf_len - PALERTMODE1_HEADER_LENGTH);
 				pah--;
 			}
+		/* Once we got the header section, mark the sync. flag */
+			sync_flag = 1;
 		}
 	/* There is indeed a header in previous section, then accept following data section */
 		else if ( comfirm_offset ) {
@@ -279,10 +292,6 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 				comfirm_offset = 0;
 			}
 		}
-	/* Not any header in previous section, then we should drop all the data & send the sync error message to caller */
-		else {
-			goto tcp_not_sync;
-		}
 	}
 /* The left data is larger than 200 bytes & already pass the header test, therefore we should keep it */
 	if ( comfirm_offset )
@@ -291,16 +300,11 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 	else if ( *buf_len )
 		memmove(lrbuf->recv_buffer, pah, *buf_len);
 
-	return 1;
-
-tcp_not_sync:
-	*buf_len = 0;
-
-	return 0;
+	return sync_flag;
 }
 
 /*
- *
+ * pre_enqueue_check_pah4() -
  */
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
@@ -347,8 +351,10 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 /*
  * validate_serial_pah1() -
  */
-static int validate_serial_pah1( const PALERTMODE1_HEADER *pah, const int serial )
+static int validate_serial_pah1( const void *header, const int serial )
 {
+	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)header;
+
 	if ( PALERTMODE1_HEADER_CHECK_SYNC( pah ) ) {
 		if ( PALERTMODE1_HEADER_GET_SERIAL( pah ) == (uint16_t)serial ) {
 			return PALERTMODE1_HEADER_GET_PACKETLEN( pah );
@@ -361,8 +367,10 @@ static int validate_serial_pah1( const PALERTMODE1_HEADER *pah, const int serial
 /*
  * validate_serial_pah4() -
  */
-static int validate_serial_pah4( const PALERTMODE4_HEADER *pah4, const int serial )
+static int validate_serial_pah4( const void *header, const int serial )
 {
+	PALERTMODE4_HEADER *pah4 = (PALERTMODE4_HEADER *)header;
+
 	if ( PALERTMODE4_HEADER_CHECK_SYNC( pah4 ) ) {
 		if ( PALERTMODE4_HEADER_GET_SERIAL( pah4 ) == (uint16_t)serial ) {
 			if ( PALERT_IS_MODE4_HEADER( pah4 ) ) {

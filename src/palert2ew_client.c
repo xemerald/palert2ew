@@ -24,7 +24,7 @@
 #define RETRY_TIMES_LIMIT        5
 #define RECONNECT_TIMES_LIMIT    10
 #define RECONNECT_INTERVAL_MSEC  PA2EW_RECONNECT_INTERVAL
-#define SOCKET_RCVBUFFER_LENGTH  1048576
+#define SOCKET_RCVBUFFER_LENGTH  1232896  /* It comes from 1024 * 1204 */
 
 /* */
 typedef struct {
@@ -116,7 +116,7 @@ int pa2ew_client_stream( void )
 	do {
 		if ( (ret = recv(ClientSocket, (uint8_t *)fwptr + data_read, data_req, 0)) <= 0 ) {
 			if ( errno == EINTR ) {
-				usleep(1);
+				sleep_ew(100);
 			}
 			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ) {
 				logit("et", "palert2ew: Receiving from Palert server is timeout, retry #%d...\n", ++retry);
@@ -145,6 +145,8 @@ int pa2ew_client_stream( void )
 	if ( fwptr->serial ) {
 	/* Find which one palert */
 		if ( (staptr = pa2ew_list_find( fwptr->serial )) ) {
+			if ( fwptr->serial == 1507 )
+				printf("%ld serial: %d, length: %d\n", time(NULL), fwptr->serial, fwptr->length);
 			ret = fwptr->length;
 		/* This should be done after the statement above 'cause it will effect the length's memory space */
 			lrbuf->label.staptr = staptr;
