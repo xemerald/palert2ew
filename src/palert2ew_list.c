@@ -6,98 +6,72 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
+#include <stdint.h>
+#include <search.h>
 #include <ctype.h>
 /* */
 #include <earthworm.h>
 /* */
+#include <dl_chain_list.h>
+#include <palert2ew_misc.h>
 #include <palert2ew_list.h>
+#include <palert2ew_ext.h>
+
+/* */
+typedef struct {
+	int     count;      /* Number of clients in the list */
+	double  timestamp;  /* Time of the last time updated */
+	void   *entry;      /* Pointer to first client       */
+	void   *root;       /* Root of binary searching tree */
+	void   *root_t;     /* Temporary root of binary searching tree */
+} StaList;
 
 /* Internal functions' prototypes */
-static int       fetch_list_sql( void **, const char *, const char *, const DBINFO * );
-static _STAINFO *add_new_station(
-	void **, const int, const char *, const char *, const char *, const int, const char *[]
-);
+static int       fetch_list_sql( const char *, const char *, const DBINFO *, const int );
+static StaList  *init_sta_list( void );
+static void      destroy_sta_list( StaList * );
+static _STAINFO *append_stainfo_list( StaList *, _STAINFO *, const int );
+static _STAINFO *create_new_stainfo( const int, const char *, const char *, const char *, const int, const char *[] );
 static _CHAINFO *enrich_chainfo_default( _STAINFO * );
 static _STAINFO *enrich_stainfo_raw( _STAINFO *, const int, const char *, const char *, const char * );
 static _CHAINFO *enrich_chainfo_raw( _STAINFO *, const int, const char *[] );
+static _STAINFO *update_stainfo_and_chainfo( _STAINFO *, const _STAINFO * );
+static int       obsolete_clear_cond( void *, void * );
 static int       compare_serial( const void *, const void * );	/* The compare function of binary tree search */
-static void      cal_total_stations( const void *, const VISIT, const int );
-static void      free_stainfo( void * );
+static void      dummy_func( void * );
+static void      free_stainfo_and_chainfo( void * );
+/* */
 #if defined( _USE_SQL )
 static void extract_stainfo_mysql( int *, char *, char *, char *, const MYSQL_ROW, const unsigned long * );
 static int  extract_chainfo_mysql( char *[], MYSQL_RES * );
 #endif
 
 /* Global variables */
-static volatile void *Root          = NULL;       /* Root of serial binary tree */
-static volatile int   TotalStations = 0;
+static StaList *SList = NULL;
 
 /*
  * pa2ew_list_db_fetch() -
  */
-int pa2ew_list_db_fetch( void **root, const char *table_sta, const char *table_chan, const DBINFO *dbinfo )
+int pa2ew_list_db_fetch( const char *table_sta, const char *table_chan, const DBINFO *dbinfo, const int update )
 {
+	if ( !SList ) {
+		SList = init_sta_list();
+		if ( !SList ) {
+			logit("e", "palert2ew: Fatal! Station list memory initialized error!\n");
+			return -3;
+		}
+	}
+
 	if ( strlen(dbinfo->host) > 0 && strlen(table_sta) > 0 )
-		return fetch_list_sql( root, table_sta, table_chan, dbinfo );
+		return fetch_list_sql( table_sta, table_chan, dbinfo, update );
 	else
 		return 0;
 }
 
 /*
- * pa2ew_list_serial_find() -
- */
-_STAINFO *pa2ew_list_find( const int serial )
-{
-	_STAINFO *result = NULL;
-	_STAINFO  key;
-
-/* */
-	key.serial = serial;
-/* Find which station */
-	if ( (result = tfind(&key, (void **)&Root, compare_serial)) == NULL ) {
-	/* Not found in Palert table */
-		return NULL;
-	}
-	result = *(_STAINFO **)result;
-
-	return result;
-}
-
-/*
- * pa2ew_list_end() -
- */
-void pa2ew_list_end( void )
-{
-	tdestroy((void *)Root, free_stainfo);
-
-	return;
-}
-
-/*
- * pa2ew_list_walk() -
- */
-void pa2ew_list_walk( void (*action)(const void *, const VISIT, const int) )
-{
-	twalk((void *)Root, action);
-	return;
-}
-
-/*
- * pa2ew_list_total_station() -
- */
-int pa2ew_list_total_station( void )
-{
-	TotalStations = 0;
-	pa2ew_list_walk( cal_total_stations );
-
-	return TotalStations;
-}
-
-/*
  *
  */
-int pa2ew_list_station_line_parse( void **root, const char *line )
+int pa2ew_list_station_line_parse( const char *line, const int update )
 {
 	int   i, result = 0;
 	int   serial;
@@ -108,6 +82,15 @@ int pa2ew_list_station_line_parse( void **root, const char *line )
 	char *chan[PALERTMODE1_CHAN_COUNT] = { NULL };
 	char *sub_line = malloc(strlen(line) + 1);
 	char *str_start, *str_end, *str_limit;
+
+/* */
+	if ( !SList ) {
+		SList = init_sta_list();
+		if ( !SList ) {
+			logit("e", "palert2ew: Fatal! Station list memory initialized error!\n");
+			return -3;
+		}
+	}
 
 /* */
 	if ( sscanf(line, "%d %s %s %s %d %[^\n]", &serial, sta, net, loc, &nchannel, sub_line) >= 5 ) {
@@ -130,9 +113,17 @@ int pa2ew_list_station_line_parse( void **root, const char *line )
 			}
 		}
 	/* */
-		if ( result != -1 )
-			if ( add_new_station( root, serial, sta, net, loc, i, (const char **)chan ) == NULL )
+		if ( result != -1 ) {
+			if (
+				append_stainfo_list(
+					SList,
+					create_new_stainfo( serial, sta, net, loc, nchannel, (const char **)chan ),
+					update
+				) == NULL
+			) {
 				result = -2;
+			}
+		}
 	}
 	else {
 		logit("e", "palert2ew: ERROR, lack of some station information for serial %d in local list!\n", serial);
@@ -148,28 +139,132 @@ int pa2ew_list_station_line_parse( void **root, const char *line )
 }
 
 /*
- * pa2ew_list_root_reg() -
+ * pa2ew_list_end() -
  */
-void *pa2ew_list_root_reg( void *root )
+void pa2ew_list_end( void )
 {
-	void *_root = (void *)Root;
+	destroy_sta_list( SList );
+	SList = NULL;
 
-/* Switch the tree's root */
-	Root = root;
-/* Free the old one */
-	sleep_ew(500);
-	pa2ew_list_root_destroy( _root );
-
-	return (void *)Root;
+	return;
 }
 
 /*
- * pa2ew_list_root_destroy() -
+ * pa2ew_list_find() -
  */
-void pa2ew_list_root_destroy( void *root )
+_STAINFO *pa2ew_list_find( const int serial )
 {
-	if ( root != (void *)NULL )
-		tdestroy(root, free_stainfo);
+	_STAINFO *result = NULL;
+	_STAINFO  key;
+
+/* */
+	key.serial = serial;
+/* Find which station */
+	if ( (result = tfind(&key, &SList->root, compare_serial)) != NULL ) {
+	/* Found in the main Palert table */
+		result = *(_STAINFO **)result;
+	}
+
+	return result;
+}
+
+/*
+ * pa2ew_list_update_status_set() -
+ */
+void pa2ew_list_update_status_set( const int update_status )
+{
+	DL_NODE  *node    = NULL;
+	_STAINFO *stainfo = NULL;
+
+/* */
+	DL_LIST_FOR_EACH_DATA( (DL_NODE *)SList->entry, node, stainfo ) {
+		stainfo->update = update_status;
+	}
+
+	return;
+}
+
+/*
+ * pa2ew_list_obsolete_clear() -
+ */
+void pa2ew_list_obsolete_clear( void )
+{
+/* */
+	dl_list_filter( (DL_NODE **)&SList->entry, obsolete_clear_cond, NULL, free_stainfo_and_chainfo );
+
+	return;
+}
+
+/*
+ * pa2ew_list_tree_activate() -
+ */
+void pa2ew_list_tree_activate( void )
+{
+	void *_root = SList->root;
+
+	SList->root      = SList->root_t;
+	SList->root_t    = NULL;
+	SList->timestamp = pa2ew_misc_timenow_get();
+
+	if ( _root ) {
+		sleep_ew(1000);
+		tdestroy(_root, dummy_func);
+	}
+
+	return;
+}
+
+/*
+ * pa2ew_list_tree_activate() -
+ */
+void pa2ew_list_tree_abandon( void )
+{
+	if ( SList->root_t )
+		tdestroy(SList->root_t, dummy_func);
+
+	SList->root_t = NULL;
+
+	return;
+}
+
+/*
+ * pa2ew_list_total_station_get() -
+ */
+int pa2ew_list_total_station_get( void )
+{
+	DL_NODE  *node   = NULL;
+	int       result = 0;
+
+/* */
+	DL_LIST_FOR_EACH( (DL_NODE *)SList->entry, node ) {
+		result++;
+	}
+/* */
+	SList->count = result;
+
+	return result;
+}
+
+/*
+ * pa2ew_list_timestamp_get() -
+ */
+double pa2ew_list_timestamp_get( void )
+{
+	return SList->timestamp;
+}
+
+/*
+ * pa2ew_list_walk() -
+ */
+void pa2ew_list_walk( void (*action)( void *, const int, void * ), void *arg )
+{
+	DL_NODE *node = NULL;
+	int      i    = 0;
+
+/* */
+	DL_LIST_FOR_EACH( (DL_NODE *)SList->entry, node ) {
+		action( DL_NODE_GET_DATA( node ), i++, arg );
+	}
 
 	return;
 }
@@ -178,7 +273,7 @@ void pa2ew_list_root_destroy( void *root )
 /*
  * fetch_list_sql() - Get stations list from MySQL server
  */
-static int fetch_list_sql( void **root, const char *table_sta, const char *table_chan, const DBINFO *dbinfo )
+static int fetch_list_sql( const char *table_sta, const char *table_chan, const DBINFO *dbinfo, const int update )
 {
 	int   i, result = 0;
 	int   serial;
@@ -212,12 +307,19 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 		extract_stainfo_mysql( &serial, sta, net, loc, sql_row, stalist_fetch_lengths_sql( sql_res ) );
 	/* */
 		nchannel = 0;
-		if ( table_chan != NULL && strlen(table_chan) )
+		if ( table_chan != NULL && strlen(table_chan) ) {
 			nchannel = extract_chainfo_mysql(
 				chan, stalist_chan_query_sql( dbinfo, table_chan, sta, net, loc, 1, COL_CHAN_CHANNEL )
 			);
+		}
 	/* */
-		if ( add_new_station( root, serial, sta, net, loc, nchannel, (const char **)chan ) != NULL ) {
+		if (
+			append_stainfo_list(
+				SList,
+				create_new_stainfo( serial, sta, net, loc, nchannel, (const char **)chan ),
+				update
+			) != NULL
+		) {
 			result++;
 		}
 		else {
@@ -228,6 +330,7 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 /* Close the connection for channel */
 	stalist_close_persistent_sql();
 	stalist_free_result_sql( sql_res );
+	stalist_end_thread_sql();
 
 	if ( result > 0 ) {
 		logit("o", "palert2ew: Read %d stations information from MySQL server success!\n", result);
@@ -278,7 +381,7 @@ static int extract_chainfo_mysql( char *chan[], MYSQL_RES *sql_res )
 		if ( result > 0 && result <= PALERTMODE1_CHAN_COUNT ) {
 			while ( (sql_row = stalist_fetch_row_sql( sql_res )) != NULL ) {
 				row_lengths = stalist_fetch_lengths_sql( sql_res );
-				stalist_field_extract_sql( chan[i++], TRACE2_LOC_LEN, sql_row[0], row_lengths[0] );
+				stalist_field_extract_sql( chan[i++], TRACE2_CHAN_LEN, sql_row[0], row_lengths[0] );
 			}
 		}
 		stalist_free_result_sql( sql_res );
@@ -290,7 +393,7 @@ static int extract_chainfo_mysql( char *chan[], MYSQL_RES *sql_res )
 /*
  * fetch_list_sql() - Fake function
  */
-static int fetch_list_sql( void **root, const char *table_sta, const char *table_chan, const DBINFO *dbinfo )
+static int fetch_list_sql( const char *table_sta, const char *table_chan, const DBINFO *dbinfo, const int update )
 {
 	printf(
 		"palert2ew: Skip the process of fetching station list from remote database "
@@ -301,42 +404,109 @@ static int fetch_list_sql( void **root, const char *table_sta, const char *table
 #endif
 
 /*
- * add_new_station() -
+ * init_sta_list() -
  */
-static _STAINFO *add_new_station(
-	void **root, const int serial, const char *sta, const char *net,
-	const char *loc, const int nchannel, const char *chan[]
-) {
-	_STAINFO *stainfo = (_STAINFO *)calloc(1, sizeof(_STAINFO));
-	_STAINFO *result  = NULL;
+static StaList *init_sta_list( void )
+{
+	StaList *result = (StaList *)calloc(1, sizeof(StaList));
 
-	if ( stainfo != NULL ) {
-		enrich_stainfo_raw( stainfo, serial, sta, net, loc );
+	if ( result ) {
+		result->count     = 0;
+		result->timestamp = pa2ew_misc_timenow_get();
+		result->entry     = NULL;
+		result->root      = NULL;
+		result->root_t    = NULL;
+	}
+
+	return result;
+}
+
+/*
+ * destroy_sta_list() -
+ */
+static void destroy_sta_list( StaList *list )
+{
+	if ( list != (StaList *)NULL ) {
 	/* */
-		if ( (result = tfind(stainfo, root, compare_serial)) == NULL ) {
-		/* */
-			stainfo->chaptr = NULL;
-			if ( nchannel )
-				enrich_chainfo_raw( stainfo, nchannel, chan );
-			else
-				enrich_chainfo_default( stainfo );
+		tdestroy(list->root, dummy_func);
+		dl_list_destroy( (DL_NODE **)&list->entry, free_stainfo_and_chainfo );
+		free(list);
+	}
+
+	return;
+}
+
+/*
+ *  append_stainfo_list() - Appending the new client to the client list.
+ */
+static _STAINFO *append_stainfo_list( StaList *list, _STAINFO *stainfo, const int update )
+{
+	_STAINFO *result = NULL;
+	void    **_root  = update == PA2EW_LIST_UPDATING ? &list->root : &list->root_t;
+
+/* */
+	if ( list && stainfo ) {
+		if ( (result = tfind(stainfo, _root, compare_serial)) == NULL ) {
 		/* Insert the station information into binary tree */
-			if ( stainfo->chaptr != NULL ) {
-				if ( tsearch(stainfo, root, compare_serial) != NULL )
-					return stainfo;
-				else
-					logit("e", "palert2ew: Error insert station into binary tree!\n");
+			if ( dl_node_append( (DL_NODE **)&list->entry, stainfo ) == NULL ) {
+				logit("e", "palert2ew: Error insert station into linked list!\n");
+				goto except;
 			}
-			else {
-				logit("e", "palert2ew: Error allocate the memory for channels information!\n");
+			if ( (result = tsearch(stainfo, &list->root_t, compare_serial)) == NULL ) {
+				logit("e", "palert2ew: Error insert station into binary tree!\n");
+				goto except;
 			}
+		}
+		else if ( update == PA2EW_LIST_UPDATING ) {
+			update_stainfo_and_chainfo( *(_STAINFO **)result, stainfo );
+			if ( (result = tsearch(stainfo, &list->root_t, compare_serial)) == NULL ) {
+				logit("e", "palert2ew: Error insert station into binary tree!\n");
+				goto except;
+			}
+			if ( (*(_STAINFO **)result)->chaptr != stainfo->chaptr )
+				free_stainfo_and_chainfo(stainfo);
+			else
+				free(stainfo);
 		}
 		else {
-			logit("o", "palert2ew: Serial %d is already in the list, skip it!\n", serial);
-			result = *(_STAINFO **)result;
+			logit("o", "palert2ew: Serial(%d) is already in the list, skip it!\n", stainfo->serial);
+			free_stainfo_and_chainfo( stainfo );
 		}
+	}
+
+	return result ? *(_STAINFO **)result : NULL;
+/* Exception handle */
+except:
+	free_stainfo_and_chainfo( stainfo );
+	return NULL;
+}
+
+/*
+ *  create_new_stainfo() - Creating new station info memory space with the input value.
+ */
+static _STAINFO *create_new_stainfo(
+	const int serial, const char *sta, const char *net,
+	const char *loc, const int nchannel, const char *chan[]
+) {
+	_STAINFO *result = (_STAINFO *)calloc(1, sizeof(_STAINFO));
+
+/* */
+	if ( result ) {
+		enrich_stainfo_raw( result, serial, sta, net, loc );
 	/* */
-		free(stainfo);
+		if ( nchannel )
+			enrich_chainfo_raw( result, nchannel, chan );
+		else
+			enrich_chainfo_default( result );
+	/* */
+		if ( !result->chaptr ) {
+			logit(
+				"e", "palert2ew: Error created the channel memory for station %s.%s.%s!\n",
+				result->sta, result->net, result->loc
+			);
+			free(result);
+			result = NULL;
+		}
 	}
 
 	return result;
@@ -363,11 +533,14 @@ static _STAINFO *enrich_stainfo_raw(
 	_STAINFO *stainfo, const int serial, const char *sta, const char *net, const char *loc
 ) {
 /* */
-	stainfo->serial = serial;
+	stainfo->update   = PA2EW_PALERT_INFO_UPDATED;
+	stainfo->ext_flag = PA2EW_PALERT_EXT_UNCHECK;
+	stainfo->serial   = serial;
+	stainfo->chaptr   = NULL;
+	stainfo->buffer   = NULL;
 	strcpy(stainfo->sta, sta);
 	strcpy(stainfo->net, net);
 	strcpy(stainfo->loc, loc);
-	stainfo->packet.sptr = stainfo;
 
 	return stainfo;
 }
@@ -378,7 +551,7 @@ static _STAINFO *enrich_stainfo_raw(
 static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, const char *chan[] )
 {
 	int       i;
-	_CHAINFO *chainfo = calloc(nchannel, sizeof(_CHAINFO));
+	_CHAINFO *chainfo = (_CHAINFO *)calloc(nchannel, sizeof(_CHAINFO));
 
 /* */
 	stainfo->nchannel = nchannel;
@@ -388,6 +561,7 @@ static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, cons
 		for ( i = 0; i < nchannel; i++ ) {
 			chainfo[i].seq = i;
 			strcpy(chainfo[i].chan, chan[i]);
+			chainfo[i].last_endtime = -1.0;
 		}
 	}
 
@@ -395,22 +569,53 @@ static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, cons
 }
 
 /*
+ * update_stainfo_and_chainfo()
+ */
+static _STAINFO *update_stainfo_and_chainfo( _STAINFO *dest, const _STAINFO *src )
+{
+	int i;
+
+/* */
+	if ( strcmp(dest->sta, src->sta) )
+		strcpy(dest->sta, src->sta);
+	if ( strcmp(dest->net, src->net) )
+		strcpy(dest->net, src->net);
+	if ( strcmp(dest->loc, src->loc) )
+		strcpy(dest->loc, src->loc);
+/* */
+	if ( dest->nchannel != src->nchannel ) {
+		free(dest->chaptr);
+		dest->chaptr = NULL;
+	}
+	else {
+		for ( i = 0; i < dest->nchannel; i++ ) {
+			if ( strcmp(((_CHAINFO *)dest->chaptr)[i].chan, ((_CHAINFO *)src->chaptr)[i].chan) ) {
+				free(dest->chaptr);
+				dest->chaptr = NULL;
+				break;
+			}
+		}
+	}
+/* */
+	if ( !dest->chaptr )
+		dest->chaptr = src->chaptr;
+/* */
+	dest->update = PA2EW_PALERT_INFO_UPDATED;
+
+	return dest;
+}
+
+/*
  *
  */
-static void cal_total_stations( const void *nodep, const VISIT which, const int depth )
+static int obsolete_clear_cond( void *node, void *arg )
 {
-	switch ( which ) {
-	case postorder:
-	case leaf:
-		TotalStations++;
-		break;
-	case preorder:
-	case endorder:
-	default:
-		break;
-	}
+	_STAINFO *stainfo = (_STAINFO *)node;
 
-	return;
+	if ( stainfo->update == PA2EW_PALERT_INFO_OBSOLETE )
+		return 1;
+
+	return 0;
 }
 
 /*
@@ -430,12 +635,24 @@ static int compare_serial( const void *node_a, const void *node_b )
 }
 
 /*
+ * dummy_func() -
+ */
+static void dummy_func( void *node )
+{
+	return;
+}
+
+/*
  * free_stainfo() -
  */
-static void free_stainfo( void *node )
+static void free_stainfo_and_chainfo( void *node )
 {
 	_STAINFO *stainfo = (_STAINFO *)node;
 
+/* */
+	if ( stainfo->buffer )
+		free(stainfo->buffer);
+/* */
 	free(stainfo->chaptr);
 	free(stainfo);
 

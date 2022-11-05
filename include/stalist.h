@@ -10,7 +10,6 @@
  * March, 2020
  *
  */
-
 #pragma once
 /* */
 #include <mysql.h>
@@ -68,3 +67,4 @@ char          *stalist_field_extract_sql( char *, const unsigned int, const void
 void           stalist_free_result_sql( MYSQL_RES * );
 MYSQL         *stalist_start_persistent_sql( const DBINFO * );
 void           stalist_close_persistent_sql( void );
+void           stalist_end_thread_sql( void );

@@ -165,17 +165,19 @@ int32_t *palert_get_data( const PalertPacket *palertp, const int ncmp, int32_t *
 	int i;
 	const PALERTDATA *_data = palertp->data;
 
+	if ( ncmp < PALERTMODE1_CHAN_COUNT ) {
 #ifdef _SPARC
-	uint32_t hbyte;
-	for ( i = 0; i < PALERTMODE1_SAMPLE_NUMBER; i++, palert_data++, buffer++ ) {
-		hbyte   = _data->cmp[ncmp][1];
-		*buffer = (hbyte << 8) + _data->cmp[ncmp][0];
-		if ( hbyte & 0x80 ) *buffer |= 0xffff0000;
-	}
+		uint32_t hbyte;
+		for ( i = 0; i < PALERTMODE1_SAMPLE_NUMBER; i++, palert_data++, buffer++ ) {
+			hbyte   = _data->cmp[ncmp][1];
+			*buffer = (hbyte << 8) + _data->cmp[ncmp][0];
+			if ( hbyte & 0x80 ) *buffer |= 0xffff0000;
+		}
 #else
-	for ( i = 0; i < PALERTMODE1_SAMPLE_NUMBER; i++, _data++, buffer++ )
-		*buffer = _data->cmp[ncmp];
+		for ( i = 0; i < PALERTMODE1_SAMPLE_NUMBER; i++, _data++, buffer++ )
+			*buffer = _data->cmp[ncmp];
 #endif
+	}
 
 	return buffer;
 }
@@ -198,6 +200,106 @@ int palert_translate_cwb2020_int( const int raw_intensity )
 		return 8;
 	case 70:
 		return 9;
+	}
+
+	return 0;
+}
+
+
+/*
+ *
+ */
+int palert_get_header_mode( const void *header )
+{
+	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)header;
+
+	if ( PALERT_IS_MODE1_HEADER(pah) )
+		return 1;
+	else if ( PALERT_IS_MODE2_HEADER(pah) )
+		return 2;
+	else if ( PALERT_IS_MODE4_HEADER(pah) )
+		return 4;
+
+	return 0;
+}
+
+/*
+ *
+ */
+int palert_check_sync_common( const void *header )
+{
+	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)header;
+
+	if ( PALERT_IS_MODE4_HEADER(pah) ) {
+		PALERTMODE4_HEADER *pah4 = (PALERTMODE4_HEADER *)pah;
+		return PALERTMODE4_HEADER_CHECK_SYNC(pah4);
+	}
+	else {
+		return PALERTMODE1_HEADER_CHECK_SYNC(pah);
+	}
+
+	return 0;
+}
+
+/*
+ *
+ */
+int palert_check_ntp_common( const void *header )
+{
+	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)header;
+
+	if ( PALERT_IS_MODE4_HEADER(pah) ) {
+		PALERTMODE4_HEADER *pah4 = (PALERTMODE4_HEADER *)pah;
+		return PALERTMODE4_HEADER_CHECK_NTP(pah4);
+	}
+	else {
+		return PALERTMODE1_HEADER_CHECK_NTP(pah);
+	}
+
+	return 0;
+}
+
+/*
+ *
+ */
+int palert_get_packet_type_common( const void *header )
+{
+	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)header;
+
+	return PALERTMODE1_HEADER_GET_WORD(pah->packet_type);
+}
+
+/*
+ *
+ */
+int palert_get_packet_len_common( const void *header )
+{
+	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)header;
+
+	if ( PALERT_IS_MODE4_HEADER(pah) ) {
+		PALERTMODE4_HEADER *pah4 = (PALERTMODE4_HEADER *)pah;
+		return PALERTMODE4_HEADER_GET_PACKETLEN(pah4);
+	}
+	else {
+		return PALERTMODE1_HEADER_GET_PACKETLEN(pah);
+	}
+
+	return 0;
+}
+
+/*
+ *
+ */
+int palert_get_serial_common( const void *header )
+{
+	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)header;
+
+	if ( PALERT_IS_MODE4_HEADER(pah) ) {
+		PALERTMODE4_HEADER *pah4 = (PALERTMODE4_HEADER *)pah;
+		return PALERTMODE4_HEADER_GET_SERIAL(pah4);
+	}
+	else {
+		return PALERTMODE1_HEADER_GET_SERIAL(pah);
 	}
 
 	return 0;

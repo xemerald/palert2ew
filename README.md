@@ -7,9 +7,9 @@ The P-alert sensor messages receiving module based on Earthworm that developed b
 1. It needs the [Earthworm](http://love.isti.com/trac/ew/wiki/Earthworm) environment so you need to finish the installation before compilation!
 2. And you might need the MySQL optional function if so please install the **lib-mysqlclient**.
 
-## Installation
+## Build & Installation
 
-The version of Earthworm is under **7.9**:
+The version of Earthworm is under **7.9** (this might be obsoleted later):
 
 ```
 $ make ver_709
@@ -47,6 +47,10 @@ and
 ```
 Message  TYPE_PALERTRAW     XXX   # XXX can be any number that is unused by other message type
 ```
+furthermore if you want to enable extension function, add the line below too
+```
+Message  TYPE_PALERTEXT     XXX   # XXX can be any number that is unused by other message type
+```
 
 2. Second, copy the configuration file **palert2ew.d** to the param directory of Earthworm.
 
@@ -55,12 +59,15 @@ Message  TYPE_PALERTRAW     XXX   # XXX can be any number that is unused by othe
 ```
 $ sudo setcap cap_net_bind_service=+ep <PATH_TO_THE_BINARY_FILE>
 ```
-
+or
+```
+$ make cap_set
+```
 Then you are able to execute this module under startstop module!
 
 ## Configuration
 
-In fact, inside the palert2ew.d file already providing a lot of detailed information. Therefore, if you are reallly urgent, just skip the content below directly read the configuration file.
+In fact, inside the palert2ew.d file already providing a lot of detailed information. Therefore, if you are really urgent, just skip the content below directly read the configuration file.
 
 ### Basic Earthworm setup:
 
@@ -90,10 +97,10 @@ Where to list P-alerts that will receive by this program. By the way, the priori
 Palert    1993      TEST      TW         --         3         HLZ          HLN        HLE
 ```
 
-- Example withour any channel code:
+- Example without any channel code:
 
 ```
-Palert    1993      TEST      TW         --         0     
+Palert    1993      TEST      TW         --         0
 ```
 
 - Optional example with maximum channel number:

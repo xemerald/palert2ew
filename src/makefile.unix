@@ -1,53 +1,65 @@
 #
 #
 #
-CFLAGS = $(GLOBALFLAGS) -O2 -g -I/usr/include/mysql -I../include -flto
+BIN_NAME = palert2ew_test
+CFLAGS = $(GLOBALFLAGS) -O3 -g -I/usr/include/mysql -I../include -flto
 LIBS = -lpthread $(MT_FLAG)
 
 B = $(EW_HOME)/$(EW_VERSION)/bin
 L = $(EW_HOME)/$(EW_VERSION)/lib
 LL = ../lib
 
-EWLIBS = $L/lockfile_ew.o $L/lockfile.o \
-        $L/mem_circ_queue.o $L/libew_mt.a
+EWLIBS = $(L)/lockfile_ew.o $(L)/lockfile.o \
+        $(L)/mem_circ_queue.o $(L)/libew_mt.a $(L)/libmseed.a
 
-LOCALLIBS = $(LL)/palert.o
+LOCALLIBS = $(LL)/palert.o $(LL)/dl_chain_list.o
 
-UTILITY = palert2ew_msg_queue.o palert2ew_list.o \
-		palert2ew_server.o palert2ew_client.o
+OBJS = palert2ew_msg_queue.o palert2ew_list.o palert2ew_ext.o palert2ew_misc.o \
+		palert2ew_server.o palert2ew_server_ext.o palert2ew_client.o
 
-SRC = palert2ew.c palert2ew_msg_queue.c palert2ew_list.c \
-		palert2ew_server.c palert2ew_client.c
+palert2ew: palert2ew.o $(EWLIBS) $(OBJS)
+	@echo Creating $(BIN_NAME)...
+	@$(CC) $(CFLAGS) -o $(B)/$(BIN_NAME) palert2ew.o $(OBJS) $(EWLIBS) $(LOCALLIBS) $(LIBS)
 
-palert2ew: palert2ew.o $(EWLIBS) $(UTILITY)
-	$(CC) $(CFLAGS) -o $B/palert2ew_test palert2ew.o $(UTILITY) $(EWLIBS) $(LOCALLIBS) $(LIBS)
+
+# Optional MySQL rule
+#
+%_sql: CFLAGS+=-D_USE_SQL
+%_sql: LIBS+=-lmysqlclient
+%_sql: LOCALLIBS+=$(LL)/stalist.o
 
 # Compile rule for Earthworm version under 7.9
 #
 ver_709: palert2ew
 
-ver_709_sql: CFLAGS+=-D_USE_SQL
-ver_709_sql: LIBS+=-lmysqlclient
-ver_709_sql: LOCALLIBS+=$(LL)/stalist.o
-ver_709_sql: ver_709
+ver_709_sql: palert2ew
 
 # Compile rule for Earthworm version over 7.10
 #
 ver_710: CFLAGS+=-D_V710
 ver_710: palert2ew
 
-ver_710_sql: CFLAGS+=-D_USE_SQL
-ver_710_sql: LIBS+=-lmysqlclient
-ver_710_sql: LOCALLIBS+=$(LL)/stalist.o
 ver_710_sql: ver_710
+
 
 # Compile rule for Object
 .c.o:
-	$(CC) $(CFLAGS) -c $<
+	@echo Compiling $<...
+	@$(CC) $(CFLAGS) -c $<
+
+#
+cap_set:
+	@echo Enabling the capability of binding the port below 1024...
+	@sudo setcap cap_net_bind_service=+ep $(B)/$(BIN_NAME)
+
 
 # Clean-up rules
 clean:
-	rm -f a.out core *.o *.obj *% *~
+	@echo Cleaning build objects...
+	@rm -f a.out core *.o *.obj *% *~
 
 clean_bin:
-	rm -f $B/palert2ew*
+	@echo Removing binary execution file...
+	@rm -f $(B)/$(BIN_NAME)
+
+.PHONY: clean clean_bin

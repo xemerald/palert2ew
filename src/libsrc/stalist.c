@@ -14,8 +14,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
-
+#include <mysql.h>
 /* Local header include */
+#include <dbinfo.h>
 #include <stalist.h>
 
 /* Internal functions' prototype */
@@ -62,10 +63,11 @@ MYSQL_RES *stalist_chan_query_sql(
 	va_end(ap);
 /* */
 	sprintf(
-		tmpquery, " WHERE `%s`='%s' && `%s`='%s' && `%s`='%s'",
+		tmpquery, " WHERE `%s`='%s' && `%s`='%s' && `%s`='%s' ORDER BY %s ASC",
 		get_sta_column_name( (COL_STA_LIST)COL_STA_STATION ), sta,
 		get_sta_column_name( (COL_STA_LIST)COL_STA_NETWORK ), net,
-		get_sta_column_name( (COL_STA_LIST)COL_STA_LOCATION ), loc
+		get_sta_column_name( (COL_STA_LIST)COL_STA_LOCATION ), loc,
+		get_sta_column_name( (COL_STA_LIST)COL_CHAN_SEQ )
 	);
 	strcat(query, tmpquery);
 
@@ -137,22 +139,34 @@ MYSQL *stalist_start_persistent_sql( const DBINFO *dbinfo )
 	/* Connect to database */
 		SQL = mysql_init(NULL);
 		mysql_options(SQL, MYSQL_SET_CHARSET_NAME, "utf8");
-		mysql_real_connect(SQL, dbinfo->host, dbinfo->user, dbinfo->password, dbinfo->database, dbinfo->port, NULL, 0);
+		if ( !mysql_real_connect(SQL, dbinfo->host, dbinfo->user, dbinfo->password, dbinfo->database, dbinfo->port, NULL, 0) )
+			fprintf(stderr, "stalist_start_persistent_sql: Connecting to MySQL server error: %s!\n", mysql_error(SQL) );
 	}
 
 	return SQL;
 }
 
 /*
- * stalist_free_result_sql() -
+ * stalist_close_persistent_sql() -
  */
 void stalist_close_persistent_sql( void )
 {
 /* */
 	if ( SQL != NULL ) {
 		mysql_close(SQL);
+		mysql_library_end();
 		SQL = NULL;
 	}
+	return;
+}
+
+/*
+ * stalist_end_thread_sql() - Specific function under thread.
+ */
+void stalist_end_thread_sql( void )
+{
+/* */
+	mysql_thread_end();
 	return;
 }
 
@@ -168,10 +182,19 @@ static MYSQL_RES *query_sql( const DBINFO *dbinfo, const char *query, const size
 		MYSQL *sql = mysql_init(NULL);
 	/* Connect to database */
 		mysql_options(sql, MYSQL_SET_CHARSET_NAME, "utf8");
-		if ( mysql_real_connect(sql, dbinfo->host, dbinfo->user, dbinfo->password, dbinfo->database, dbinfo->port, NULL, 0) != NULL )
-			if ( !mysql_real_query(sql, query, query_len) )
+		if ( mysql_real_connect(sql, dbinfo->host, dbinfo->user, dbinfo->password, dbinfo->database, dbinfo->port, NULL, 0) != NULL ) {
+			if ( !mysql_real_query(sql, query, query_len) ) {
 				result = mysql_store_result(sql);
+			}
+			else {
+				fprintf(stderr, "query_sql: Querying to MySQL server error: %s!\n", mysql_error(sql) );
+			}
+		}
+		else {
+			fprintf(stderr, "query_sql: Connecting to MySQL server error: %s!\n", mysql_error(sql) );
+		}
 		mysql_close(sql);
+		mysql_library_end();
 	}
 	else {
 		if ( !mysql_real_query(SQL, query, query_len) )

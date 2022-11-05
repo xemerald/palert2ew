@@ -7,3 +7,6 @@
 # Ignore the library files.
 *.a
 *.so
+
+#
+.vscode
