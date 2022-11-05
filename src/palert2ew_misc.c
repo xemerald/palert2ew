@@ -72,7 +72,7 @@ double pa2ew_misc_timenow_get( void )
 /*
  *
  */
-int pa2ew_misc_recv_thrdnum_eval( int max_stations, const int server_switch, const int ext_switch )
+int pa2ew_misc_recv_thrdnum_eval( int max_stations, const int server_switch )
 {
 	int result;
 /* */
@@ -84,7 +84,7 @@ int pa2ew_misc_recv_thrdnum_eval( int max_stations, const int server_switch, con
 		result = 1;
 	}
 
-	return ext_switch ? (result + 1) : result;
+	return result;
 }
 
 /*

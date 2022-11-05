@@ -14,8 +14,8 @@ EWLIBS = $(L)/lockfile_ew.o $(L)/lockfile.o \
 
 LOCALLIBS = $(LL)/palert.o $(LL)/dl_chain_list.o
 
-OBJS = palert2ew_msg_queue.o palert2ew_list.o palert2ew_ext.o palert2ew_misc.o \
-		palert2ew_server.o palert2ew_server_ext.o palert2ew_client.o
+OBJS = palert2ew_msg_queue.o palert2ew_list.o palert2ew_misc.o \
+		palert2ew_server.o  palert2ew_client.o
 
 palert2ew: palert2ew.o $(EWLIBS) $(OBJS)
 	@echo Creating $(BIN_NAME)...

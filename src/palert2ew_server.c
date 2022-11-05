@@ -36,7 +36,6 @@ static volatile int       MaxStationNum = 0;
 static PALERT_THREAD_SET *ThreadSets    = NULL;
 static CONNDESCRIP       *PalertConns   = NULL;
 
-
 /*
  * pa2ew_server_init() - Initialize the independent Palert server &
  *                       return the needed threads number.
@@ -48,7 +47,7 @@ int pa2ew_server_init( const int max_stations, const char *port )
 /* Setup constants */
 	AcceptEpoll   = epoll_create(2);
 	MaxStationNum = max_stations;
-	ThreadsNumber = pa2ew_misc_recv_thrdnum_eval( max_stations, PA2EW_RECV_SERVER_ON, PA2EW_EXT_FUNC_OFF );
+	ThreadsNumber = pa2ew_misc_recv_thrdnum_eval( max_stations, PA2EW_RECV_SERVER_ON );
 	ThreadSets    = calloc(ThreadsNumber, sizeof(PALERT_THREAD_SET));
 /* Create epoll sets */
 	for ( i = 0; i < ThreadsNumber; i++ ) {

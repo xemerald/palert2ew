@@ -15,7 +15,6 @@
 #include <dl_chain_list.h>
 #include <palert2ew_misc.h>
 #include <palert2ew_list.h>
-#include <palert2ew_ext.h>
 
 /* */
 typedef struct {
@@ -534,7 +533,6 @@ static _STAINFO *enrich_stainfo_raw(
 ) {
 /* */
 	stainfo->update   = PA2EW_PALERT_INFO_UPDATED;
-	stainfo->ext_flag = PA2EW_PALERT_EXT_UNCHECK;
 	stainfo->serial   = serial;
 	stainfo->chaptr   = NULL;
 	stainfo->buffer   = NULL;
