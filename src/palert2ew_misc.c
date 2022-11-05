@@ -4,11 +4,18 @@
 /* Standard C header include */
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 #include <time.h>
 /* Earthworm environment header include */
 #include <trace_buf.h>
 /* */
 #include <palert2ew.h>
+
+/* */
+static uint8_t cal_crc8_high( const uint8_t );
+/* */
+static uint8_t CRC8_Table[256] = { 0 };
+static uint8_t CRC8_Ready = 0;
 
 /*
  * pa2ew_misc_trh2_enrich() -
@@ -78,4 +85,63 @@ int pa2ew_misc_recv_thrdnum_eval( int max_stations, const int server_switch, con
 	}
 
 	return ext_switch ? (result + 1) : result;
+}
+
+/*
+ * pa2ew_misc_crc8_init() - A CRC-8 initialization function
+ */
+void pa2ew_misc_crc8_init( void )
+{
+	int i;
+
+/* */
+	for ( i = 0x00; i <= 0xff; i++ )
+		CRC8_Table[i & 0xff] = cal_crc8_high( i & 0xff );
+/* */
+	CRC8_Ready = 1;
+
+	return;
+}
+
+/*
+ * pa2ew_misc_crc8_cal() - A CRC-8 calculation function
+ */
+uint8_t pa2ew_misc_crc8_cal( const void *data, const size_t size )
+{
+	const uint8_t *ptr = data;
+	const uint8_t *end;
+	uint8_t        result = PA2EW_RECV_SERVER_CRC8_INIT;
+
+/* */
+	if ( !CRC8_Ready )
+		pa2ew_misc_crc8_init();
+/* */
+	if ( ptr ) {
+	/* */
+		end = ptr + size;
+		while ( ptr < end )
+			result = CRC8_Table[result ^ *ptr++];
+	}
+
+	return result;
+}
+
+/*
+ *
+ */
+static uint8_t cal_crc8_high( const uint8_t data )
+{
+	uint8_t result = PA2EW_RECV_SERVER_CRC8_INIT;
+	int     i;
+
+/* */
+	result ^= data;
+	for ( i = 0; i < 8; i++ ) {
+		if ( result & 0x80 )
+			result = (result << 1) ^ PA2EW_RECV_SERVER_CRC8_POLY;
+		else
+			result <<= 1;
+	}
+
+	return result;
 }

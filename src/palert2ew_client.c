@@ -17,10 +17,11 @@
 /* Local header include */
 #include <palert2ew.h>
 #include <palert2ew_list.h>
+#include <palert2ew_misc.h>
 #include <palert2ew_msg_queue.h>
 
 /* */
-#define FW_PCK_HEADER_LENGTH     4
+#define FW_PCK_HEADER_LENGTH     16
 #define RETRY_TIMES_LIMIT        5
 #define RECONNECT_TIMES_LIMIT    10
 #define RECONNECT_INTERVAL_MSEC  PA2EW_RECONNECT_INTERVAL
@@ -30,6 +31,11 @@
 typedef struct {
 	uint16_t serial;
 	uint16_t length;
+	uint32_t seq;
+	uint8_t  padding[5];
+	int8_t   timeoff;
+	uint8_t  stratum;
+	uint8_t  crc8;
 	uint8_t  recv_buffer[PA2EW_RECV_BUFFER_LENGTH];
 } FW_PCK;
 
@@ -91,9 +97,11 @@ int pa2ew_client_stream( void )
 	static LABELED_RECV_BUFFER *lrbuf = NULL;
 	static FW_PCK              *fwptr = NULL;
 	static uint8_t              sync_errors = 0;
+	static uint32_t             recv_seq = 0;
 
 	int       ret       = 0;
 	int       retry     = 0;
+	int       checked   = 0;
 	int       data_read = 0;
 	int       data_req  = FW_PCK_HEADER_LENGTH;
 	_STAINFO *staptr    = NULL;
@@ -109,9 +117,6 @@ int pa2ew_client_stream( void )
 		else
 			lrbuf = (LABELED_RECV_BUFFER *)(Buffer + (fwptr->recv_buffer - lrbuf->recv_buffer));
 	}
-/* Reset the header of forward packet, just in case! */
-	fwptr->serial = 0;
-	fwptr->length = 0;
 /* */
 	do {
 		if ( (ret = recv(ClientSocket, (uint8_t *)fwptr + data_read, data_req, 0)) <= 0 ) {
@@ -121,13 +126,13 @@ int pa2ew_client_stream( void )
 			else if ( errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ) {
 				logit("et", "palert2ew: Receiving from Palert server is timeout, retry #%d...\n", ++retry);
 				if ( retry >= RETRY_TIMES_LIMIT ) {
-					logit("et", "palert2ew: Retry over %d time(s), reconnect...\n", retry);
+					logit("et", "palert2ew: Retry over %d time(s), reconnecting...\n", retry);
 					goto reconnect;
 				}
 				sleep_ew(RECONNECT_INTERVAL_MSEC);
 			}
 			else if ( ret == 0 ) {
-				logit("et", "palert2ew: Connection to Palert server is closed, reconnect...\n");
+				logit("et", "palert2ew: Connection to Palert server is closed, reconnecting...\n");
 				goto reconnect;
 			}
 			else {
@@ -137,11 +142,32 @@ int pa2ew_client_stream( void )
 			continue;
 		}
 	/* */
-		if ( (data_read += ret) >= FW_PCK_HEADER_LENGTH )
+		if ( (data_read += ret) >= FW_PCK_HEADER_LENGTH ) {
+			if ( !checked ) {
+				if ( fwptr->seq != recv_seq && pa2ew_misc_crc8_cal( fwptr, FW_PCK_HEADER_LENGTH ) ) {
+					logit("et", "palert2ew: TCP connection sync error, flushing the buffer...\n");
+					flush_sock_buffer( ClientSocket );
+					pa2ew_msgqueue_lastbufs_reset( NULL );
+				/* */
+					if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
+						logit("et", "palert2ew: TCP connection sync error over %u times, reconnecting...\n", sync_errors);
+						sync_errors = 0;
+						goto reconnect;
+					}
+				/* */
+					return PA2EW_RECV_NORMAL;
+				}
+			/* */
+				checked  = 1;
+				recv_seq = fwptr->seq;
+			}
 			data_req = fwptr->length + FW_PCK_HEADER_LENGTH - data_read;
+		}
 	} while ( data_req > 0 );
 
-/* Serial should always larger than 0, if so send the update request */
+/* */
+	recv_seq++;
+/* Serial should always larger than 0 & ignore keep-alive(serial = 0) packet */
 	if ( fwptr->serial ) {
 	/* Find which one palert */
 		if ( (staptr = pa2ew_list_find( fwptr->serial )) ) {
@@ -150,16 +176,10 @@ int pa2ew_client_stream( void )
 			lrbuf->label.staptr = staptr;
 		/* Packet type temporary fixed on 1, later this information should be provided by server side */
 			if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
-				if ( ++sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
-					logit("et", "palert2ew: TCP connection sync error, flushing the buffer...\n");
-					flush_sock_buffer( ClientSocket );
-					pa2ew_msgqueue_lastbufs_reset();
-					sync_errors = 0;
-				}
+				logit("et", "palert2ew: Serial(%d) packet sync error, flushing the last buffer...\n", staptr->serial);
+				pa2ew_msgqueue_lastbufs_reset( staptr );
 			}
-			else {
-				sync_errors = 0;
-			}
+			sync_errors = 0;
 		}
 		else {
 			printf("palert2ew: Serial(%d) not found in station list, maybe it's a new palert.\n", fwptr->serial);
@@ -174,7 +194,7 @@ int pa2ew_client_stream( void )
 	return PA2EW_RECV_NORMAL;
 /* */
 reconnect:
-	pa2ew_msgqueue_lastbufs_reset();
+	pa2ew_msgqueue_lastbufs_reset( NULL );
 	if ( reconstruct_connect_sock() < 0 )
 		return PA2EW_RECV_CONNECT_ERROR;
 	else
@@ -208,25 +228,25 @@ static void flush_sock_buffer( const int sock )
 static int reconstruct_connect_sock( void )
 {
 	static uint8_t count = 0;
-/* */
-	int sock = ClientSocket;
 
+/* */
+	if ( ClientSocket > 0 ) {
+		close(ClientSocket);
+		sleep_ew(RECONNECT_INTERVAL_MSEC);
+	}
 /* Do until we success getting socket or exceed RECONNECT_TIMES_LIMIT */
 	while ( (ClientSocket = construct_connect_sock( _ServerIP, _ServerPort )) == -1 ) {
 	/* Try RECONNECT_TIMES_LIMIT */
 		if ( ++count > RECONNECT_TIMES_LIMIT ) {
 			logit("et", "palert2ew: Reconstruct socket failed; exiting this session!\n");
-			ClientSocket = sock;
-			return -1;
+			ClientSocket = -1;
+			return ClientSocket;
 		}
 	/* Waiting for a while */
 		sleep_ew(RECONNECT_INTERVAL_MSEC);
 	}
 	logit("ot", "palert2ew: Reconstruct socket success!\n");
 	count = 0;
-/* */
-	if ( sock > 0 )
-		close(sock);
 
 	return ClientSocket;
 }

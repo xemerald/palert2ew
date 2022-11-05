@@ -132,10 +132,13 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int header_mode, 
 /*
  * pa2ew_msgqueue_lastbufs_reset() - Stack received message into queue of station.
  */
-void pa2ew_msgqueue_lastbufs_reset( void )
+void pa2ew_msgqueue_lastbufs_reset( void *staptr )
 {
 /* */
-	pa2ew_list_walk( free_last_buffer_act, NULL );
+	if ( !staptr )
+		pa2ew_list_walk( free_last_buffer_act, NULL );
+	else
+		free_last_buffer_act( staptr, 0, NULL );
 /* */
 	return;
 }
