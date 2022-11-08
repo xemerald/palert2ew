@@ -68,6 +68,7 @@ typedef struct {
 	char     loc[TRACE2_LOC_LEN];
 	uint16_t serial;
 	uint16_t nchannel;
+	int64_t  timeshift;
 /* */
 	void *chaptr;
 /* */

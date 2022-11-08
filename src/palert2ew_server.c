@@ -27,6 +27,7 @@
 static int construct_listen_sock( const char * );
 static int accept_palert_raw( void );
 static int find_which_station( void *, CONNDESCRIP *, int );
+static int find_palert_tzoffset( const PALERTMODE1_HEADER * );
 
 /* Define global variables */
 volatile int              AcceptEpoll   = 0;
@@ -489,9 +490,10 @@ static int accept_palert_raw( void )
  */
 static int find_which_station( void *buffer, CONNDESCRIP *conn, int epoll )
 {
-	int       result = 0;
-	uint16_t  serial = palert_get_serial_common( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
-	_STAINFO *staptr = pa2ew_list_find( serial );
+	int       result   = 0;
+	int       tzoffset = 0;
+	uint16_t  serial   = palert_get_serial_common( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
+	_STAINFO *staptr   = pa2ew_list_find( serial );
 /* */
 	if ( !staptr ) {
 	/* Not found in Palert table */
@@ -508,10 +510,30 @@ static int find_which_station( void *buffer, CONNDESCRIP *conn, int epoll )
 			pa2ew_server_common_pconnect_close( _conn, ThreadSets[i].epoll_fd );
 		}
 	/* */
+		tzoffset = find_palert_tzoffset( (PALERTMODE1_HEADER *)((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
+		staptr->timeshift = -(tzoffset * 3600);
+	/* */
 		conn->label.staptr = staptr;
 		conn->header_mode  = palert_get_header_mode( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
-		printf("palert2ew: Palert %s now online.\n", staptr->sta);
+		printf("palert2ew: Palert %s in UTC%+.2d:00 now online.\n", staptr->sta, tzoffset);
 	}
+
+	return result;
+}
+
+/*
+ *
+ */
+static int find_palert_tzoffset( const PALERTMODE1_HEADER *pah )
+{
+	int     result = 0;
+	time_t  ltime  = time(NULL);
+	double  ptime  = palert_get_systime( pah, 0 );
+	double  offset = ptime - (double)ltime;
+
+/* Turn the seconds to hours */
+	offset = (offset + (offset > 0.0 ? 30.0 : -30.0)) / 3600.0;
+	result = (int)(offset + (offset > 0.0 ? 0.1 : -0.1));
 
 	return result;
 }

@@ -32,8 +32,9 @@ typedef struct {
 	uint16_t serial;
 	uint16_t length;
 	uint32_t seq;
-	uint8_t  padding[5];
-	int8_t   timeoff;
+	uint16_t packmode;
+	uint8_t  padding[3];
+	int8_t   tzoffset;
 	uint8_t  stratum;
 	uint8_t  crc8;
 	uint8_t  recv_buffer[PA2EW_RECV_BUFFER_LENGTH];
@@ -104,6 +105,7 @@ int pa2ew_client_stream( void )
 	int       checked   = 0;
 	int       data_read = 0;
 	int       data_req  = FW_PCK_HEADER_LENGTH;
+	uint16_t  packmode  = 0;
 	_STAINFO *staptr    = NULL;
 
 /* Try to align the two different data structure pointer */
@@ -171,11 +173,14 @@ int pa2ew_client_stream( void )
 	if ( fwptr->serial ) {
 	/* Find which one palert */
 		if ( (staptr = pa2ew_list_find( fwptr->serial )) ) {
-			ret = fwptr->length;
+			ret      = fwptr->length;
+			packmode = fwptr->packmode;
+		/* Get the time shift in seconds between UTC & palert timezone */
+			staptr->timeshift = -(fwptr->tzoffset * 3600);
 		/* This should be done after the statement above 'cause it will effect the length's memory space */
 			lrbuf->label.staptr = staptr;
-		/* Packet type temporary fixed on 1, later this information should be provided by server side */
-			if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, 1, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
+		/* Packet type should be provided by server side */
+			if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, packmode, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
 				logit("et", "palert2ew: Serial(%d) packet sync error, flushing the last buffer...\n", staptr->serial);
 				pa2ew_msgqueue_lastbufs_reset( staptr );
 			}

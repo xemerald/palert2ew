@@ -127,8 +127,6 @@ static uint8_t TypePalertRaw = 0;
 static volatile _Bool   Finish = 1;
 static volatile uint8_t UpdateFlag = LIST_IS_UPDATED;
 
-static int64_t LocalTimeShift = 0;            /* Time difference between UTC & local timezone */
-
 /* Macro */
 #define COPYDATA_TRACEBUF_PM1(TBUF, PM1, SEQ) \
 		(palert_get_data( (PM1), (SEQ), (int32_t *)((&(TBUF)->trh2) + 1) ))
@@ -240,8 +238,6 @@ int main ( int argc, char **argv )
 /* Force a heartbeat to be issued in first pass thru main loop */
 	timeLastBeat   = time(&timeNow) - HeartBeatInterval - 1;
 	timeLastUpd    = timeNow + 1;
-/* Initialize the timezone shift */
-	LocalTimeShift = -(localtime(&timeNow)->tm_gmtoff);
 /*----------------------- setup done; start main loop -------------------------*/
 	while ( 1 ) {
 	/* Send palert2ew's heartbeat */
@@ -1053,7 +1049,7 @@ static TRACE2_HEADER *enrich_trh2_pm1(
 		trh2, staptr->sta, staptr->net, staptr->loc,
 		PALERTMODE1_SAMPLE_NUMBER,
 		UniSampRate ? (double)UniSampRate : (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah ),
-		palert_get_systime( pah, LocalTimeShift )
+		palert_get_systime( pah, staptr->timeshift )
 	);
 }
 
