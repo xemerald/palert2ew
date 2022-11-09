@@ -69,11 +69,11 @@ Then you are able to execute this module under startstop module!
 
 In fact, inside the palert2ew.d file already providing a lot of detailed information. Therefore, if you are really urgent, just skip the content below directly read the configuration file.
 
-### Basic Earthworm setup:
+### Basic Earthworm setup
 
 I recommend users do not change the parameters inside this part. However, there is an optional parameter, OutRawRing. You can define the ring for output P-alert raw packet or just comment it and close this function.
 
-### Palert server setup:
+### Palert server setup
 
 - ServerSwitch: You can switch program mode by this parameter, that 0, **Client mode** means connect to the Palert server; 1, **Server mode** as the server of Palert.
 - ServerIP: The server IP address of Palert server under mode 0.
@@ -81,13 +81,13 @@ I recommend users do not change the parameters inside this part. However, there 
 
 By the way, you can ignore the parameters, ServerIP & ServerPort when switching to the mode 1.
 
-### MySQL server information:
+### MySQL server information
 
 The alternative way for list P-alerts that will receive by this program. If you setup these parameters, **especially SQLHost**, the program will fetch list from MySQL server or you can just comment all of them, then it will turn off this function. And the schema of station table should include at least four columns, serial, station, network & location. Only the type of serial is number, the others are character.
 
 The other thing, even when you using MySQL server to fetch station information, the channel table is optional. Once you comment the option, the channel information will be filled by default value(HLZ, HLN & HLE).
 
-### Local station list:
+### Local station list
 
 Where to list P-alerts that will receive by this program. By the way, the priority of local list is higher than the one from remote data. And the channel codes are optional, if you don't list any of them the value will be filled by the default value.
 

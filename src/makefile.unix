@@ -18,7 +18,7 @@ OBJS = palert2ew_msg_queue.o palert2ew_list.o palert2ew_misc.o \
 		palert2ew_server.o  palert2ew_client.o
 
 palert2ew: palert2ew.o $(EWLIBS) $(OBJS)
-	@echo Creating $(BIN_NAME)...
+	@echo "Creating $(BIN_NAME)..."
 	@$(CC) $(CFLAGS) -o $(B)/$(BIN_NAME) palert2ew.o $(OBJS) $(EWLIBS) $(LOCALLIBS) $(LIBS)
 
 
@@ -44,22 +44,22 @@ ver_710_sql: ver_710
 
 # Compile rule for Object
 .c.o:
-	@echo Compiling $<...
+	@echo "Compiling $<..."
 	@$(CC) $(CFLAGS) -c $<
 
 #
 cap_set:
-	@echo Enabling the capability of binding the port below 1024...
-	@sudo setcap cap_net_bind_service=+ep $(B)/$(BIN_NAME)
+	@echo "Enabling the capability of network admin & binding the port below 1024..."
+	@sudo setcap cap_net_admin,cap_net_bind_service=+ep $(B)/$(BIN_NAME)
 
 
 # Clean-up rules
 clean:
-	@echo Cleaning build objects...
+	@echo "Cleaning build objects..."
 	@rm -f a.out core *.o *.obj *% *~
 
 clean_bin:
-	@echo Removing binary execution file...
+	@echo "Removing binary execution file..."
 	@rm -f $(B)/$(BIN_NAME)
 
 .PHONY: clean clean_bin

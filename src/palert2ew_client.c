@@ -288,11 +288,20 @@ static int construct_connect_sock( const char *ip, const char *port )
 		timeout.tv_sec  = 15;
 		timeout.tv_usec = 0;
 	/* Setup characteristics of socket */
-		setsockopt(result, IPPROTO_TCP, TCP_QUICKACK, &sock_opt, sizeof(sock_opt));
-		setsockopt(result, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
+		if ( setsockopt(result, IPPROTO_TCP, TCP_QUICKACK, &sock_opt, sizeof(sock_opt)) == -1 ) {
+			logit("et", "palert2ew: Construct Palert server connection socket(%s) error(setsockopt: TCP_QUICKACK)!\n", port);
+			goto err_return;
+		}
+		if ( setsockopt(result, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) == -1 ) {
+			logit("et", "palert2ew: Construct Palert server connection socket(%s) error(setsockopt: SO_RCVTIMEO)!\n", port);
+			goto err_return;
+		}
 	/* Set recv. buffer size */
 		sock_opt = SOCKET_RCVBUFFER_LENGTH;
-		setsockopt(result, SOL_SOCKET, SO_RCVBUFFORCE, &sock_opt, sizeof(sock_opt));
+		if ( setsockopt(result, SOL_SOCKET, SO_RCVBUFFORCE, &sock_opt, sizeof(sock_opt)) == -1 ) {
+			logit("et", "palert2ew: Construct Palert server connection socket(%s) error(setsockopt: SO_RCVBUFFORCE)!\n", port);
+			logit("et", "palert2ew: Work under system default receiving buffer size!!\n");
+		}
 	/* Connect to the Palert server if we are using dependent client mode */
 		if ( connect(result, p->ai_addr, p->ai_addrlen) < 0 ) {
 			logit("et", "palert2ew: Connect to Palert server error!\n");
@@ -308,9 +317,13 @@ static int construct_connect_sock( const char *ip, const char *port )
 	}
 	else {
 		logit("et", "palert2ew: Construct Palert connection socket failed!\n");
-		close(result);
-		result = -1;
+		goto err_return;
 	}
 
 	return result;
+
+/* Return for error happened */
+err_return:
+	close(result);
+	return -1;
 }
