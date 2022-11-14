@@ -136,10 +136,8 @@ static uint8_t TypePalertExt = 0;
 #define  LIST_NEED_UPDATED    1
 #define  LIST_UNDER_UPDATE    2
 
-static volatile _Bool   Finish = 0;
+static volatile _Bool   Finish = 1;
 static volatile uint8_t UpdateFlag = LIST_IS_UPDATED;
-
-static int64_t LocalTimeShift = 0;            /* Time difference between UTC & local timezone */
 
 /* Macro */
 #define COPYDATA_TRACEBUF_PM1(TBUF, PM1, SEQ) \
@@ -174,7 +172,6 @@ int main ( int argc, char **argv )
 		fprintf(stderr, "Usage: palert2ew <configfile>\n");
 		exit(0);
 	}
-	Finish = 1;
 	UpdateFlag = LIST_IS_UPDATED;
 /* */
 	handle_signal();
@@ -261,8 +258,6 @@ int main ( int argc, char **argv )
 	timeLastBeat   = time(&timeNow) - HeartBeatInterval - 1;
 	timeLastUpd    = timeNow + 1;
 	timeLastReqSOH = timeNow - 1;
-/* Initialize the timezone shift */
-	LocalTimeShift = -(localtime(&timeNow)->tm_gmtoff);
 /*----------------------- setup done; start main loop -------------------------*/
 	while ( 1 ) {
 	/* Send palert2ew's heartbeat */
@@ -403,17 +398,18 @@ static void palert2ew_config( char *configfile )
 	}
 
 /* Process all command files */
-	while ( nfiles > 0 )   /* While there are command files open */
-	{
-		while ( k_rd() )        /* Read next line from active file  */
-		{
-			com = k_str();         /* Get the first token from line */
-		/* Ignore blank lines & comments
-		 *******************************/
-			if ( !com )          continue;
-			if ( com[0] == '#' ) continue;
-		/* Open a nested configuration file
-		 **********************************/
+/* While there are command files open */
+	while ( nfiles > 0 ) {
+	/* Read next line from active file  */
+		while ( k_rd() ) {
+		/* Get the first token from line */
+			com = k_str();
+		/* Ignore blank lines & comments */
+			if ( !com )
+				continue;
+			if ( com[0] == '#' )
+				continue;
+		/* Open a nested configuration file s*/
 			if ( com[0] == '@' ) {
 				success = nfiles + 1;
 				nfiles  = k_open(&com[1]);
@@ -424,8 +420,7 @@ static void palert2ew_config( char *configfile )
 				continue;
 			}
 
-		/* Process anything else as a command
-		 ************************************/
+		/* Process anything else as a command */
 		/* 0 */
 			if ( k_its("LogFile") ) {
 				LogSwitch = k_int();
@@ -588,12 +583,10 @@ static void palert2ew_config( char *configfile )
 				logit("e", "palert2ew: <%s> Unknown command in <%s>.\n", com, configfile);
 				continue;
 			}
-
-		/* See if there were any errors processing the command
-		 *****************************************************/
+		/* See if there were any errors processing the command */
 			if ( k_err() ) {
-			   logit("e", "palert2ew: Bad <%s> command in <%s>; exiting!\n", com, configfile);
-			   exit(-1);
+				logit("e", "palert2ew: Bad <%s> command in <%s>; exiting!\n", com, configfile);
+				exit(-1);
 			}
 		}
 		nfiles = k_close();
@@ -1269,7 +1262,7 @@ static TRACE2_HEADER *enrich_trh2_pm1(
 		trh2, staptr->sta, staptr->net, staptr->loc,
 		PALERTMODE1_SAMPLE_NUMBER,
 		UniSampRate ? (double)UniSampRate : (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah ),
-		palert_get_systime( pah, LocalTimeShift )
+		palert_get_systime( pah, staptr->timeshift )
 	);
 }
 
