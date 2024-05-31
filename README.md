@@ -47,10 +47,6 @@ and
 ```
 Message  TYPE_PALERTRAW     XXX   # XXX can be any number that is unused by other message type
 ```
-furthermore if you want to enable extension function, add the line below too
-```
-Message  TYPE_PALERTEXT     XXX   # XXX can be any number that is unused by other message type
-```
 
 2. Second, copy the configuration file **palert2ew.d** to the param directory of Earthworm.
 
@@ -79,7 +75,7 @@ I recommend users do not change the parameters inside this part. However, there 
 - ServerIP: The server IP address of Palert server under mode 0.
 - ServerPort: The server port of Palert server under mode 0.
 
-By the way, you can ignore the parameters, ServerIP & ServerPort when switching to the mode 1.
+By the way, **you can skip the parameters, ServerIP & ServerPort when switching to the mode 1.**
 
 ### MySQL server information
 
