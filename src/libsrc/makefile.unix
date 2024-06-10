@@ -6,14 +6,24 @@ CFLAGS = $(GLOBALFLAGS) -O3 -g -I/usr/include/mysql -I../../include -flto
 
 LL = ../../lib
 
-LOCALSRCS = stalist.c palert.c dl_chain_list.c
+LOCALSRCS = stalist.c dl_chain_list.c
 LOCALOBJS = $(LOCALSRCS:%.c=%.o)
 
-no_sql: palert.o dl_chain_list.o
+no_sql: libpalertc dl_chain_list.o
 	@mv *.o $(LL)
 
-all: $(LOCALOBJS)
+all: libpalertc $(LOCALOBJS)
 	@mv *.o $(LL)
+
+#
+# Palert C library
+#
+libpalertc: PHONY
+	-@cd ./libpalertc && \
+		echo Making Palert C library... ; \
+		make ; \
+		mv *.a ../$(LL) ; \
+		cd ..
 
 #
 .c.o:
@@ -24,9 +34,13 @@ all: $(LOCALOBJS)
 clean:
 	@echo Cleaning build objects...
 	@rm -f a.out core *.o *.obj *% *~
+	@echo Cleaning in libpalerc...
+	-@cd ./libpalertc && \
+		make clean; \
+		cd ..
 
 clean_lib:
 	@echo Removing libraries...
-	@rm -f $(LL)/*.o
+	@rm -f $(LL)/*.o $(LL)/*.a
 
 PHONY:

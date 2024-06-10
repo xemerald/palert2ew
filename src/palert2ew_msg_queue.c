@@ -1,4 +1,10 @@
-/*
+/**
+ * @file palert2ew_msg_queue.c
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief
+ * @version 0.1
+ * @date 2024-06-06
+ * @copyright Copyright (c) 2024
  *
  */
 /* Standard C header include */
@@ -8,6 +14,7 @@
 #include <earthworm.h>
 #include <mem_circ_queue.h>
 /* Local header include */
+#include <libpalertc/libpalertc.h>
 #include <palert2ew.h>
 #include <palert2ew_list.h>
 
@@ -18,19 +25,21 @@ struct last_buffer {
 };
 
 /* Define global variables */
-static mutex_t  QueueMutex;
-static QUEUE    MsgQueue;         /* from queue.h, queue.c; sets up linked */
-static size_t   LRBufferOffset = 0;
+static mutex_t QueueMutex;
+static QUEUE   MsgQueue;         /* from queue.h, queue.c; sets up linked */
+static size_t  LRBufferOffset = 0;
 
 /* */
-static LABELED_RECV_BUFFER *draw_last_buffer( void *, size_t *, const int );
+static LABELED_RECV_BUFFER *draw_last_buffer( void *, size_t * );
 static void                 save_last_buffer( void *, const size_t );
 static struct last_buffer  *create_last_buffer( _STAINFO * );
 static void                 free_last_buffer_act( void *, const int, void * );
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
+static int pre_enqueue_check_pah16( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
 static int validate_serial_pah1( const void *, const int );
 static int validate_serial_pah4( const void *, const int );
+static int validate_serial_pah16( const void *, const int );
 
 /*
  * pa2ew_msgqueue_init() - Initialization function of message queue and mutex.
@@ -105,20 +114,28 @@ int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 /*
  * pa2ew_msgqueue_rawpacket() - Stack received message into queue of station.
  */
-int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, int header_mode, MSG_LOGO logo )
+int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, MSG_LOGO logo )
 {
 	LABELED_RECV_BUFFER *lrbuf;
 	int                  sync_flag = 1;
 
 /* */
-	lrbuf = draw_last_buffer( label_buf, &buf_len, header_mode );
-/* We don't care about the mode 2 header packet */
-	if ( header_mode == 1 )
+	lrbuf = draw_last_buffer( label_buf, &buf_len );
+/* Here, we don't care about the mode 2 header packet */
+	switch ( lrbuf->label.packmode ) {
+	case PALERT_PKT_MODE1: case PALERT_PKT_MODE2:
 		sync_flag = pre_enqueue_check_pah1( lrbuf, &buf_len, logo );
-	else if ( header_mode == 4 )
+		break;
+	case PALERT_PKT_MODE4:
 		sync_flag = pre_enqueue_check_pah4( lrbuf, &buf_len, logo );
-	else
+		break;
+	case PALERT_PKT_MODE16:
+		sync_flag = pre_enqueue_check_pah16( lrbuf, &buf_len, logo );
+		break;
+	default:
 		buf_len = 0;
+		break;
+	}
 /* Try to store the remainder data into the buffer */
 	if ( buf_len )
 		save_last_buffer( lrbuf, buf_len );
@@ -146,23 +163,32 @@ void pa2ew_msgqueue_lastbufs_reset( void *staptr )
 /*
  *
  */
-static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len, const int header_mode )
+static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 {
-	LABELED_RECV_BUFFER *result    = (LABELED_RECV_BUFFER *)label_buf;
-	struct last_buffer  *_lastbuf  = (struct last_buffer *)((_STAINFO *)result->label.staptr)->buffer;
-	const uint16_t       serial    = ((_STAINFO *)result->label.staptr)->serial;
-	const size_t         limit_len = header_mode == 4 ? PALERTMODE4_HEADER_LENGTH : PALERTMODE1_HEADER_LENGTH;
-/* First, decide which validate function to use */
-	int (* validate_func)(const void *, const int) = header_mode == 4 ? validate_serial_pah4 : validate_serial_pah1;
+	LABELED_RECV_BUFFER *result   = (LABELED_RECV_BUFFER *)label_buf;
+	struct last_buffer  *_lastbuf = (struct last_buffer *)((_STAINFO *)result->label.staptr)->buffer;
+	const uint16_t       serial   = ((_STAINFO *)result->label.staptr)->serial;
 
 /* Then, deal the remainder data from last packet */
 	if ( _lastbuf != NULL && _lastbuf->buffer_rear ) {
 	/* Pre checking for preventing header contamination, especially the incoming data buffer */
-		if ( *buf_len >= limit_len && validate_func( result->recv_buffer, serial ) > 0 ) {
-			_lastbuf->buffer_rear = 0;
-		/* Early return... */
-			return result;
+		switch ( result->label.packmode ) {
+		case PALERT_PKT_MODE1: case PALERT_PKT_MODE2: default:
+			if ( *buf_len >= PALERT_M1_HEADER_LENGTH && validate_serial_pah1( result->recv_buffer, serial ) > 0 )
+				_lastbuf->buffer_rear = 0;
+			break;
+		case PALERT_PKT_MODE4:
+			if ( *buf_len >= PALERT_M4_HEADER_LENGTH && validate_serial_pah4( result->recv_buffer, serial ) > 0 )
+				_lastbuf->buffer_rear = 0;
+			break;
+		case PALERT_PKT_MODE16:
+			if ( *buf_len >= PALERT_M16_HEADER_LENGTH && validate_serial_pah16( result->recv_buffer, serial ) > 0 )
+				_lastbuf->buffer_rear = 0;
+			break;
 		}
+	/* If the incoming data has already been checked, we should drop the data inside the buffer. Then, early return! */
+		if ( !_lastbuf->buffer_rear )
+			return result;
 	/* */
 		if ( (*buf_len + _lastbuf->buffer_rear) < PA2EW_RECV_BUFFER_LENGTH ) {
 			memmove(result->recv_buffer + _lastbuf->buffer_rear, result->recv_buffer, *buf_len);
@@ -246,22 +272,24 @@ static void free_last_buffer_act( void *node, const int index, void *arg )
  */
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
-	uint16_t            serial = ((_STAINFO *)lrbuf->label.staptr)->serial;
-	PALERTMODE1_HEADER *pah    = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
+	uint16_t          serial = ((_STAINFO *)lrbuf->label.staptr)->serial;
+	PALERT_M1_HEADER *pah = (PALERT_M1_HEADER *)lrbuf->recv_buffer;
 /* */
-	int    ret = 0;
-	int    sync_flag = 0;
-	size_t comfirm_offset = 0;
+	int               ret = 0;
+	int               sync_flag = 0;
+	size_t            comfirm_offset = 0;
+/* */
+	uint8_t           pam2_buf[PALERT_M2_PACKET_LENGTH + LRBufferOffset];
 
 /* Go through the data with 200 bytes step */
 	for (
-		pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
-		*buf_len >= PALERTMODE1_HEADER_LENGTH;
-		*buf_len -= PALERTMODE1_HEADER_LENGTH, pah++
+		pah = (PALERT_M1_HEADER *)lrbuf->recv_buffer;
+		*buf_len >= PALERT_M1_HEADER_LENGTH;
+		*buf_len -= PALERT_M1_HEADER_LENGTH, pah++
 	) {
 	/* Testing for the mode 1 packet header */
 		if ( (ret = validate_serial_pah1( pah, serial )) > 0 ) {
-			if ( ret == PALERTMODE1_PACKET_LENGTH ) {
+			if ( ret == PALERT_M1_PACKET_LENGTH ) {
 			/*
 			 * Once the mode 1 packet header is incoming,
 			 * we should flush the existed buffer and move the
@@ -269,14 +297,21 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 			 */
 				if ( (uint8_t *)pah > lrbuf->recv_buffer ) {
 					memmove(lrbuf->recv_buffer, pah, *buf_len);
-					pah = (PALERTMODE1_HEADER *)lrbuf->recv_buffer;
+					pah = (PALERT_M1_HEADER *)lrbuf->recv_buffer;
 				}
-				comfirm_offset = PALERTMODE1_HEADER_LENGTH;
+				comfirm_offset = PALERT_M1_HEADER_LENGTH;
 			}
-		/* Since it is the 200 bytes triggered packet(mode 2), we should simply drop it */
+		/* Since it is the 200 bytes triggered packet(mode 2), do following process */
 			else {
-			/* However, if we still need the triggered packet, we can add actions here... */
-				memmove(pah, pah + 1, *buf_len - PALERTMODE1_HEADER_LENGTH);
+			/* */
+				((LABELED_RECV_BUFFER *)pam2_buf)->label.staptr   = lrbuf->label.staptr;
+				((LABELED_RECV_BUFFER *)pam2_buf)->label.packmode = PALERT_PKT_MODE2;
+				memcpy(((LABELED_RECV_BUFFER *)pam2_buf)->recv_buffer, pah, PALERT_M2_PACKET_LENGTH);
+			/* */
+				if ( pa2ew_msgqueue_enqueue( pam2_buf, PALERT_M2_PACKET_LENGTH + LRBufferOffset, logo ) )
+					sleep_ew(50);
+			/* */
+				memmove(pah, pah + 1, *buf_len - PALERT_M2_PACKET_LENGTH);
 				pah--;
 			}
 		/* Once we got the header section, mark the sync. flag */
@@ -284,13 +319,12 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 		}
 	/* There is indeed a header in previous section, then accept following data section */
 		else if ( comfirm_offset ) {
-			comfirm_offset += PALERTMODE1_HEADER_LENGTH;
+			comfirm_offset += PALERT_M1_HEADER_LENGTH;
 		/* Reach the required mode 1 packet length */
-			if ( comfirm_offset == PALERTMODE1_PACKET_LENGTH ) {
-			/* We only deal with the Normal Streaming packet(1) in this program!! */
-				if ( palert_get_packet_type_common( lrbuf->recv_buffer ) == PALERT_PACKETTYPE_NORMAL )
-					if ( pa2ew_msgqueue_enqueue( lrbuf, PALERTMODE1_PACKET_LENGTH + LRBufferOffset, logo ) )
-						sleep_ew(50);
+			if ( comfirm_offset == PALERT_M1_PACKET_LENGTH ) {
+				lrbuf->label.packmode = PALERT_PKT_MODE1;
+				if ( pa2ew_msgqueue_enqueue( lrbuf, PALERT_M1_PACKET_LENGTH + LRBufferOffset, logo ) )
+					sleep_ew(50);
 			/* */
 				comfirm_offset = 0;
 			}
@@ -311,8 +345,8 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
  */
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
-	uint16_t            serial = ((_STAINFO *)lrbuf->label.staptr)->serial;
-	PALERTMODE4_HEADER *pah4   = (PALERTMODE4_HEADER *)lrbuf->recv_buffer;
+	uint16_t          serial = ((_STAINFO *)lrbuf->label.staptr)->serial;
+	PALERT_M4_HEADER *pah4   = (PALERT_M4_HEADER *)lrbuf->recv_buffer;
 /* */
 	int ret       = 0;
 	int sync_flag = 0;
@@ -325,7 +359,7 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 		/* */
 			if ( (uint8_t *)pah4 > lrbuf->recv_buffer ) {
 				memmove(lrbuf->recv_buffer, pah4, *buf_len);
-				pah4 = (PALERTMODE4_HEADER *)lrbuf->recv_buffer;
+				pah4 = (PALERT_M4_HEADER *)lrbuf->recv_buffer;
 			}
 		/* */
 			if ( *buf_len >= (size_t)ret ) {
@@ -333,7 +367,7 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 					sleep_ew(50);
 			/* */
 				*buf_len -= ret;
-				pah4 = (PALERTMODE4_HEADER *)(lrbuf->recv_buffer + ret);
+				pah4 = (PALERT_M4_HEADER *)(lrbuf->recv_buffer + ret);
 			}
 			else {
 				break;
@@ -341,12 +375,57 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 		}
 		else {
 			pah4++;
-			*buf_len -= PALERTMODE4_HEADER_LENGTH;
+			*buf_len -= PALERT_M4_HEADER_LENGTH;
 		}
-	} while ( *buf_len > PALERTMODE4_HEADER_LENGTH );
+	} while ( *buf_len > PALERT_M4_HEADER_LENGTH );
 
 	if ( *buf_len && (uint8_t *)pah4 != lrbuf->recv_buffer )
 		memmove(lrbuf->recv_buffer, pah4, *buf_len);
+
+	return sync_flag;
+}
+
+/*
+ * pre_enqueue_check_pah16() -
+ */
+static int pre_enqueue_check_pah16( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
+{
+	uint16_t           serial = ((_STAINFO *)lrbuf->label.staptr)->serial;
+	PALERT_M16_HEADER *pah16  = (PALERT_M16_HEADER *)lrbuf->recv_buffer;
+/* */
+	int ret       = 0;
+	int sync_flag = 0;
+
+/* */
+	do {
+		if ( (ret = validate_serial_pah16( pah16, serial )) > 0 ) {
+		/* */
+			sync_flag = 1;
+		/* */
+			if ( (uint8_t *)pah16 > lrbuf->recv_buffer ) {
+				memmove(lrbuf->recv_buffer, pah16, *buf_len);
+				pah16 = (PALERT_M16_HEADER *)lrbuf->recv_buffer;
+			}
+		/* */
+			if ( *buf_len >= (size_t)ret ) {
+				if ( pa2ew_msgqueue_enqueue( lrbuf, ret + LRBufferOffset, logo ) )
+					sleep_ew(50);
+			/* */
+				*buf_len -= ret;
+				pah16 = (PALERT_M16_HEADER *)(lrbuf->recv_buffer + ret);
+			}
+			else {
+				break;
+			}
+		}
+		else {
+			pah16++;
+			*buf_len -= PALERT_M16_HEADER_LENGTH;
+		}
+	} while ( *buf_len > PALERT_M16_HEADER_LENGTH );
+
+	if ( *buf_len && (uint8_t *)pah16 != lrbuf->recv_buffer )
+		memmove(lrbuf->recv_buffer, pah16, *buf_len);
 
 	return sync_flag;
 }
@@ -356,13 +435,11 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
  */
 static int validate_serial_pah1( const void *header, const int serial )
 {
-	PALERTMODE1_HEADER *pah = (PALERTMODE1_HEADER *)header;
+	PALERT_M1_HEADER *pah = (PALERT_M1_HEADER *)header;
 
-	if ( PALERTMODE1_HEADER_CHECK_SYNC( pah ) ) {
-		if ( PALERTMODE1_HEADER_GET_SERIAL( pah ) == (uint16_t)serial ) {
-			return PALERTMODE1_HEADER_GET_PACKETLEN( pah );
-		}
-	}
+	if ( PALERT_M1_SYNC_CHECK( pah ) )
+		if ( PALERT_M1_SERIAL_GET( pah ) == (uint16_t)serial )
+			return PALERT_M1_PACKETLEN_GET( pah );
 
 	return -1;
 }
@@ -372,16 +449,28 @@ static int validate_serial_pah1( const void *header, const int serial )
  */
 static int validate_serial_pah4( const void *header, const int serial )
 {
-	PALERTMODE4_HEADER *pah4 = (PALERTMODE4_HEADER *)header;
+	PALERT_M4_HEADER *pah4 = (PALERT_M4_HEADER *)header;
 
-	if ( PALERTMODE4_HEADER_CHECK_SYNC( pah4 ) ) {
-		if ( PALERTMODE4_HEADER_GET_SERIAL( pah4 ) == (uint16_t)serial ) {
-			if ( PALERT_IS_MODE4_HEADER( pah4 ) ) {
+	if ( PALERT_M4_SYNC_CHECK( pah4 ) )
+		if ( PALERT_M4_SERIAL_GET( pah4 ) == (uint16_t)serial )
+			if ( PALERT_PKT_IS_MODE4( pah4 ) )
 			/* Still need to check the CRC16 */
-				return PALERTMODE4_HEADER_GET_PACKETLEN( pah4 );
-			}
-		}
-	}
+				return PALERT_M4_PACKETLEN_GET( pah4 );
+
+	return -1;
+}
+
+/*
+ * validate_serial_pah16() -
+ */
+static int validate_serial_pah16( const void *header, const int serial )
+{
+	PALERT_M16_HEADER *pah16 = (PALERT_M16_HEADER *)header;
+
+	if ( PALERT_M16_SYNC_CHECK( pah16 ) )
+		if ( PALERT_M16_SERIAL_GET( pah16 ) == (uint32_t)serial )
+		/* Still need to check the CRC16 */
+			return PALERT_M16_PACKETLEN_GET( pah16 );
 
 	return -1;
 }

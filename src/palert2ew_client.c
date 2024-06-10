@@ -146,7 +146,7 @@ int pa2ew_client_stream( void )
 	/* */
 		if ( (data_read += ret) >= FW_PCK_HEADER_LENGTH ) {
 			if ( !checked ) {
-				if ( fwptr->seq != recv_seq && pa2ew_misc_crc8_cal( fwptr, FW_PCK_HEADER_LENGTH ) ) {
+				if ( fwptr->seq != recv_seq && pa2ew_crc8_cal( fwptr, FW_PCK_HEADER_LENGTH ) ) {
 					logit("et", "palert2ew: TCP connection sync error, flushing the buffer...\n");
 					flush_sock_buffer( ClientSocket );
 					pa2ew_msgqueue_lastbufs_reset( NULL );
@@ -177,10 +177,11 @@ int pa2ew_client_stream( void )
 			packmode = fwptr->packmode;
 		/* Get the time shift in seconds between UTC & palert timezone */
 			staptr->timeshift = -(fwptr->tzoffset * 3600);
-		/* This should be done after the statement above 'cause it will effect the length's memory space */
-			lrbuf->label.staptr = staptr;
+		/* These should be done after the statement above 'cause it use the same memory space */
+			lrbuf->label.staptr   = staptr;
+			lrbuf->label.packmode = packmode;
 		/* Packet type should be provided by server side */
-			if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, packmode, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
+			if ( pa2ew_msgqueue_rawpacket( lrbuf, ret, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_CLIENT_STREAM ) ) ) {
 				logit("et", "palert2ew: Serial(%d) packet sync error, flushing the last buffer...\n", staptr->serial);
 				pa2ew_msgqueue_lastbufs_reset( staptr );
 			}

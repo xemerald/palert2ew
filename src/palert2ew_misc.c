@@ -17,47 +17,77 @@ static uint8_t cal_crc8_high( const uint8_t );
 static uint8_t CRC8_Table[256] = { 0 };
 static uint8_t CRC8_Ready = 0;
 
-/*
- * pa2ew_misc_trh2_enrich() -
+/**
+ * @brief
+ *
+ * @param dest
+ * @return TRACE2_HEADER*
  */
-TRACE2_HEADER *pa2ew_misc_trh2_enrich(
-	TRACE2_HEADER *dest, const char *sta, const char *net, const char *loc,
-	const int nsamp, const double samprate, const double starttime
+TRACE2_HEADER *pa2ew_trh2_init( TRACE2_HEADER *dest )
+{
+/* */
+	dest->pinno = 0;
+/* */
+	dest->version[0] = TRACE2_VERSION0;
+	dest->version[1] = TRACE2_VERSION1;
+/* */
+	strcpy(dest->quality, TRACE2_NO_QUALITY);
+	strcpy(dest->pad    , TRACE2_NO_PAD    );
+
+	return dest;
+}
+
+/**
+ * @brief
+ *
+ * @param dest
+ * @param sta
+ * @param net
+ * @param loc
+ * @param chan
+ * @return TRACE2_HEADER*
+ */
+TRACE2_HEADER *pa2ew_trh2_scn_enrich( TRACE2_HEADER *dest, const char *sta, const char *net, const char *loc )
+{
+/* */
+	memcpy(dest->sta, sta, TRACE2_STA_LEN);
+	memcpy(dest->net, net, TRACE2_NET_LEN);
+	memcpy(dest->loc, loc, TRACE2_LOC_LEN);
+
+	return dest;
+}
+
+/**
+ * @brief
+ *
+ * @param dest
+ * @param nsamp
+ * @param samprate
+ * @param starttime
+ * @param datatype
+ * @return TRACE2_HEADER*
+ */
+TRACE2_HEADER *pa2ew_trh2_sampinfo_enrich(
+	TRACE2_HEADER *dest, const int nsamp, const double samprate, const double starttime, const char datatype[2]
 ) {
 /* */
-	dest->pinno     = 0;
 	dest->nsamp     = nsamp;
 	dest->samprate  = samprate;
 	dest->starttime = starttime;
 	dest->endtime   = dest->starttime + (dest->nsamp - 1) / dest->samprate;
 /* */
-	memcpy(dest->sta, sta, TRACE2_STA_LEN);
-	memcpy(dest->net, net, TRACE2_NET_LEN);
-	memcpy(dest->loc, loc, TRACE2_LOC_LEN);
-/* */
-	dest->version[0] = TRACE2_VERSION0;
-	dest->version[1] = TRACE2_VERSION1;
-
-	strcpy(dest->quality, TRACE2_NO_QUALITY);
-	strcpy(dest->pad    , TRACE2_NO_PAD    );
-
-	dest->datatype[1] = '4';
+	dest->datatype[0] = datatype[0];
+	dest->datatype[1] = datatype[1];
 	dest->datatype[2] = '\0';
-#if defined( _SPARC )
-	dest->datatype[0] = 's';   /* SUN IEEE integer       */
-#elif defined( _INTEL )
-	dest->datatype[0] = 'i';   /* VAX/Intel IEEE integer */
-#else
-	fprintf(stderr, "palert2ew: warning _INTEL and _SPARC are both undefined.");
-#endif
 
 	return dest;
 }
 
+
 /*
  *
  */
-double pa2ew_misc_timenow_get( void )
+double pa2ew_timenow_get( void )
 {
 	struct timespec time_sp;
 	double          result = 0.0;
@@ -72,7 +102,7 @@ double pa2ew_misc_timenow_get( void )
 /*
  *
  */
-int pa2ew_misc_recv_thrdnum_eval( int max_stations, const int server_switch )
+int pa2ew_recv_thrdnum_eval( int max_stations, const int server_switch )
 {
 	int result;
 /* */
@@ -87,15 +117,25 @@ int pa2ew_misc_recv_thrdnum_eval( int max_stations, const int server_switch )
 	return result;
 }
 
-/*
- * pa2ew_misc_crc8_init() - A CRC-8 initialization function
+/**
+ * @brief
+ *
+ * @return int
  */
-void pa2ew_misc_crc8_init( void )
+int pa2ew_endian_get( void )
 {
-	int i;
-
+	uint16_t probe = 1;
 /* */
-	for ( i = 0x00; i <= 0xff; i++ )
+	return *(uint8_t *)&probe ? PA2EW_LITTLE_ENDIAN : PA2EW_BIG_ENDIAN;
+}
+
+/*
+ * pa2ew_crc8_init() - A CRC-8 initialization function
+ */
+void pa2ew_crc8_init( void )
+{
+/* */
+	for ( int i = 0x00; i <= 0xff; i++ )
 		CRC8_Table[i & 0xff] = cal_crc8_high( i & 0xff );
 /* */
 	CRC8_Ready = 1;
@@ -106,7 +146,7 @@ void pa2ew_misc_crc8_init( void )
 /*
  * pa2ew_misc_crc8_cal() - A CRC-8 calculation function
  */
-uint8_t pa2ew_misc_crc8_cal( const void *data, const size_t size )
+uint8_t pa2ew_crc8_cal( const void *data, const size_t size )
 {
 	const uint8_t *ptr = data;
 	const uint8_t *end;
@@ -114,7 +154,7 @@ uint8_t pa2ew_misc_crc8_cal( const void *data, const size_t size )
 
 /* */
 	if ( !CRC8_Ready )
-		pa2ew_misc_crc8_init();
+		pa2ew_crc8_init();
 /* */
 	if ( ptr ) {
 	/* */
@@ -132,11 +172,10 @@ uint8_t pa2ew_misc_crc8_cal( const void *data, const size_t size )
 static uint8_t cal_crc8_high( const uint8_t data )
 {
 	uint8_t result = PA2EW_RECV_SERVER_CRC8_INIT;
-	int     i;
 
 /* */
 	result ^= data;
-	for ( i = 0; i < 8; i++ ) {
+	for ( int i = 0; i < 8; i++ ) {
 		if ( result & 0x80 )
 			result = (result << 1) ^ PA2EW_RECV_SERVER_CRC8_POLY;
 		else

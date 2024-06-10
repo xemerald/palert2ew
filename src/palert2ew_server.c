@@ -17,6 +17,7 @@
 /* Earthworm environment header include */
 #include <earthworm.h>
 /* Local header include */
+#include <libpalertc/libpalertc.h>
 #include <palert2ew.h>
 #include <palert2ew_misc.h>
 #include <palert2ew_list.h>
@@ -27,7 +28,7 @@
 static int construct_listen_sock( const char * );
 static int accept_palert_raw( void );
 static int find_which_station( void *, CONNDESCRIP *, int );
-static int find_palert_tzoffset( const PALERTMODE1_HEADER * );
+static int find_palert_tzoffset( const PALERT_M1_HEADER * );
 
 /* Define global variables */
 volatile int              AcceptEpoll   = 0;
@@ -48,7 +49,7 @@ int pa2ew_server_init( const int max_stations, const char *port )
 /* Setup constants */
 	AcceptEpoll   = epoll_create(2);
 	MaxStationNum = max_stations;
-	ThreadsNumber = pa2ew_misc_recv_thrdnum_eval( max_stations, PA2EW_RECV_SERVER_ON );
+	ThreadsNumber = pa2ew_recv_thrdnum_eval( max_stations, PA2EW_RECV_SERVER_ON );
 	ThreadSets    = calloc(ThreadsNumber, sizeof(PALERT_THREAD_SET));
 /* Create epoll sets */
 	for ( i = 0; i < ThreadsNumber; i++ ) {
@@ -145,7 +146,7 @@ int pa2ew_server_pconnect_check( void )
 /* */
 	if ( conn != NULL ) {
 	/* */
-		time_now = pa2ew_misc_timenow_get();
+		time_now = pa2ew_timenow_get();
 		for ( i = 0; i < MaxStationNum; i++, conn++ ) {
 			if ( conn->sock != -1 ) {
 				if ( (time_now - conn->last_act) > (double)PA2EW_IDLE_THRESHOLD ) {
@@ -238,7 +239,7 @@ CONNDESCRIP pa2ew_server_common_accept( const int sock )
 		break;
 	}
 /* */
-	result.last_act = pa2ew_misc_timenow_get();
+	result.last_act = pa2ew_timenow_get();
 
 	return result;
 }
@@ -318,7 +319,7 @@ int pa2ew_server_proc( const int countindex, const int msec )
 
 /* Wait the epoll for msec minisec */
 	if ( (nready = epoll_wait(epoll, evts, PA2EW_MAX_PALERTS_PER_THREAD, msec)) ) {
-		time_now = pa2ew_misc_timenow_get();
+		time_now = pa2ew_timenow_get();
 	/* There is some incoming data from socket */
 		for ( i = 0; i < nready; i++ ) {
 			if ( evts[i].events & EPOLLIN || evts[i].events & EPOLLRDHUP || evts[i].events & EPOLLERR ) {
@@ -340,7 +341,7 @@ int pa2ew_server_proc( const int countindex, const int msec )
 						buffer->label = conn->label;
 						if (
 							pa2ew_msgqueue_rawpacket(
-								buffer, ret, conn->header_mode, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_SERVER_NORMAL )
+								buffer, ret, PA2EW_GEN_MSG_LOGO_BY_SRC( PA2EW_MSG_SERVER_NORMAL )
 							)
 						) {
 							if ( ++conn->sync_errors >= PA2EW_TCP_SYNC_ERR_LIMIT ) {
@@ -356,7 +357,7 @@ int pa2ew_server_proc( const int countindex, const int msec )
 						}
 					}
 					else if ( ret >= 200 ) {
-						if ( !palert_check_sync_common( buffer->recv_buffer ) ) {
+						if ( !pac_sync_check( buffer->recv_buffer ) ) {
 							printf("palert2ew: Palert IP:%s sync failure, close connection!\n", conn->ip);
 							pa2ew_server_common_pconnect_close( conn, epoll );
 						}
@@ -492,8 +493,9 @@ static int find_which_station( void *buffer, CONNDESCRIP *conn, int epoll )
 {
 	int       result   = 0;
 	int       tzoffset = 0;
-	uint16_t  serial   = palert_get_serial_common( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
+	uint16_t  serial   = pac_serial_get( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
 	_STAINFO *staptr   = pa2ew_list_find( serial );
+
 /* */
 	if ( !staptr ) {
 	/* Not found in Palert table */
@@ -510,11 +512,17 @@ static int find_which_station( void *buffer, CONNDESCRIP *conn, int epoll )
 			pa2ew_server_common_pconnect_close( _conn, ThreadSets[i].epoll_fd );
 		}
 	/* */
-		tzoffset = find_palert_tzoffset( (PALERTMODE1_HEADER *)((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
-		staptr->timeshift = -(tzoffset * 3600);
+		conn->label.staptr   = staptr;
+		conn->label.packmode = pac_mode_get( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
 	/* */
-		conn->label.staptr = staptr;
-		conn->header_mode  = palert_get_header_mode( ((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
+		if ( conn->label.packmode == PALERT_PKT_MODE1 || conn->label.packmode == PALERT_PKT_MODE2 ) {
+			tzoffset = find_palert_tzoffset( (PALERT_M1_HEADER *)((LABELED_RECV_BUFFER *)buffer)->recv_buffer );
+			staptr->timeshift = -(tzoffset * 3600);
+		}
+		else {
+			staptr->timeshift = 0;
+		}
+	/* */
 		printf("palert2ew: Palert %s in UTC%+.2d:00 now online.\n", staptr->sta, tzoffset);
 	}
 
@@ -524,11 +532,11 @@ static int find_which_station( void *buffer, CONNDESCRIP *conn, int epoll )
 /*
  *
  */
-static int find_palert_tzoffset( const PALERTMODE1_HEADER *pah )
+static int find_palert_tzoffset( const PALERT_M1_HEADER *pah )
 {
 	int     result = 0;
 	time_t  ltime  = time(NULL);
-	double  ptime  = palert_get_systime( pah, 0 );
+	double  ptime  = pac_m1_systime_get( pah, 0 );
 	double  offset = ptime - (double)ltime;
 
 /* Turn the seconds to hours */

@@ -19,13 +19,12 @@
 
 /* Connection descriptors struct */
 typedef struct {
-	int       sock;
-	int       port;
-	char      ip[INET6_ADDRSTRLEN];
-	uint8_t   sync_errors;
-	uint16_t  header_mode;
-	double    last_act;
-	LABEL     label;
+	int      sock;
+	int      port;
+	char     ip[INET6_ADDRSTRLEN];
+	uint8_t  sync_errors;
+	double   last_act;
+	LABEL    label;
 } CONNDESCRIP;
 
 /* */
@@ -41,7 +40,7 @@ typedef struct {
 			memset((CONN), 0, sizeof(CONNDESCRIP)); \
 			(CONN)->sock = -1; \
 			(CONN)->label.staptr = NULL; \
-			(CONN)->label.serial = 0; \
+			(CONN)->label.packmode = 0; \
 		})
 
 /* */

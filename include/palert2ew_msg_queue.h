@@ -22,5 +22,5 @@ int  pa2ew_msgqueue_init( const unsigned long, const unsigned long );  /* Initia
 void pa2ew_msgqueue_end( void );                                  /* End process of message queue */
 int  pa2ew_msgqueue_dequeue( void *, size_t *, MSG_LOGO * );    /* Pop-out received message from main queue */
 int  pa2ew_msgqueue_enqueue( void *, size_t, MSG_LOGO );        /* Put the compelete packet into the main queue. */
-int  pa2ew_msgqueue_rawpacket( void *, size_t, int, MSG_LOGO );
+int  pa2ew_msgqueue_rawpacket( void *, size_t, MSG_LOGO );
 void pa2ew_msgqueue_lastbufs_reset( void * );

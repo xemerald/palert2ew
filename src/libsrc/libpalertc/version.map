@@ -1,0 +1,6 @@
+{
+  global:
+      pac_*;
+  local:
+      *;
+};

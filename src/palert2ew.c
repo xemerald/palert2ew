@@ -23,6 +23,7 @@
 #include <lockfile.h>
 #include <libmseed.h>
 /* Local header include */
+#include <libpalertc/libpalertc.h>
 #include <palert2ew.h>
 #include <palert2ew_misc.h>
 #include <palert2ew_list.h>
@@ -33,12 +34,9 @@
 /* Internal stack related struct */
 typedef struct {
 /* */
-	LABEL label;
+	LABEL   label;
 /* */
-	union {
-		PalertPacket    palert_pck;
-		uint8_t         buffer[4096];
-	} data;
+	uint8_t buffer[65536];
 } LABELED_DATA;
 
 /* Functions prototype in this source file
@@ -54,12 +52,12 @@ static thr_ret receiver_client_thread( void * );  /* Read messages from the sock
 static thr_ret receiver_server_thread( void * );  /* Read messages from the socket of Palerts */
 static thr_ret update_list_thread( void * );
 
-static int            update_list_configfile( char * );
-static void           process_packet_pm1( PalertPacket *, _STAINFO * );
-static void           process_packet_pm4( PalertPacket *, _STAINFO * );
-static int            examine_ntp_sync( _STAINFO *, const void * );
-static TRACE2_HEADER *enrich_trh2_pm1( TRACE2_HEADER *, const _STAINFO *, const PALERTMODE1_HEADER * );
-static void           handle_signal( void );
+static int     update_list_configfile( char * );
+static void    process_packet_pm1( const void *, _STAINFO *, const char [2] );
+static void    process_packet_pm4( const void *, _STAINFO *, const char [2] );
+static void    process_packet_pm16( const void *, _STAINFO *, const char [2] );
+static int     examine_ntp_sync( _STAINFO *, const void *, const int );
+static void    handle_signal( void );
 
 /* Ring messages things */
 #define WAVE_MSG_LOGO  0
@@ -128,9 +126,6 @@ static volatile _Bool   Finish = 1;
 static volatile uint8_t UpdateFlag = LIST_IS_UPDATED;
 
 /* Macro */
-#define COPYDATA_TRACEBUF_PM1(TBUF, PM1, SEQ) \
-		(palert_get_data( (PM1), (SEQ), (int32_t *)((&(TBUF)->trh2) + 1) ))
-
 #define IS_GAP_BETWEEN_LAST_TRACE(TRH2, LAST_END) \
 		((LAST_END) > 0.0 && ((TRH2)->starttime - (LAST_END)) > (2.0 / (TRH2)->samprate))
 /*
@@ -149,6 +144,8 @@ int main ( int argc, char **argv )
 	uint32_t count      = 0;
 	size_t   msg_size   = 0;
 	MSG_LOGO msg_logo   = { 0 };
+	char     idatatype[2];
+	char     fdatatype[2];
 
 	LABELED_DATA *data_ptr = NULL;
 	void (*check_receiver_func)( const int ) = NULL;
@@ -161,6 +158,17 @@ int main ( int argc, char **argv )
 	UpdateFlag = LIST_IS_UPDATED;
 /* */
 	handle_signal();
+/* Define the first byte of the datatype depends on the system endian */
+	if ( pa2ew_endian_get() == PA2EW_BIG_ENDIAN ) {
+		idatatype[0] = 's';
+		fdatatype[0] = 't';
+		idatatype[1] = fdatatype[1] = '4';
+	}
+	else {
+		idatatype[0] = 'i';
+		fdatatype[0] = 'f';
+		idatatype[1] = fdatatype[1] = '4';
+	}
 
 /* Initialize name of log-file & open it */
 	logit_init(argv[1], 0, 256, 1);
@@ -201,7 +209,7 @@ int main ( int argc, char **argv )
 	}
 
 /* Initialize the receiver thread number and function pointer */
-	ReceiverThreadsNum  = pa2ew_misc_recv_thrdnum_eval( MaxStationNum, ServerSwitch );
+	ReceiverThreadsNum  = pa2ew_recv_thrdnum_eval( MaxStationNum, ServerSwitch );
 	check_receiver_func = ServerSwitch ? check_receiver_server : check_receiver_client;
 
 /* Build the message */
@@ -265,30 +273,42 @@ int main ( int argc, char **argv )
 				fflush(stdout);
 				goto exit_procedure;
 			}
-
 		/* */
 			if ( pa2ew_msgqueue_dequeue( buffer, &msg_size, &msg_logo ) < 0 )
 				break;
 		/* Just in case */
 			if ( data_ptr->label.staptr == NULL )
 				continue;
-
 		/* Process the raw packet */
 			if ( msg_logo.type == PA2EW_MSG_CLIENT_STREAM || msg_logo.type == PA2EW_MSG_SERVER_NORMAL ) {
 				count++;
-				msg_size -= (uint8_t *)(&data_ptr->data) - (uint8_t *)data_ptr;
+				msg_size -= (uint8_t *)(&data_ptr->buffer) - (uint8_t *)data_ptr;
 			/* Put the raw data to the raw ring */
 				if (
 					RawOutputSwitch &&
-					tport_putmsg(&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO], msg_size, (char *)(&data_ptr->data)) != PUT_OK
+					tport_putmsg(&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO], msg_size, (char *)(&data_ptr->buffer)) != PUT_OK
 				) {
 					logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[RAW_MSG_LOGO]);
 				}
-			/* Parse the raw packet to trace buffer */
-				if ( PALERT_IS_MODE1_HEADER( &data_ptr->data.palert_pck.pah ) )
-					process_packet_pm1( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->label.staptr );
-				else if ( PALERT_IS_MODE4_HEADER( &data_ptr->data.palert_pck.pah ) )
-					process_packet_pm4( &data_ptr->data.palert_pck, (_STAINFO *)data_ptr->label.staptr );
+			/* Examine the NTP sync. status */
+				if ( examine_ntp_sync( data_ptr->label.staptr, &data_ptr->buffer, 0 ) ) {
+				/* Parse the raw packet to trace buffer */
+					switch ( data_ptr->label.packmode ) {
+					case PALERT_PKT_MODE1:
+					/* We only deal with the Normal Streaming packet(1) in this program!! */
+						if ( PALERT_M1_PACKETTYPE_GET( (PALERT_M1_HEADER *)&data_ptr->buffer ) == PALERT_M1_PACKETTYPE_NORMAL )
+							process_packet_pm1( &data_ptr->buffer, (_STAINFO *)data_ptr->label.staptr, idatatype );
+						break;
+					case PALERT_PKT_MODE4:
+						process_packet_pm4( &data_ptr->buffer, (_STAINFO *)data_ptr->label.staptr, idatatype );
+						break;
+					case PALERT_PKT_MODE16:
+						process_packet_pm16( &data_ptr->buffer, (_STAINFO *)data_ptr->label.staptr, fdatatype );
+						break;
+					default:
+						break;
+					}
+				}
 			}
 		} while ( count < MaxStationNum );  /* end of message-processing-loop */
 	}
@@ -918,28 +938,48 @@ static int update_list_configfile( char *configfile )
 /*
  *
  */
-static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
+static void process_packet_pm1( const void *packet, _STAINFO *stainfo, const char datatype[2] )
 {
-	int         i, msg_size;
-	TracePacket tracebuf;  /* message which is sent to share ring    */
-	_CHAINFO   *chaptr = (_CHAINFO *)stainfo->chaptr;
+	TracePacket tracebuf;  /* Trace message which is sent to share ring    */
+	size_t      data_size  = PALERT_M1_SAMPLE_NUMBER << 2;
+	size_t      total_size = data_size + sizeof(TRACE2_HEADER);
+	_CHAINFO   *chaptr     = (_CHAINFO *)stainfo->chaptr;
+	int32_t    *tb_data    = (int32_t *)(&tracebuf.trh2 + 1);
+	int32_t    *_databuf[PALERT_M1_CHAN_COUNT] = {
+		tb_data + PALERT_M1_SAMPLE_NUMBER * 0,
+		tb_data + PALERT_M1_SAMPLE_NUMBER * 1,
+		tb_data + PALERT_M1_SAMPLE_NUMBER * 2,
+		tb_data + PALERT_M1_SAMPLE_NUMBER * 3,
+		tb_data + PALERT_M1_SAMPLE_NUMBER * 4
+	};
 
-/* Examine the NTP sync. status */
-	if ( examine_ntp_sync( stainfo, &packet->pah ) ) {
-	/* Common part */
-		enrich_trh2_pm1( &tracebuf.trh2, stainfo, &packet->pah );
-		msg_size = (tracebuf.trh2.nsamp << 2) + sizeof(TRACE2_HEADER);
-	/* Each channel part */
-		for ( i = 0; i < stainfo->nchannel; i++, chaptr++ ) {
-			memcpy(tracebuf.trh2.chan, chaptr->chan, TRACE2_CHAN_LEN);
-			COPYDATA_TRACEBUF_PM1( &tracebuf, packet, chaptr->seq );
-			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
-				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
-			}
-		/* Only keep the end time that is larger than the last end time */
-			chaptr->last_endtime =
-				tracebuf.trh2.endtime > chaptr->last_endtime ? tracebuf.trh2.endtime : chaptr->last_endtime;
-		}
+/* Common information part */
+	pa2ew_trh2_init( &tracebuf.trh2 );
+	pa2ew_trh2_scn_enrich( &tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc );
+	pa2ew_trh2_sampinfo_enrich(
+		&tracebuf.trh2,
+		PALERT_M1_SAMPLE_NUMBER,
+		UniSampRate ? (double)UniSampRate : (double)PALERT_M1_SAMPRATE_GET( (PALERT_M1_HEADER *)packet ),
+		pac_m1_systime_get( packet, stainfo->timeshift ),
+		datatype
+	);
+/* Extract all the channels' data */
+	pac_m1_data_extract( packet, _databuf );
+/* Each channel part */
+	for ( int i = 0; i < stainfo->nchannel && i < PALERT_M1_CHAN_COUNT; i++, chaptr++ ) {
+	/* First, enrich the channel code */
+		memcpy(tracebuf.trh2.chan, chaptr->chan, TRACE2_CHAN_LEN);
+		if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], total_size, tracebuf.msg) != PUT_OK )
+			logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
+	/*
+	 * 'cause the total size of tracepacket is 4096 bytes,
+	 * larger than total occupied size of mode 1 data which is 2000 bytes.
+	 * therefore, here we don't need to care about the edge condition (i == 4).
+	 */
+		memcpy(tb_data, _databuf[i + 1], data_size);
+	/* Only keep the end time that is larger than the last end time */
+		chaptr->last_endtime =
+			tracebuf.trh2.endtime > chaptr->last_endtime ? tracebuf.trh2.endtime : chaptr->last_endtime;
 	}
 
 	return;
@@ -948,59 +988,105 @@ static void process_packet_pm1( PalertPacket *packet, _STAINFO *stainfo )
 /*
  *
  */
-static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
+static void process_packet_pm4( const void *packet, _STAINFO *stainfo, const char datatype[2] )
 {
-	int                 msg_size;
-	TracePacket         tracebuf;  /* message which is sent to share ring    */
-	_CHAINFO           *chaptr   = (_CHAINFO *)stainfo->chaptr;
-	_CHAINFO           *cha_last = (_CHAINFO *)stainfo->chaptr + stainfo->nchannel;
-	PALERTMODE4_HEADER *pah4     = (PALERTMODE4_HEADER *)&packet->pah;
-	uint8_t            *dataptr  = (uint8_t *)(pah4 + 1);
-	uint8_t            *endptr   = (uint8_t *)pah4 + PALERTMODE4_HEADER_GET_PACKETLEN( pah4 );
+	int               msg_size;
+	TracePacket       tracebuf;  /* message which is sent to share ring    */
+	_CHAINFO         *chaptr   = (_CHAINFO *)stainfo->chaptr;
+	_CHAINFO         *cha_last = (_CHAINFO *)stainfo->chaptr + stainfo->nchannel;
+	PALERT_M4_HEADER *pah4     = (PALERT_M4_HEADER *)packet;
+	uint8_t          *dataptr  = (uint8_t *)(pah4 + 1);
+	uint8_t          *endptr   = (uint8_t *)pah4 + PALERT_M4_PACKETLEN_GET( pah4 );
+	int32_t          *tb_data  = (int32_t *)(&tracebuf.trh2 + 1);
 /* */
 	uint8_t    msbuffer[512];
 	uint16_t   msrlength;
 	MSRecord  *msr  = NULL;
 	SMSRECORD *smsr = NULL;
 
+/* Common information part */
+	pa2ew_trh2_init( &tracebuf.trh2 );
+	pa2ew_trh2_scn_enrich( &tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc );
+/* */
+	do {
+		smsr = (SMSRECORD *)dataptr;
+	/* Need to check the byte order */
+		msrlength = (smsr->smsrlength[0] << 8) + smsr->smsrlength[1];
+	/* */
+		if ( msrlength > sizeof(msbuffer) ) {
+			logit("et", "palert2ew: Unexpected error with the mode 4 packet from %s, skip it!\n", stainfo->sta);
+			break;
+		}
+	/* */
+		memset(msbuffer, 0, sizeof(msbuffer));
+		memcpy(msbuffer, dataptr, msrlength);
+	/* */
+		if ( msr_parse((char *)msbuffer, msrlength, &msr, msrlength, 1, 0) )
+			continue;
+	/* */
+		pa2ew_trh2_sampinfo_enrich(
+			&tracebuf.trh2, msr->numsamples, msr->samprate, (double)(MS_HPTIME2EPOCH(msr->starttime)), datatype
+		);
+		memcpy(tracebuf.trh2.chan, chaptr->chan, TRACE2_CHAN_LEN);
+	/* */
+		msg_size = tracebuf.trh2.nsamp * ms_samplesize(msr->sampletype);
+		memcpy(tb_data, msr->datasamples, msg_size);
+		msr_free(&msr);
+		msg_size += sizeof(TRACE2_HEADER);
+		if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK )
+			logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
+	/* Only keep the end time that is larger than the last end time */
+		chaptr->last_endtime =
+			tracebuf.trh2.endtime > chaptr->last_endtime ? tracebuf.trh2.endtime : chaptr->last_endtime;
+		chaptr++;
+	} while ( (dataptr += msrlength) < endptr && chaptr < cha_last );
 
-/* Examine the NTP sync. status */
-	if ( examine_ntp_sync( stainfo, &packet->pah ) ) {
-	/* Common part */
-		do {
-			smsr = (SMSRECORD *)dataptr;
-		/* Need to check the byte order */
-			msrlength = (smsr->smsrlength[0] << 8) + smsr->smsrlength[1];
-		/* */
-			if ( msrlength > sizeof(msbuffer) ) {
-				logit("et", "palert2ew: Unexpected error with the mode 4 packet from %s, skip it!\n", stainfo->sta);
-				break;
-			}
-		/* */
-			memset(msbuffer, 0, sizeof(msbuffer));
-			memcpy(msbuffer, dataptr, msrlength);
-		/* */
-			if ( msr_parse((char *)msbuffer, msrlength, &msr, msrlength, 1, 0) )
-				continue;
-		/* */
-			pa2ew_misc_trh2_enrich(
-				&tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc,
-				msr->numsamples, msr->samprate, (double)(MS_HPTIME2EPOCH(msr->starttime))
-			);
-			memcpy(tracebuf.trh2.chan, chaptr->chan, TRACE2_CHAN_LEN);
+	return;
+}
 
-			msg_size = tracebuf.trh2.nsamp * ms_samplesize(msr->sampletype);
-			memcpy((int *)(&tracebuf.trh2 + 1), msr->datasamples, msg_size);
-			msr_free(&msr);
-			msg_size += sizeof(TRACE2_HEADER);
-			if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], msg_size, tracebuf.msg) != PUT_OK ) {
-				logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
-			}
-		/* Only keep the end time that is larger than the last end time */
-			chaptr->last_endtime =
-				tracebuf.trh2.endtime > chaptr->last_endtime ? tracebuf.trh2.endtime : chaptr->last_endtime;
-			chaptr++;
-		} while ( (dataptr += msrlength) < endptr && chaptr < cha_last );
+/*
+ *
+ */
+static void process_packet_pm16( const void *packet, _STAINFO *stainfo, const char datatype[2] )
+{
+/* */
+	static uint8_t databuf[sizeof(PALERT_M16_PACKET)];
+/* */
+	TracePacket    tracebuf;  /* Trace message which is sent to share ring    */
+	uint16_t       nsamp      = PALERT_M16_SAMPNUM_GET( (PALERT_M16_HEADER *)packet );
+	size_t         data_size  = nsamp << 2;
+	size_t         total_size = data_size + sizeof(TRACE2_HEADER);
+	_CHAINFO      *chaptr     = (_CHAINFO *)stainfo->chaptr;
+	int32_t       *tb_data    = (int32_t *)(&tracebuf.trh2 + 1);
+	float         *_databuf[stainfo->nchannel];
+
+/* Common information part */
+	pa2ew_trh2_init( &tracebuf.trh2 );
+	pa2ew_trh2_scn_enrich( &tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc );
+/* */
+	pa2ew_trh2_sampinfo_enrich(
+		&tracebuf.trh2,
+		nsamp,
+		PALERT_M16_SAMPRATE_GET( (PALERT_M16_HEADER *)packet ),
+		pac_m16_sptime_get( (PALERT_M16_HEADER *)packet ),
+		datatype
+	);
+/* Extract all the channels' data */
+	for ( int i = 0; i < stainfo->nchannel; i++ )
+		_databuf[i] = (float *)&databuf + (nsamp * i);
+	pac_m16_data_extract( packet, stainfo->nchannel, _databuf );
+/* Each channel part */
+	for ( int i = 0; i < stainfo->nchannel; i++, chaptr++ ) {
+	/* First, enrich the channel code */
+		memcpy(tracebuf.trh2.chan, chaptr->chan, TRACE2_CHAN_LEN);
+	/* Then, copy the data from the buffer to the trace buffer */
+		memcpy(tb_data, _databuf[i], data_size);
+	/* Put it into the share ring */
+		if ( tport_putmsg(&Region[WAVE_MSG_LOGO], &Putlogo[WAVE_MSG_LOGO], total_size, tracebuf.msg) != PUT_OK )
+			logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[WAVE_MSG_LOGO]);
+	/* Only keep the end time that is larger than the last end time */
+		chaptr->last_endtime =
+			tracebuf.trh2.endtime > chaptr->last_endtime ? tracebuf.trh2.endtime : chaptr->last_endtime;
 	}
 
 	return;
@@ -1009,48 +1095,51 @@ static void process_packet_pm4( PalertPacket *packet, _STAINFO *stainfo )
 /*
  * examine_ntp_sync() -
  */
-static int examine_ntp_sync( _STAINFO *stainfo, const void *header )
+static int examine_ntp_sync( _STAINFO *stainfo, const void *header, const int header_mode )
 {
 	static const uint8_t pre_threshold = PA2EW_NTP_SYNC_ERR_LIMIT * 0.8;
-	uint8_t *const       ntp_errors    = &stainfo->ntp_errors;
+	uint8_t * const      ntp_errors    = &stainfo->ntp_errors;
 
-/* Check NTP SYNC. */
-	if ( palert_check_ntp_common( header ) ) {
-		if ( *ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT )
-			logit("ot", "palert2ew: Station %s NTP resync, now back online.\n", stainfo->sta);
-		*ntp_errors = 0;
-	}
-	else {
-		if ( *ntp_errors >= pre_threshold ) {
-			if ( *ntp_errors < PA2EW_NTP_SYNC_ERR_LIMIT ) {
-				printf("palert2ew: Station %s NTP not sync, please check it!\n", stainfo->sta);
-			}
-			else {
-				if ( *ntp_errors == PA2EW_NTP_SYNC_ERR_LIMIT ) {
-					logit("et", "palert2ew: Station %s NTP sync error, drop the packet.\n", stainfo->sta);
-					(*ntp_errors)++;
-				}
-				return 0;
-			}
-		}
-		(*ntp_errors)++;
+/* Check NTP SYNC. depends on its header mode */
+	switch ( header_mode ) {
+	case PALERT_PKT_MODE1: default:
+		if ( !PALERT_M1_NTP_CHECK( (PALERT_M1_HEADER *)header ) )
+			goto not_sync;
+		break;
+	case PALERT_PKT_MODE4:
+		if ( !PALERT_M4_NTP_CHECK( (PALERT_M4_HEADER *)header ) )
+			goto not_sync;
+		break;
+	case PALERT_PKT_MODE16:
+		if ( !PALERT_M16_NTP_CHECK( (PALERT_M16_HEADER *)header ) )
+			goto not_sync;
+		break;
 	}
 
+sync:
+	if ( *ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT )
+		logit("ot", "palert2ew: Station %s NTP re-sync, now back online.\n", stainfo->sta);
+	*ntp_errors = 0;
+/* If the NTP status is sync, we should accept this packet */
 	return 1;
-}
 
-/*
- * enrich_trh2_pm1() -
- */
-static TRACE2_HEADER *enrich_trh2_pm1(
-	TRACE2_HEADER *trh2, const _STAINFO *staptr, const PALERTMODE1_HEADER *pah
-) {
-	return pa2ew_misc_trh2_enrich(
-		trh2, staptr->sta, staptr->net, staptr->loc,
-		PALERTMODE1_SAMPLE_NUMBER,
-		UniSampRate ? (double)UniSampRate : (double)PALERTMODE1_HEADER_GET_SAMPRATE( pah ),
-		palert_get_systime( pah, staptr->timeshift )
-	);
+not_sync:
+	if ( *ntp_errors >= pre_threshold ) {
+		if ( *ntp_errors < PA2EW_NTP_SYNC_ERR_LIMIT ) {
+			printf("palert2ew: Station %s NTP not sync, please check it!\n", stainfo->sta);
+		}
+		else {
+			if ( *ntp_errors == PA2EW_NTP_SYNC_ERR_LIMIT ) {
+				logit("et", "palert2ew: Station %s NTP sync error, drop the packet.\n", stainfo->sta);
+				(*ntp_errors)++;
+			}
+		/* NTP status is not sync and it exceed the error limit, we will reject this packet */
+			return 0;
+		}
+	}
+	(*ntp_errors)++;
+/* Even NTP status is not sync but it still under the error limit, we also accept this packet */
+	return 1;
 }
 
 /*

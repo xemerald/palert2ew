@@ -16,8 +16,6 @@
 /* */
 #include <libmseed.h>
 #include <trace_buf.h>
-/* */
-#include <palert.h>
 
 /* */
 #define PA2EW_INFO_FROM_SQL       4
@@ -47,19 +45,33 @@
 #define PA2EW_MSG_LIST_BLOCK     2   /* Unused */
 #define PA2EW_MSG_MSG_QUEUE      3   /* Unused */
 /* */
-typedef union {
+#define PA2EW_UNKNOWN_ENDIAN  0
+#define PA2EW_LITTLE_ENDIAN   1
+#define PA2EW_BIG_ENDIAN      2
+#define PA2EW_PDP_ENDIAN      3
+
+/**
+ * @brief
+ *
+ */
+typedef struct {
 	void    *staptr;
-	uint16_t serial;
+	uint16_t packmode;
 } LABEL;
 
-/* */
+/**
+ * @brief
+ *
+ */
 typedef struct {
-/* */
 	LABEL   label;
 	uint8_t recv_buffer[PA2EW_RECV_BUFFER_LENGTH];
 } LABELED_RECV_BUFFER;
 
-/* Station info related struct */
+/**
+ * @brief Station info related struct
+ *
+ */
 typedef struct {
 	uint8_t  update;
 	uint8_t  ntp_errors;
@@ -75,14 +87,20 @@ typedef struct {
 	void *buffer;
 } _STAINFO;
 
-/* */
+/**
+ * @brief
+ *
+ */
 typedef struct {
 	uint8_t seq;
 	char    chan[TRACE2_CHAN_LEN];
 	double  last_endtime;
 } _CHAINFO;
 
-/* Streamline mini-SEED data record structures */
+/**
+ * @brief Streamline mini-SEED data record structures
+ *
+ */
 typedef struct {
 	struct fsdh_s fsdh;
 	uint16_t blkt_type;
