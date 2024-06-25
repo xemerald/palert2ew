@@ -1,4 +1,9 @@
-/*
+/**
+ * @file palert2ew_client.c
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief
+ * @date 2024-06-06
+ * @copyright Copyright (c) 2024
  *
  */
 /* Standard C header include */
@@ -52,8 +57,12 @@ static const char   *_ServerPort  = NULL;
 static uint8_t      *Buffer       = NULL;
 static size_t        BufferSize   = 0;
 
-/*
- * pa2ew_client_init() - Initialize the dependent Palert client.
+/**
+ * @brief Initialize the dependent Palert client.
+ *
+ * @param ip
+ * @param port
+ * @return int
  */
 int pa2ew_client_init( const char *ip, const char *port )
 {
@@ -72,8 +81,9 @@ int pa2ew_client_init( const char *ip, const char *port )
 	return ClientSocket;
 }
 
-/*
- * pa2ew_client_end() - End process of Palert client.
+/**
+ * @brief End process of Palert client.
+ *
  */
 void pa2ew_client_end( void )
 {
@@ -89,9 +99,10 @@ void pa2ew_client_end( void )
 	return;
 }
 
-/*
- * pa2ew_client_stream() - Receive the messages from the socket of forward server
- *                         and send it to the queue.
+/**
+ * @brief Receive the messages from the socket of forward server and send it to the queue.
+ *
+ * @return int
  */
 int pa2ew_client_stream( void )
 {
@@ -169,7 +180,7 @@ int pa2ew_client_stream( void )
 
 /* */
 	recv_seq++;
-/* Serial should always larger than 0 & ignore keep-alive(serial = 0) packet */
+/* Serial should always larger than 0 & ignore keep-alive (serial = 0) packet */
 	if ( fwptr->serial ) {
 	/* Find which one palert */
 		if ( (staptr = pa2ew_list_find( fwptr->serial )) ) {
@@ -192,11 +203,12 @@ int pa2ew_client_stream( void )
 			return PA2EW_RECV_NEED_UPDATE;
 		}
 	}
-/*
+#if defined( _DEBUG )
 	else {
 		printf("palert2ew: Recieve keep alive packet!\n");
 	}
-*/
+#endif
+
 	return PA2EW_RECV_NORMAL;
 /* */
 reconnect:
@@ -207,8 +219,10 @@ reconnect:
 		return PA2EW_RECV_NORMAL;
 }
 
-/*
- * flush_sock_buffer()
+/**
+ * @brief
+ *
+ * @param sock
  */
 static void flush_sock_buffer( const int sock )
 {
@@ -228,8 +242,10 @@ static void flush_sock_buffer( const int sock )
 	return;
 }
 
-/*
- * reconstruct_connect_sock() - Reconstruct the socket connect to the Palert server.
+/**
+ * @brief Reconstruct the socket connect to the Palert server.
+ *
+ * @return int
  */
 static int reconstruct_connect_sock( void )
 {
@@ -257,8 +273,12 @@ static int reconstruct_connect_sock( void )
 	return ClientSocket;
 }
 
-/*
- *  construct_connect_sock() - Construct the socket connect to the Palert server.
+/**
+ * @brief Construct the socket connect to the Palert server.
+ *
+ * @param ip
+ * @param port
+ * @return int
  */
 static int construct_connect_sock( const char *ip, const char *port )
 {

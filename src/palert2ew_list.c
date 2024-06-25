@@ -1,4 +1,9 @@
-/*
+/**
+ * @file palert2ew_list.c
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief
+ * @date 2024-06-06
+ * @copyright Copyright (c) 2024
  *
  */
 #define _GNU_SOURCE
@@ -49,8 +54,14 @@ static int  extract_chainfo_mysql( char *[], MYSQL_RES * );
 /* Global variables */
 static StaList *SList = NULL;
 
-/*
- * pa2ew_list_db_fetch() -
+/**
+ * @brief
+ *
+ * @param table_sta
+ * @param table_chan
+ * @param dbinfo
+ * @param update
+ * @return int
  */
 int pa2ew_list_db_fetch( const char *table_sta, const char *table_chan, const DBINFO *dbinfo, const int update )
 {
@@ -68,8 +79,12 @@ int pa2ew_list_db_fetch( const char *table_sta, const char *table_chan, const DB
 		return 0;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param line
+ * @param update
+ * @return int
  */
 int pa2ew_list_station_line_parse( const char *line, const int update )
 {
@@ -141,8 +156,9 @@ int pa2ew_list_station_line_parse( const char *line, const int update )
 	return result;
 }
 
-/*
- * pa2ew_list_end() -
+/**
+ * @brief
+ *
  */
 void pa2ew_list_end( void )
 {
@@ -152,8 +168,11 @@ void pa2ew_list_end( void )
 	return;
 }
 
-/*
- * pa2ew_list_find() -
+/**
+ * @brief
+ *
+ * @param serial
+ * @return _STAINFO*
  */
 _STAINFO *pa2ew_list_find( const int serial )
 {
@@ -170,8 +189,10 @@ _STAINFO *pa2ew_list_find( const int serial )
 	return result;
 }
 
-/*
- * pa2ew_list_update_status_set() -
+/**
+ * @brief
+ *
+ * @param update_status
  */
 void pa2ew_list_update_status_set( const int update_status )
 {
@@ -186,8 +207,9 @@ void pa2ew_list_update_status_set( const int update_status )
 	return;
 }
 
-/*
- * pa2ew_list_obsolete_clear() -
+/**
+ * @brief
+ *
  */
 void pa2ew_list_obsolete_clear( void )
 {
@@ -197,8 +219,9 @@ void pa2ew_list_obsolete_clear( void )
 	return;
 }
 
-/*
- * pa2ew_list_tree_activate() -
+/**
+ * @brief
+ *
  */
 void pa2ew_list_tree_activate( void )
 {
@@ -216,8 +239,9 @@ void pa2ew_list_tree_activate( void )
 	return;
 }
 
-/*
- * pa2ew_list_tree_activate() -
+/**
+ * @brief
+ *
  */
 void pa2ew_list_tree_abandon( void )
 {
@@ -229,8 +253,10 @@ void pa2ew_list_tree_abandon( void )
 	return;
 }
 
-/*
- * pa2ew_list_total_station_get() -
+/**
+ * @brief
+ *
+ * @return int
  */
 int pa2ew_list_total_station_get( void )
 {
@@ -247,16 +273,21 @@ int pa2ew_list_total_station_get( void )
 	return result;
 }
 
-/*
- * pa2ew_list_timestamp_get() -
+/**
+ * @brief
+ *
+ * @return double
  */
 double pa2ew_list_timestamp_get( void )
 {
 	return SList->timestamp;
 }
 
-/*
- * pa2ew_list_walk() -
+/**
+ * @brief
+ *
+ * @param action
+ * @param arg
  */
 void pa2ew_list_walk( void (*action)( void *, const int, void * ), void *arg )
 {
@@ -272,8 +303,14 @@ void pa2ew_list_walk( void (*action)( void *, const int, void * ), void *arg )
 }
 
 #if defined( _USE_SQL )
-/*
- * fetch_list_sql() - Get stations list from MySQL server
+/**
+ * @brief
+ *
+ * @param table_sta
+ * @param table_chan
+ * @param dbinfo
+ * @param update
+ * @return int
  */
 static int fetch_list_sql( const char *table_sta, const char *table_chan, const DBINFO *dbinfo, const int update )
 {
@@ -345,8 +382,15 @@ static int fetch_list_sql( const char *table_sta, const char *table_chan, const 
 	return result;
 }
 
-/*
- * extract_stainfo_mysql() -
+/**
+ * @brief
+ *
+ * @param serial
+ * @param sta
+ * @param net
+ * @param loc
+ * @param sql_row
+ * @param row_lengths
  */
 static void extract_stainfo_mysql(
 	int *serial, char *sta, char *net, char *loc,
@@ -363,8 +407,12 @@ static void extract_stainfo_mysql(
 	return;
 }
 
-/*
- * extract_chainfo_mysql() -
+/**
+ * @brief
+ *
+ * @param chan
+ * @param sql_res
+ * @return int
  */
 static int extract_chainfo_mysql( char *chan[], MYSQL_RES *sql_res )
 {
@@ -395,8 +443,14 @@ static int extract_chainfo_mysql( char *chan[], MYSQL_RES *sql_res )
 	return result;
 }
 #else
-/*
- * fetch_list_sql() - Fake function
+/**
+ * @brief Fake function
+ *
+ * @param table_sta
+ * @param table_chan
+ * @param dbinfo
+ * @param update
+ * @return int
  */
 static int fetch_list_sql( const char *table_sta, const char *table_chan, const DBINFO *dbinfo, const int update )
 {
@@ -408,8 +462,10 @@ static int fetch_list_sql( const char *table_sta, const char *table_chan, const 
 }
 #endif
 
-/*
- * init_sta_list() -
+/**
+ * @brief
+ *
+ * @return StaList*
  */
 static StaList *init_sta_list( void )
 {
@@ -426,8 +482,10 @@ static StaList *init_sta_list( void )
 	return result;
 }
 
-/*
- * destroy_sta_list() -
+/**
+ * @brief
+ *
+ * @param list
  */
 static void destroy_sta_list( StaList *list )
 {
@@ -441,8 +499,13 @@ static void destroy_sta_list( StaList *list )
 	return;
 }
 
-/*
- *  append_stainfo_list() - Appending the new client to the client list.
+/**
+ * @brief Appending the new client to the client list.
+ *
+ * @param list
+ * @param stainfo
+ * @param update
+ * @return _STAINFO*
  */
 static _STAINFO *append_stainfo_list( StaList *list, _STAINFO *stainfo, const int update )
 {
@@ -486,8 +549,16 @@ except:
 	return NULL;
 }
 
-/*
- *  create_new_stainfo() - Creating new station info memory space with the input value.
+/**
+ * @brief Creating new station info memory space with the input value.
+ *
+ * @param serial
+ * @param sta
+ * @param net
+ * @param loc
+ * @param nchannel
+ * @param chan
+ * @return _STAINFO*
  */
 static _STAINFO *create_new_stainfo(
 	const int serial, const char *sta, const char *net,
@@ -517,8 +588,11 @@ static _STAINFO *create_new_stainfo(
 	return result;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param stainfo
+ * @return _CHAINFO*
  */
 static _CHAINFO *enrich_chainfo_default( _STAINFO *stainfo )
 {
@@ -531,8 +605,15 @@ static _CHAINFO *enrich_chainfo_default( _STAINFO *stainfo )
 	return enrich_chainfo_raw( stainfo, PA2EW_DEF_CHAN_PER_STA, chan );
 }
 
-/*
+/**
+ * @brief
  *
+ * @param stainfo
+ * @param serial
+ * @param sta
+ * @param net
+ * @param loc
+ * @return _STAINFO*
  */
 static _STAINFO *enrich_stainfo_raw(
 	_STAINFO *stainfo, const int serial, const char *sta, const char *net, const char *loc
@@ -552,8 +633,13 @@ static _STAINFO *enrich_stainfo_raw(
 	return stainfo;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param stainfo
+ * @param nchannel
+ * @param chan
+ * @return _CHAINFO*
  */
 static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, const char *chan[] )
 {
@@ -575,8 +661,12 @@ static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, cons
 	return chainfo;
 }
 
-/*
- * update_stainfo_and_chainfo()
+/**
+ * @brief
+ *
+ * @param dest
+ * @param src
+ * @return _STAINFO*
  */
 static _STAINFO *update_stainfo_and_chainfo( _STAINFO *dest, const _STAINFO *src )
 {
@@ -610,8 +700,12 @@ static _STAINFO *update_stainfo_and_chainfo( _STAINFO *dest, const _STAINFO *src
 	return dest;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param node
+ * @param arg
+ * @return int
  */
 static int obsolete_clear_cond( void *node, void *arg )
 {
@@ -623,8 +717,12 @@ static int obsolete_clear_cond( void *node, void *arg )
 	return 0;
 }
 
-/*
- * compare_serial() -
+/**
+ * @brief
+ *
+ * @param node_a
+ * @param node_b
+ * @return int
  */
 static int compare_serial( const void *node_a, const void *node_b )
 {
@@ -639,16 +737,20 @@ static int compare_serial( const void *node_a, const void *node_b )
 		return 0;
 }
 
-/*
- * dummy_func() -
+/**
+ * @brief
+ *
+ * @param node
  */
 static void dummy_func( void *node )
 {
 	return;
 }
 
-/*
- * free_stainfo() -
+/**
+ * @brief
+ *
+ * @param node
  */
 static void free_stainfo_and_chainfo( void *node )
 {

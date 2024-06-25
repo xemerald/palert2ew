@@ -1,4 +1,9 @@
-/*
+/**
+ * @file palert2ew_server.c
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief
+ * @date 2024-06-06
+ * @copyright Copyright (c) 2024
  *
  */
 /* Standard C header include */

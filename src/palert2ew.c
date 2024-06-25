@@ -1,4 +1,9 @@
-/*
+/**
+ * @file palert2ew.c
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief
+ * @date 2024-06-06
+ * @copyright Copyright (c) 2024
  *
  */
 #ifdef _OS2
@@ -39,8 +44,7 @@ typedef struct {
 	uint8_t buffer[65536];
 } LABELED_DATA;
 
-/* Functions prototype in this source file
- *******************************/
+/* Functions prototype in this source file */
 static void palert2ew_config( char * );
 static void palert2ew_lookup( void );
 static void palert2ew_status( unsigned char, short, char * );
@@ -83,8 +87,7 @@ static unsigned         UpdateThreadID      = 0;          /* Thread id for updat
 static unsigned        *ReceiverThreadID    = NULL;       /* Thread id for receiving messages from TCP/IP */
 #endif
 
-/* Things to read or derive from configuration file
- **************************************************/
+/* Things to read or derive from configuration file */
 static char     RingName[2][MAX_RING_STR];   /* name of transport ring for i/o    */
 static char     MyModName[MAX_MOD_STR];      /* speak as this module name/id      */
 static uint8_t  LogSwitch;                   /* 0 if no logfile should be written */
@@ -103,8 +106,7 @@ static DBINFO   DBInfo;
 static char     SQLStationTable[MAX_TABLE_LEGTH];
 static char     SQLChannelTable[MAX_TABLE_LEGTH];
 
-/* Things to look up in the earthworm.h tables with getutil.c functions
- **********************************************************************/
+/* Things to look up in the earthworm.h tables with getutil.c functions */
 static int64_t RingKey[2];      /* key of transport ring for i/o     */
 static uint8_t InstId;          /* local installation id             */
 static uint8_t MyModId;         /* Module Id for this program        */
@@ -113,8 +115,7 @@ static uint8_t TypeError;
 static uint8_t TypeTracebuf2 = 0;
 static uint8_t TypePalertRaw = 0;
 
-/* Error messages used by palert2ew
- *********************************/
+/* Error messages used by palert2ew */
 #define  ERR_MISSMSG       0   /* message missed in transport ring       */
 #define  ERR_TOOBIG        1   /* retreived msg too large for buffer     */
 #define  ERR_NOTRACK       2   /* msg retreived; tracking limit exceeded */

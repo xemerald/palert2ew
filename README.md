@@ -14,10 +14,6 @@ The version of Earthworm is under **7.9** (this might be obsoleted later):
 ```
 $ make ver_709
 ```
-or
-```
-$ make
-```
 
 The version of Earthworm is above **7.10**:
 

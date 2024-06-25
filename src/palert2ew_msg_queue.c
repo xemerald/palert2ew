@@ -2,7 +2,6 @@
  * @file palert2ew_msg_queue.c
  * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
  * @brief
- * @version 0.1
  * @date 2024-06-06
  * @copyright Copyright (c) 2024
  *
@@ -41,8 +40,12 @@ static int validate_pah1( const void *, const int );
 static int validate_pah4( const void *, const int );
 static int validate_pah16( const void *, const int );
 
-/*
- * pa2ew_msgqueue_init() - Initialization function of message queue and mutex.
+/**
+ * @brief Initialization function of message queue and mutex.
+ *
+ * @param queue_size
+ * @param element_size
+ * @return int
  */
 int pa2ew_msgqueue_init( const unsigned long queue_size, const unsigned long element_size )
 {
@@ -58,8 +61,9 @@ int pa2ew_msgqueue_init( const unsigned long queue_size, const unsigned long ele
 	return 0;
 }
 
-/*
- * pa2ew_msgqueue_end() - End process of message queue.
+/**
+ * @brief End process of message queue.
+ *
  */
 void pa2ew_msgqueue_end( void )
 {
@@ -71,8 +75,13 @@ void pa2ew_msgqueue_end( void )
 	return;
 }
 
-/*
- * pa2ew_msgqueue_dequeue() - Pop-out received message from main queue.
+/**
+ * @brief Pop-out received message from main queue.
+ *
+ * @param buffer
+ * @param size
+ * @param logo
+ * @return int
  */
 int pa2ew_msgqueue_dequeue( void *buffer, size_t *size, MSG_LOGO *logo )
 {
@@ -87,8 +96,13 @@ int pa2ew_msgqueue_dequeue( void *buffer, size_t *size, MSG_LOGO *logo )
 	return result;
 }
 
-/*
- * pa2ew_msgqueue_enqueue() - Put the compelete packet into the main queue.
+/**
+ * @brief Put the compelete packet into the main queue.
+ *
+ * @param buffer
+ * @param size
+ * @param logo
+ * @return int
  */
 int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 {
@@ -111,8 +125,13 @@ int pa2ew_msgqueue_enqueue( void *buffer, size_t size, MSG_LOGO logo )
 	return result;
 }
 
-/*
- * pa2ew_msgqueue_rawpacket() - Stack received message into queue of station.
+/**
+ * @brief Stack received message into queue of station.
+ *
+ * @param label_buf
+ * @param buf_len
+ * @param logo
+ * @return int
  */
 int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, MSG_LOGO logo )
 {
@@ -146,8 +165,10 @@ int pa2ew_msgqueue_rawpacket( void *label_buf, size_t buf_len, MSG_LOGO logo )
 	return sync_flag ? 0 : -1;
 }
 
-/*
- * pa2ew_msgqueue_lastbufs_reset() - Stack received message into queue of station.
+/**
+ * @brief
+ *
+ * @param staptr
  */
 void pa2ew_msgqueue_lastbufs_reset( void *staptr )
 {
@@ -160,8 +181,12 @@ void pa2ew_msgqueue_lastbufs_reset( void *staptr )
 	return;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param label_buf
+ * @param buf_len
+ * @return LABELED_RECV_BUFFER*
  */
 static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 {
@@ -216,8 +241,11 @@ static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 	return result;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param label_buf
+ * @param buf_len
  */
 static void save_last_buffer( void *label_buf, const size_t buf_len )
 {
@@ -235,8 +263,11 @@ static void save_last_buffer( void *label_buf, const size_t buf_len )
 	return;
 }
 
-/*
+/**
+ * @brief Create a last buffer object
  *
+ * @param staptr
+ * @return struct last_buffer*
  */
 static struct last_buffer *create_last_buffer( _STAINFO *staptr )
 {
@@ -250,8 +281,12 @@ static struct last_buffer *create_last_buffer( _STAINFO *staptr )
 	return result;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param node
+ * @param index
+ * @param arg
  */
 static void free_last_buffer_act( void *node, const int index, void *arg )
 {
@@ -267,8 +302,13 @@ static void free_last_buffer_act( void *node, const int index, void *arg )
 	return;
 }
 
-/*
- * pre_enqueue_check_pah1() -
+/**
+ * @brief
+ *
+ * @param lrbuf
+ * @param buf_len
+ * @param logo
+ * @return int
  */
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
@@ -340,8 +380,13 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 	return sync_flag;
 }
 
-/*
- * pre_enqueue_check_pah4() -
+/**
+ * @brief
+ *
+ * @param lrbuf
+ * @param buf_len
+ * @param logo
+ * @return int
  */
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
@@ -385,8 +430,13 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 	return sync_flag;
 }
 
-/*
- * pre_enqueue_check_pah16() -
+/**
+ * @brief
+ *
+ * @param lrbuf
+ * @param buf_len
+ * @param logo
+ * @return int
  */
 static int pre_enqueue_check_pah16( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, MSG_LOGO logo )
 {
@@ -430,8 +480,12 @@ static int pre_enqueue_check_pah16( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len,
 	return sync_flag;
 }
 
-/*
- * validate_pah1() -
+/**
+ * @brief
+ *
+ * @param header
+ * @param serial
+ * @return int
  */
 static int validate_pah1( const void *header, const int serial )
 {
@@ -444,8 +498,12 @@ static int validate_pah1( const void *header, const int serial )
 	return -1;
 }
 
-/*
- * validate_pah4() -
+/**
+ * @brief
+ *
+ * @param header
+ * @param serial
+ * @return int
  */
 static int validate_pah4( const void *header, const int serial )
 {
@@ -460,8 +518,12 @@ static int validate_pah4( const void *header, const int serial )
 	return -1;
 }
 
-/*
- * validate_pah16() -
+/**
+ * @brief
+ *
+ * @param header
+ * @param serial
+ * @return int
  */
 static int validate_pah16( const void *header, const int serial )
 {

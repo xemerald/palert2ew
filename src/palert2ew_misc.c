@@ -1,4 +1,9 @@
-/*
+/**
+ * @file palert2ew_misc.c
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief
+ * @date 2024-06-06
+ * @copyright Copyright (c) 2024
  *
  */
 /* Standard C header include */
@@ -31,8 +36,8 @@ TRACE2_HEADER *pa2ew_trh2_init( TRACE2_HEADER *dest )
 	dest->version[0] = TRACE2_VERSION0;
 	dest->version[1] = TRACE2_VERSION1;
 /* */
-	strcpy(dest->quality, TRACE2_NO_QUALITY);
-	strcpy(dest->pad    , TRACE2_NO_PAD    );
+	memset(dest->quality, 0, sizeof(dest->quality));
+	memset(dest->pad    , 0, sizeof(dest->pad)    );
 
 	return dest;
 }
@@ -84,8 +89,10 @@ TRACE2_HEADER *pa2ew_trh2_sampinfo_enrich(
 }
 
 
-/*
+/**
+ * @brief
  *
+ * @return double
  */
 double pa2ew_timenow_get( void )
 {
@@ -99,8 +106,12 @@ double pa2ew_timenow_get( void )
 	return result;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param max_stations
+ * @param server_switch
+ * @return int
  */
 int pa2ew_recv_thrdnum_eval( int max_stations, const int server_switch )
 {
@@ -129,8 +140,9 @@ int pa2ew_endian_get( void )
 	return *(uint8_t *)&probe ? PA2EW_LITTLE_ENDIAN : PA2EW_BIG_ENDIAN;
 }
 
-/*
- * pa2ew_crc8_init() - A CRC-8 initialization function
+/**
+ * @brief A CRC-8 initialization function
+ *
  */
 void pa2ew_crc8_init( void )
 {
@@ -143,8 +155,12 @@ void pa2ew_crc8_init( void )
 	return;
 }
 
-/*
- * pa2ew_misc_crc8_cal() - A CRC-8 calculation function
+/**
+ * @brief A CRC-8 calculation function
+ *
+ * @param data
+ * @param size
+ * @return uint8_t
  */
 uint8_t pa2ew_crc8_cal( const void *data, const size_t size )
 {
@@ -166,8 +182,11 @@ uint8_t pa2ew_crc8_cal( const void *data, const size_t size )
 	return result;
 }
 
-/*
+/**
+ * @brief A real CRC-8 calculation function
  *
+ * @param data
+ * @return uint8_t
  */
 static uint8_t cal_crc8_high( const uint8_t data )
 {
