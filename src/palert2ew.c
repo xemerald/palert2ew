@@ -62,6 +62,7 @@ static void    process_packet_pm4( const void *, _STAINFO *, const char [2] );
 static void    process_packet_pm16( const void *, _STAINFO *, const char [2] );
 static int     examine_ntp_status( _STAINFO *, const void *, const int );
 static int     check_pkt_crc( const void *, const int );
+static void   *convert_m16data_to_int( void *, const float *, const int );
 static void    handle_signal( void );
 
 /* Ring messages things */
@@ -98,6 +99,7 @@ static uint8_t  ServerSwitch;                /* 0 connect to Palert server; 1 as
 static uint8_t  RawOutputSwitch = 0;
 static uint8_t  CheckCRCSwitch = 1;          /* 0 disable the CRC checking; 1 enable the CRC checking */
 static uint8_t  OutputTimeQuestionable = 0;  /* 0 filter out NTP unsychronized stations; 1 allow these stations */
+static uint8_t  ForceOutputIntData = 0;      /* 0 keep the raw data type; 1 force to output integer data type */
 static char     ServerIP[INET6_ADDRSTRLEN];
 static char     ServerPort[8] = { 0 };
 static uint64_t MaxStationNum;
@@ -163,23 +165,23 @@ int main ( int argc, char **argv )
 	UpdateFlag = LIST_IS_UPDATED;
 /* */
 	handle_signal();
-/* Define the first byte of the datatype depends on the system endian */
-	if ( pa2ew_endian_get() == PA2EW_BIG_ENDIAN ) {
-		idatatype[0] = 's';
-		fdatatype[0] = 't';
-		idatatype[1] = fdatatype[1] = '4';
-	}
-	else {
-		idatatype[0] = 'i';
-		fdatatype[0] = 'f';
-		idatatype[1] = fdatatype[1] = '4';
-	}
 
 /* Initialize name of log-file & open it */
 	logit_init(argv[1], 0, 256, 1);
 /* Read the configuration file(s) */
 	palert2ew_config( argv[1] );
 	logit("" , "%s: Read command file <%s>\n", argv[0], argv[1]);
+/* Define the first byte of the datatype depends on the system endian */
+	if ( pa2ew_endian_get() == PA2EW_BIG_ENDIAN ) {
+		idatatype[0] = 's';
+		fdatatype[0] = ForceOutputIntData ? idatatype[0] : 't';
+		idatatype[1] = fdatatype[1] = '4';
+	}
+	else {
+		idatatype[0] = 'i';
+		fdatatype[0] = ForceOutputIntData ? idatatype[0] : 'f';
+		idatatype[1] = fdatatype[1] = '4';
+	}
 /* Read the station list from remote database */
 	if ( pa2ew_list_db_fetch( SQLStationTable, SQLChannelTable, &DBInfo, PA2EW_LIST_INITIALIZING ) < 0 ) {
 		fprintf(stderr, "Something error when fetching station list. Exiting!\n");
@@ -452,6 +454,11 @@ static void palert2ew_config( char *configfile )
 				OutputTimeQuestionable = k_int();
 				if ( OutputTimeQuestionable )
 					logit("o", "palert2ew: NOTICE!! Those waveforms with questionable timestamp will be output!\n");
+			}
+			else if ( k_its("ForceOutputIntData") ) {
+				ForceOutputIntData = k_int();
+				if ( ForceOutputIntData )
+					logit("o", "palert2ew: NOTICE!! Forcing all the output data to integer type!\n");
 			}
 		/* 6 */
 			else if ( k_its("ServerSwitch") ) {
@@ -1123,8 +1130,12 @@ static void process_packet_pm16( const void *packet, _STAINFO *stainfo, const ch
 	tracebuf.trh2.quality[0] |= stainfo->ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT ? TIME_TAG_QUESTIONABLE : 0;
 /* Extract all the channels' data */
 	for ( int i = 0; i < stainfo->nchannel; i++ )
-		_databuf[i] = (float *)&databuf + (nsamp * i);
+		_databuf[i] = (float *)databuf + (nsamp * i);
 	pac_m16_data_extract( packet, stainfo->nchannel, _databuf );
+/* If set to forcing output integer data, then convert it */
+	if ( tracebuf.trh2.datatype[0] == 'i' || tracebuf.trh2.datatype[0] == 's' )
+	/* 'cause the size of data is the same between float & int32_t, here we use the same buffer space */
+		convert_m16data_to_int( databuf, (float *)databuf, nsamp * stainfo->nchannel );
 /* Each channel part */
 	for ( int i = 0; i < stainfo->nchannel; i++, chaptr++ ) {
 	/* First, enrich the channel code */
@@ -1230,6 +1241,30 @@ static int check_pkt_crc( const void *packet, const int packet_mode )
 	}
 
 	return 0;
+}
+
+/**
+ * @brief
+ *
+ * @param buffer
+ * @param data
+ * @param nsamp
+ * @return void*
+ */
+static void *convert_m16data_to_int( void *buffer, const float *data, const int nsamp )
+{
+/* */
+	float   *_fbuffer = buffer;
+	int32_t *_ibuffer = buffer;
+
+/* */
+	for ( int i = 0; i < nsamp; i++, _fbuffer++, _ibuffer++, data++ ) {
+		*_fbuffer  = *data * PALERT_M16_COUNT_OVER_GAL;
+		*_fbuffer += *_fbuffer > 0.0 ? 0.9 : -0.9;
+		*_ibuffer  = (int32_t)*_fbuffer;
+	}
+
+	return buffer;
 }
 
 /**

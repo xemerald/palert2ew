@@ -16,6 +16,8 @@
 /* */
 #define PALERT_M16_HEADER_LENGTH      36
 #define PALERT_M16_PACKET_MAX_LENGTH  65536
+/* */
+#define PALERT_M16_COUNT_OVER_GAL     2914
 
 /**
  * @brief Definition of Palert mode 16 header, total size is 36 bytes

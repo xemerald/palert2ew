@@ -32,11 +32,21 @@ CheckCRC16                0       # 0 (default) to turn off the checking process
 OutputTimeQuestionable    0       # 0 (default) to filter out those waveforms from NTP unsynchronized stations;
                                   # 1 to allow those waveforms
 
+# Output data type setup:
+#
+# The common data type within Earthworm is 4 bytes integer, so as the output of mode 1 & 4 packets.
+# However, the raw data type of mode 16 packet is IEEE-754 float, concerning the timeliness, here
+# we should directly output the data with float type. Once you want to keep the consitency of all the
+# data, you can turn on this function to convert the float data to integer data.
+#
+ForceOutputIntData        0       # 0 (default) to keep the raw data type from packets;
+                                  # 1 to force to output integer data type, especially for mode 16 packets
+
 # Palert server setup:
 #
-# There are two independent mode in this module: first, as a client-side program connect to the P-alert
-# Core; second, as server-side program accept those P-alerts connections. While setting second mode, the
-# P-alert Core server informations are neccessary.
+# There are two independent mode in this module: first, as a client-side program (0) connect to the P-alert
+# Core; second, as server-side program (1) accept those P-alerts connections. While setting to client-side mode (0),
+# the P-alert Core server informations are neccessary.
 #
 ServerSwitch      0               # 0 connect to Palert server; 1 as the server of Palert
 ServerIP          127.0.0.1       # Server IP address of P-alert Core server
