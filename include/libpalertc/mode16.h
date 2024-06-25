@@ -2,7 +2,6 @@
  * @file mode16.h
  * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
  * @brief Header file for Palert data mode 16 packet.
- * @version 0.1
  * @date 2024-06-02
  *
  * @copyright Copyright (c) 2024
@@ -15,10 +14,12 @@
 #include "samprate.h"
 
 /* */
-#define PALERT_M16_HEADER_LENGTH    36
+#define PALERT_M16_HEADER_LENGTH      36
+#define PALERT_M16_PACKET_MAX_LENGTH  65536
 
-/*
- * Definition of Palert mode 16 header, total size is 36 bytes
+/**
+ * @brief Definition of Palert mode 16 header, total size is 36 bytes
+ *
  */
 typedef struct {
 /* Fixed part */
@@ -27,7 +28,7 @@ typedef struct {
 	uint8_t header_len;
 	uint8_t data_len[2];
 	uint8_t packet_len[2];
-/* Header(Sensor) part */
+/* Header(Sensor information) part */
 	uint8_t unixtime[5];
 	uint8_t msec[2];
 	uint8_t ntp_sync;
@@ -49,20 +50,30 @@ typedef PALERT_M16_HEADER PAM16H;
  */
 typedef union {
 	uint8_t  data_byte[4];
-	uint32_t data_uint;
+	uint32_t data_dword;
 	float    data_real;
 } PALERT_M16_DATA;
 
-/*
- * Definition of Palert generic mode 16 packet structure, total size is 65536 bytes
+/**
+ * @brief Definition of Palert generic mode 16 packet structure, total size is 65536 bytes
+ *
  */
 typedef union {
 	PALERT_M16_HEADER header;
-	uint8_t           bytes[65536];
+	uint8_t           bytes[PALERT_M16_PACKET_MAX_LENGTH];
 } PALERT_M16_PACKET;
 
 /* Alias of the structure above */
 typedef PALERT_M16_PACKET PAM16P;
+
+/**
+ * @brief
+ *
+ */
+#define PALERT_M16_SYNC_CHAR_0  0x53  /* Equal to ASCII 'S' */
+#define PALERT_M16_SYNC_CHAR_1  0x59  /* Equal to ASCII 'Y' */
+#define PALERT_M16_SYNC_CHAR_2  0x4E  /* Equal to ASCII 'N' */
+#define PALERT_M16_SYNC_CHAR_3  0x43  /* Equal to ASCII 'C' */
 
 /**
  * @brief
@@ -90,18 +101,18 @@ typedef PALERT_M16_PACKET PAM16P;
  *
  */
 #define PALERT_M16_SYNC_CHECK(_PAM16H) \
-		(((_PAM16H)->sync_char[0] == 0x53) && ((_PAM16H)->sync_char[1] == 0x59) && \
-		((_PAM16H)->sync_char[2] == 0x4F) && ((_PAM16H)->sync_char[3] == 0x43))
+		(((_PAM16H)->sync_char[0] == PALERT_M16_SYNC_CHAR_0) && ((_PAM16H)->sync_char[1] == PALERT_M16_SYNC_CHAR_1) && \
+		((_PAM16H)->sync_char[2] == PALERT_M16_SYNC_CHAR_2) && ((_PAM16H)->sync_char[3] == PALERT_M16_SYNC_CHAR_3))
 
 /**
- * @brief Parse the palert packet length
+ * @brief Parse the Palert mode 16 packet length
  *
  */
 #define PALERT_M16_PACKETLEN_GET(_PAM16H) \
 		PALERT_M16_WORD_GET((_PAM16H)->packet_len)
 
 /**
- * @brief Parse the palert serial number
+ * @brief Parse the Palert mode 16 serial number
  *
  */
 #define PALERT_M16_SERIAL_GET(_PAM16H) \
@@ -116,29 +127,29 @@ typedef PALERT_M16_PACKET PAM16P;
 		(((uint32_t)((_PAM16H)->unixtime[3]) << 24) | ((uint32_t)((_PAM16H)->unixtime[2]) << 16) | ((uint32_t)((_PAM16H)->unixtime[1]) << 8) | (uint32_t)((_PAM16H)->unixtime[0])))
 
 /**
- * @brief Parse the palert sampling rate
+ * @brief Parse the Palert mode 16 sampling rate
  *
  */
 #define PALERT_M16_SAMPRATE_GET(_PAM16H) \
-		((PALERT_M16_WORD_GET((_PAM16H)->sps) && PALERT_M16_WORD_GET((_PAM16H)->sps) <= PALERT_MAX_SAMPRATE) ? \
-		PALERT_M16_WORD_GET((_PAM16H)->sps) : PALERT_DEFAULT_SAMPRATE)
-
+		PALERT_M16_WORD_GET((_PAM16H)->sps)
 /**
- * @brief Parse the palert sample number
+ * @brief Parse the Palert mode 16 sample number
  *
  */
 #define PALERT_M16_SAMPNUM_GET(_PAM16H) \
 		((PALERT_M16_WORD_GET((_PAM16H)->data_len) >> 2) / (_PAM16H)->nchannel)
 
-/*
- * PALERT_IS_MODE16_HEADER()
+/**
+ * @brief
+ *
  */
 #define PALERT_PKT_IS_MODE16(_PAPKT) \
-		((((uint8_t *)(_PAPKT))[0] == 0x53) && (((uint8_t *)(_PAPKT))[1] == 0x59) && \
-		(((uint8_t *)(_PAPKT))[2] == 0x4F) && (((uint8_t *)(_PAPKT))[3] == 0x43))
+		((((uint8_t *)(_PAPKT))[0] == PALERT_M16_SYNC_CHAR_0) && (((uint8_t *)(_PAPKT))[1] == PALERT_M16_SYNC_CHAR_1) && \
+		(((uint8_t *)(_PAPKT))[2] == PALERT_M16_SYNC_CHAR_2) && (((uint8_t *)(_PAPKT))[3] == PALERT_M16_SYNC_CHAR_3))
 
 /* Export functions's prototypes */
 double pac_m16_sptime_get( const PALERT_M16_HEADER * );
 double pac_m16_scale_get( const PALERT_M16_HEADER * );
 double pac_m16_ntp_offset_get( const PALERT_M16_HEADER * );
 void   pac_m16_data_extract( const PALERT_M16_PACKET *, int, float *[] );
+int    pac_m16_crc_check( const PALERT_M16_PACKET * );

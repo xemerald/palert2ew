@@ -2,17 +2,16 @@
  * @file general.c
  * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
  * @brief
- * @version 0.1
  * @date 2024-06-04
  *
  * @copyright Copyright (c) 2024
  *
  */
 /* Local header include */
-#include <libpalertc.h>
-#include <mode1.h>
-#include <mode4.h>
-#include <mode16.h>
+#include "libpalertc.h"
+#include "mode1.h"
+#include "mode4.h"
+#include "mode16.h"
 
 /**
  * @brief
@@ -70,8 +69,11 @@ int pac_ntp_sync_check( const void *packet )
 	return 0;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param packet
+ * @return int
  */
 int pac_pktlen_get( const void *packet )
 {
@@ -103,8 +105,11 @@ int pac_serial_get( const void *packet )
 	return 0;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param raw_intensity
+ * @return int
  */
 int pac_cwb2020_int_trans( const int raw_intensity )
 {

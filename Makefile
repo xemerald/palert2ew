@@ -2,6 +2,10 @@
 #
 #
 
+# Default compile rule
+#
+default: clean ver_710_sql cap_set
+
 # Compile rule for Earthworm version under 7.9
 #
 ver_709: libs echo_msg_709

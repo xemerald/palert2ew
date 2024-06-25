@@ -38,21 +38,22 @@ static volatile int       MaxStationNum = 0;
 static PALERT_THREAD_SET *ThreadSets    = NULL;
 static CONNDESCRIP       *PalertConns   = NULL;
 
-/*
- * pa2ew_server_init() - Initialize the independent Palert server &
- *                       return the needed threads number.
+/**
+ * @brief Initialize the independent Palert server & return the needed threads number.
+ *
+ * @param max_stations
+ * @param port
+ * @return int
  */
 int pa2ew_server_init( const int max_stations, const char *port )
 {
-	int i;
-
 /* Setup constants */
 	AcceptEpoll   = epoll_create(2);
 	MaxStationNum = max_stations;
 	ThreadsNumber = pa2ew_recv_thrdnum_eval( max_stations, PA2EW_RECV_SERVER_ON );
 	ThreadSets    = calloc(ThreadsNumber, sizeof(PALERT_THREAD_SET));
 /* Create epoll sets */
-	for ( i = 0; i < ThreadsNumber; i++ ) {
+	for ( int i = 0; i < ThreadsNumber; i++ ) {
 		ThreadSets[i].epoll_fd = epoll_create(PA2EW_MAX_PALERTS_PER_THREAD);
 		ThreadSets[i].buffer   = calloc(1, sizeof(LABELED_RECV_BUFFER));
 		ThreadSets[i].evts     = calloc(PA2EW_MAX_PALERTS_PER_THREAD, sizeof(struct epoll_event));
@@ -67,13 +68,12 @@ int pa2ew_server_init( const int max_stations, const char *port )
 	return ThreadsNumber;
 }
 
-/*
- *  pa2ew_server_end() - End process of Palert server.
+/**
+ * @brief End process of Palert server.
+ *
  */
 void pa2ew_server_end( void )
 {
-	int i;
-
 /* */
 	logit("o", "palert2ew: Closing all the connections of Palerts!\n");
 	if ( AcceptSocket > 0 )
@@ -82,13 +82,13 @@ void pa2ew_server_end( void )
 		close(AcceptEpoll);
 /* Closing connections of Palerts */
 	if ( PalertConns != NULL ) {
-		for ( i = 0; i < MaxStationNum; i++ )
+		for ( int i = 0; i < MaxStationNum; i++ )
 			pa2ew_server_common_pconnect_close( (PalertConns + i), ThreadSets[i % ThreadsNumber].epoll_fd );
 		free(PalertConns);
 	}
 /* Free epoll & readevts */
 	if ( ThreadSets != NULL ) {
-		for ( i = 0; i < ThreadsNumber; i++ ) {
+		for ( int i = 0; i < ThreadsNumber; i++ ) {
 			close(ThreadSets[i].epoll_fd);
 			free(ThreadSets[i].buffer);
 			free(ThreadSets[i].evts);
@@ -99,8 +99,11 @@ void pa2ew_server_end( void )
 	return;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param action
+ * @param arg
  */
 void pa2ew_server_pconnect_walk( void (*action)(const void *, const int, void *), void *arg )
 {
@@ -109,12 +112,14 @@ void pa2ew_server_pconnect_walk( void (*action)(const void *, const int, void *)
 	return;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param msec
+ * @return int
  */
 int pa2ew_server_palerts_accept( const int msec )
 {
-	int                i;
 	int                nready = 0;
 	struct epoll_event evts[LISTENQ];
 	int              (*accept_func)( void ) = NULL;
@@ -122,7 +127,7 @@ int pa2ew_server_palerts_accept( const int msec )
 /* */
 	if ( msec ) {
 		nready = epoll_wait(AcceptEpoll, evts, LISTENQ, msec);
-		for ( i = 0; i < nready; i++ ) {
+		for ( int i = 0; i < nready; i++ ) {
 			if ( evts[i].events & EPOLLIN ) {
 				accept_func = (int (*)( void ))evts[i].data.ptr;
 				if ( accept_func() == -1 )
@@ -134,12 +139,14 @@ int pa2ew_server_palerts_accept( const int msec )
 	return nready;
 }
 
-/*
- * pa2ew_server_pconnect_check() - Check connections of all Palerts.
+/**
+ * @brief Check connections of all Palerts.
+ *
+ * @return int
  */
 int pa2ew_server_pconnect_check( void )
 {
-	int            i, result = 0;
+	int            result = 0;
 	double         time_now;
 	CONNDESCRIP   *conn = PalertConns;
 
@@ -147,7 +154,7 @@ int pa2ew_server_pconnect_check( void )
 	if ( conn != NULL ) {
 	/* */
 		time_now = pa2ew_timenow_get();
-		for ( i = 0; i < MaxStationNum; i++, conn++ ) {
+		for ( int i = 0; i < MaxStationNum; i++, conn++ ) {
 			if ( conn->sock != -1 ) {
 				if ( (time_now - conn->last_act) > (double)PA2EW_IDLE_THRESHOLD ) {
 					logit(
@@ -165,21 +172,30 @@ int pa2ew_server_pconnect_check( void )
 	return result;
 }
 
-/*
- * pa2ew_server_pconnect_find()
+/**
+ * @brief
+ *
+ * @param serial
+ * @return CONNDESCRIP*
  */
 CONNDESCRIP *pa2ew_server_pconnect_find( const uint16_t serial )
 {
 	return pa2ew_server_common_pconnect_find( PalertConns, MaxStationNum, serial );
 }
 
-/*
+/**
+ * @brief
  *
+ * @param max_stations
+ * @param port
+ * @param epoll
+ * @param conn
+ * @param accept_func
+ * @return int
  */
 int pa2ew_server_common_init(
 	const int max_stations, const char *port, const int epoll, CONNDESCRIP **conn, int (*accept_func)( void )
 ) {
-	int                i;
 	int                result;
 	struct epoll_event connevt;
 
@@ -190,7 +206,7 @@ int pa2ew_server_common_init(
 	}
 	else {
 		logit("o", "palert2ew: %d connection descriptors allocated for port: %s!\n", max_stations, port);
-		for ( i = 0; i < max_stations; i++ )
+		for ( int i = 0; i < max_stations; i++ )
 			RESET_CONNDESCRIP( *conn + i );
 	}
 /* Construct the accept socket */
@@ -204,8 +220,11 @@ int pa2ew_server_common_init(
 	return result;
 }
 
-/*
- * pa2ew_server_common_accept() -
+/**
+ * @brief
+ *
+ * @param sock
+ * @return CONNDESCRIP
  */
 CONNDESCRIP pa2ew_server_common_accept( const int sock )
 {
@@ -244,48 +263,56 @@ CONNDESCRIP pa2ew_server_common_accept( const int sock )
 	return result;
 }
 
-/*
- * pa2ew_server_common_pconnect_walk() -
+/**
+ * @brief
+ *
+ * @param conn
+ * @param conn_num
+ * @param action
+ * @param arg
  */
 void pa2ew_server_common_pconnect_walk(
 	const CONNDESCRIP *conn, const int conn_num, void (*action)(const void *, const int, void *), void *arg
 ) {
-	int i;
-
 	if ( conn && conn_num ) {
-		for ( i = 0; i < conn_num; i++ )
+		for ( int i = 0; i < conn_num; i++ )
 			action( conn + i, i, arg );
 	}
 
 	return;
 }
 
-/*
- * pa2ew_server_common_pconnect_find() -
+/**
+ * @brief
+ *
+ * @param conn
+ * @param conn_num
+ * @param serial
+ * @return CONNDESCRIP*
  */
 CONNDESCRIP *pa2ew_server_common_pconnect_find( const CONNDESCRIP *conn, const int conn_num, const uint16_t serial )
 {
-	int i;
 	const CONNDESCRIP *result = NULL;
 	_STAINFO          *staptr = NULL;
 
 	if ( conn && conn_num ) {
-		for ( i = 0; i < conn_num; i++ ) {
-			result = conn + i;
-			staptr = (_STAINFO *)result->label.staptr;
-			if ( staptr && serial == staptr->serial )
+		for ( int i = 0; i < conn_num; i++ ) {
+			staptr = (_STAINFO *)conn[i].label.staptr;
+			if ( staptr && serial == staptr->serial ) {
+				result = conn + i;
 				break;
+			}
 		}
-	/* */
-		if ( i >= conn_num )
-			result = NULL;
 	}
 
 	return (CONNDESCRIP *)result;
 }
 
-/*
- * pa2ew_server_common_pconnect_close() - Close the connect of the Palert.
+/**
+ * @brief Close the connect of the Palert.
+ *
+ * @param conn
+ * @param epoll
  */
 void pa2ew_server_common_pconnect_close( CONNDESCRIP *conn, const int epoll )
 {
@@ -303,15 +330,18 @@ void pa2ew_server_common_pconnect_close( CONNDESCRIP *conn, const int epoll )
 	return;
 }
 
-/*
- * pa2ew_server_proc() - Read the streaming data from each Palert and put it
- *                       into queue.
+/**
+ * @brief Read the streaming data from each Palert and put it into queue.
+ *
+ * @param countindex
+ * @param msec
+ * @return int
  */
 int pa2ew_server_proc( const int countindex, const int msec )
 {
-	int    i, nready;
-	double time_now;
+	int    nready;
 	_Bool  need_update = 0;
+	double time_now;
 /* */
 	int                  epoll  = ThreadSets[countindex].epoll_fd;
 	LABELED_RECV_BUFFER *buffer = (LABELED_RECV_BUFFER *)ThreadSets[countindex].buffer;
@@ -321,7 +351,7 @@ int pa2ew_server_proc( const int countindex, const int msec )
 	if ( (nready = epoll_wait(epoll, evts, PA2EW_MAX_PALERTS_PER_THREAD, msec)) ) {
 		time_now = pa2ew_timenow_get();
 	/* There is some incoming data from socket */
-		for ( i = 0; i < nready; i++ ) {
+		for ( int i = 0; i < nready; i++ ) {
 			if ( evts[i].events & EPOLLIN || evts[i].events & EPOLLRDHUP || evts[i].events & EPOLLERR ) {
 				int          ret  = 0;
 				CONNDESCRIP *conn = (CONNDESCRIP *)evts[i].data.ptr;
@@ -356,7 +386,7 @@ int pa2ew_server_proc( const int countindex, const int msec )
 							conn->sync_errors = 0;
 						}
 					}
-					else if ( ret >= 200 ) {
+					else if ( ret >= PALERT_M1_HEADER_LENGTH ) {
 						if ( !pac_sync_check( buffer->recv_buffer ) ) {
 							printf("palert2ew: Palert IP:%s sync failure, close connection!\n", conn->ip);
 							pa2ew_server_common_pconnect_close( conn, epoll );
@@ -383,8 +413,11 @@ int pa2ew_server_proc( const int countindex, const int msec )
 	return need_update ? PA2EW_RECV_NEED_UPDATE : PA2EW_RECV_NORMAL;
 }
 
-/*
- * construct_listen_sock() - Construct Palert listening connection socket.
+/**
+ * @brief Construct Palert listening connection socket.
+ *
+ * @param port
+ * @return int
  */
 static int construct_listen_sock( const char *port )
 {
@@ -447,10 +480,10 @@ static int construct_listen_sock( const char *port )
 	return -1;
 }
 
-
-/*
- * accept_palert_raw() - Accept the connection of Palerts then add it
- *                       into connection descriptor and EpollFd.
+/**
+ * @brief Accept the connection of Palerts then add it into connection descriptor and EpollFd.
+ *
+ * @return int
  */
 static int accept_palert_raw( void )
 {
@@ -486,8 +519,13 @@ static int accept_palert_raw( void )
 	return 0;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param buffer
+ * @param conn
+ * @param epoll
+ * @return int
  */
 static int find_which_station( void *buffer, CONNDESCRIP *conn, int epoll )
 {
@@ -523,14 +561,17 @@ static int find_which_station( void *buffer, CONNDESCRIP *conn, int epoll )
 			staptr->timeshift = 0;
 		}
 	/* */
-		printf("palert2ew: Palert %s in UTC%+.2d:00 now online.\n", staptr->sta, tzoffset);
+		printf("palert2ew: Palert %s in UTC%+.2d:00 with mode %02d packet now online.\n", staptr->sta, tzoffset, conn->label.packmode);
 	}
 
 	return result;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param pah
+ * @return int
  */
 static int find_palert_tzoffset( const PALERT_M1_HEADER *pah )
 {

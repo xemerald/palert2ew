@@ -73,13 +73,13 @@ int pa2ew_list_db_fetch( const char *table_sta, const char *table_chan, const DB
  */
 int pa2ew_list_station_line_parse( const char *line, const int update )
 {
-	int   i, result = 0;
+	int   result = 0;
 	int   serial;
 	int   nchannel;
 	char  sta[TRACE2_STA_LEN] = { 0 };
 	char  net[TRACE2_NET_LEN] = { 0 };
 	char  loc[TRACE2_LOC_LEN] = { 0 };
-	char *chan[PALERT_M1_CHAN_COUNT] = { NULL };
+	char *chan[PA2EW_MAX_CHAN_PER_STA] = { NULL };
 	char *sub_line = malloc(strlen(line) + 1);
 	char *str_start, *str_end, *str_limit;
 
@@ -91,20 +91,23 @@ int pa2ew_list_station_line_parse( const char *line, const int update )
 			return -3;
 		}
 	}
-
+/* */
+	for ( int i = 0; i < PA2EW_MAX_CHAN_PER_STA; i++ )
+		chan[i] = calloc(1, TRACE2_CHAN_LEN);
 /* */
 	if ( sscanf(line, "%d %s %s %s %d %[^\n]", &serial, sta, net, loc, &nchannel, sub_line) >= 5 ) {
 		str_start = str_end = sub_line;
 		str_limit = sub_line + strlen(sub_line) + 1;
-		for ( i = 0; i < nchannel && i < PALERT_M1_CHAN_COUNT; i++ ) {
+		nchannel = nchannel > PA2EW_MAX_CHAN_PER_STA ? PA2EW_MAX_CHAN_PER_STA : nchannel;
+		for ( int i = 0; i < nchannel; i++ ) {
 		/* */
 			for ( str_start = str_end; isspace(*str_start) && str_start < str_limit; str_start++ );
 			for ( str_end = str_start; !isspace(*str_end) && str_end <= str_limit; str_end++ );
 			*str_end++ = '\0';
 		/* */
 			if ( strlen(str_start) ) {
-				chan[i] = malloc(strlen(str_start) + 1);
-				strcpy(chan[i], str_start);
+				strncpy(chan[i], str_start, TRACE2_CHAN_LEN);
+				chan[i][TRACE2_CHAN_LEN - 1] = '\0';
 			}
 			else {
 				logit("e", "palert2ew: ERROR, lack of channel code for station %s in local list!\n", sta);
@@ -130,7 +133,7 @@ int pa2ew_list_station_line_parse( const char *line, const int update )
 		result = -1;
 	}
 /* */
-	for ( i = 0; i < nchannel && i < PALERT_M1_CHAN_COUNT; i++ )
+	for ( int i = 0; i < PA2EW_MAX_CHAN_PER_STA; i++ )
 		free(chan[i]);
 /* */
 	free(sub_line);
@@ -160,10 +163,9 @@ _STAINFO *pa2ew_list_find( const int serial )
 /* */
 	key.serial = serial;
 /* Find which station */
-	if ( (result = tfind(&key, &SList->root, compare_serial)) != NULL ) {
+	if ( (result = tfind(&key, &SList->root, compare_serial)) != NULL )
 	/* Found in the main Palert table */
 		result = *(_STAINFO **)result;
-	}
 
 	return result;
 }
@@ -275,13 +277,13 @@ void pa2ew_list_walk( void (*action)( void *, const int, void * ), void *arg )
  */
 static int fetch_list_sql( const char *table_sta, const char *table_chan, const DBINFO *dbinfo, const int update )
 {
-	int   i, result = 0;
+	int   result = 0;
 	int   serial;
 	int   nchannel;
 	char  sta[TRACE2_STA_LEN] = { 0 };
 	char  net[TRACE2_NET_LEN] = { 0 };
 	char  loc[TRACE2_LOC_LEN] = { 0 };
-	char *chan[PALERT_M1_CHAN_COUNT] = { NULL };
+	char *chan[PA2EW_MAX_CHAN_PER_STA] = { NULL };
 
 	MYSQL_RES *sql_res = NULL;
 	MYSQL_ROW  sql_row;
@@ -296,8 +298,8 @@ static int fetch_list_sql( const char *table_sta, const char *table_chan, const 
 		return -1;
 	printf("palert2ew: Queried the station information success!\n");
 /* */
-	for ( i = 0; i < PALERT_M1_CHAN_COUNT; i++ )
-		chan[i] = (char *)malloc(TRACE2_CHAN_LEN);
+	for ( int i = 0; i < PA2EW_MAX_CHAN_PER_STA; i++ )
+		chan[i] = calloc(1, TRACE2_CHAN_LEN);
 
 /* Start the SQL server connection for channel */
 	stalist_start_persistent_sql( dbinfo );
@@ -332,14 +334,12 @@ static int fetch_list_sql( const char *table_sta, const char *table_chan, const 
 	stalist_free_result_sql( sql_res );
 	stalist_end_thread_sql();
 
-	if ( result > 0 ) {
+	if ( result > 0 )
 		logit("o", "palert2ew: Read %d stations information from MySQL server success!\n", result);
-	}
-	else {
+	else
 		logit("e", "palert2ew: Some errors happened when fetching station information from MySQL server!\n");
-	}
 /* */
-	for ( i = 0; i < PALERT_M1_CHAN_COUNT; i++ )
+	for ( int i = 0; i < PA2EW_MAX_CHAN_PER_STA; i++ )
 		free(chan[i]);
 
 	return result;
@@ -369,19 +369,24 @@ static void extract_stainfo_mysql(
 static int extract_chainfo_mysql( char *chan[], MYSQL_RES *sql_res )
 {
 /* */
-	int i, result = 0;
+	int i = 0;
+	int result = 0;
 	MYSQL_ROW sql_row;
 	unsigned long *row_lengths;
 
 /* */
-	if ( sql_res != NULL ) {
+	if ( sql_res ) {
 	/* */
 		i = 0;
-		result = stalist_num_rows_sql( sql_res );
-		if ( result > 0 && result <= PALERT_M1_CHAN_COUNT ) {
-			while ( (sql_row = stalist_fetch_row_sql( sql_res )) != NULL ) {
+		if ( (result = stalist_num_rows_sql( sql_res )) > 0 ) {
+			while ( (sql_row = stalist_fetch_row_sql( sql_res )) ) {
 				row_lengths = stalist_fetch_lengths_sql( sql_res );
 				stalist_field_extract_sql( chan[i++], TRACE2_CHAN_LEN, sql_row[0], row_lengths[0] );
+			/* */
+				if ( i >= PA2EW_MAX_CHAN_PER_STA ) {
+					i = PA2EW_MAX_CHAN_PER_STA;
+					break;
+				}
 			}
 		}
 		stalist_free_result_sql( sql_res );
@@ -533,13 +538,16 @@ static _STAINFO *enrich_stainfo_raw(
 	_STAINFO *stainfo, const int serial, const char *sta, const char *net, const char *loc
 ) {
 /* */
-	stainfo->update   = PA2EW_PALERT_INFO_UPDATED;
-	stainfo->serial   = serial;
-	stainfo->chaptr   = NULL;
-	stainfo->buffer   = NULL;
-	strcpy(stainfo->sta, sta);
-	strcpy(stainfo->net, net);
-	strcpy(stainfo->loc, loc);
+	stainfo->update = PA2EW_PALERT_INFO_UPDATED;
+	stainfo->serial = serial;
+	stainfo->chaptr = NULL;
+	stainfo->buffer = NULL;
+	strncpy(stainfo->sta, sta, TRACE2_STA_LEN);
+	stainfo->sta[TRACE2_STA_LEN - 1] = '\0';
+	strncpy(stainfo->net, net, TRACE2_NET_LEN);
+	stainfo->net[TRACE2_NET_LEN - 1] = '\0';
+	strncpy(stainfo->loc, loc, TRACE2_LOC_LEN);
+	stainfo->loc[TRACE2_LOC_LEN - 1] = '\0';
 
 	return stainfo;
 }
@@ -549,7 +557,7 @@ static _STAINFO *enrich_stainfo_raw(
  */
 static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, const char *chan[] )
 {
-	_CHAINFO *chainfo = (_CHAINFO *)calloc(sizeof(_CHAINFO), (uint16_t)nchannel);
+	_CHAINFO *chainfo = (_CHAINFO *)calloc((uint16_t)nchannel, sizeof(_CHAINFO));
 
 /* */
 	stainfo->nchannel = (uint16_t)nchannel;
@@ -558,7 +566,8 @@ static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, cons
 	if ( chainfo != NULL ) {
 		for ( int i = 0; i < nchannel; i++ ) {
 			chainfo[i].seq = i;
-			strcpy(chainfo[i].chan, chan[i]);
+			strncpy(chainfo[i].chan, chan[i], TRACE2_CHAN_LEN);
+			chainfo[i].chan[TRACE2_CHAN_LEN - 1] = '\0';
 			chainfo[i].last_endtime = -1.0;
 		}
 	}
@@ -571,8 +580,6 @@ static _CHAINFO *enrich_chainfo_raw( _STAINFO *stainfo, const int nchannel, cons
  */
 static _STAINFO *update_stainfo_and_chainfo( _STAINFO *dest, const _STAINFO *src )
 {
-	int i;
-
 /* */
 	if ( strcmp(dest->sta, src->sta) )
 		strcpy(dest->sta, src->sta);
@@ -586,7 +593,7 @@ static _STAINFO *update_stainfo_and_chainfo( _STAINFO *dest, const _STAINFO *src
 		dest->chaptr = NULL;
 	}
 	else {
-		for ( i = 0; i < dest->nchannel; i++ ) {
+		for ( int i = 0; i < dest->nchannel; i++ ) {
 			if ( strcmp(((_CHAINFO *)dest->chaptr)[i].chan, ((_CHAINFO *)src->chaptr)[i].chan) ) {
 				free(dest->chaptr);
 				dest->chaptr = NULL;

@@ -22,7 +22,7 @@
 #define PALERT_PKT_MODE1  0x01
 #define PALERT_PKT_MODE2  0x02
 #define PALERT_PKT_MODE4  0x04
-#define PALERT_PKT_MODE16 0x0F
+#define PALERT_PKT_MODE16 0x10
 /* */
 #define PALERT_SET_IP     0
 #define PALERT_NTP_IP     1

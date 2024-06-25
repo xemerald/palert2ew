@@ -11,11 +11,14 @@
 #pragma once
 /* */
 #include <stdint.h>
+#include <time.h>
 
 /* */
 #define PALERTC_MISC_CRC16_INIT  0xFFFF
-#define PALERTC_MISC_CRC16_POLY  0x8005
+#define PALERTC_MISC_CRC16_POLY  0xA001
 
 /* */
-unsigned long misc_mktime( unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int );
-char *misc_ipv4str_gen( char *, uint8_t, uint8_t, uint8_t, uint8_t );
+time_t   misc_mktime( int, int, int, int, int, int );
+char    *misc_ipv4str_gen( char *, uint8_t, uint8_t, uint8_t, uint8_t );
+void     misc_crc16_init( void );
+uint16_t misc_crc16_cal( const void *, const size_t );

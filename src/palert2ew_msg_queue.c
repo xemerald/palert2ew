@@ -37,9 +37,9 @@ static void                 free_last_buffer_act( void *, const int, void * );
 static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
 static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
 static int pre_enqueue_check_pah16( LABELED_RECV_BUFFER *, size_t *, MSG_LOGO );
-static int validate_serial_pah1( const void *, const int );
-static int validate_serial_pah4( const void *, const int );
-static int validate_serial_pah16( const void *, const int );
+static int validate_pah1( const void *, const int );
+static int validate_pah4( const void *, const int );
+static int validate_pah16( const void *, const int );
 
 /*
  * pa2ew_msgqueue_init() - Initialization function of message queue and mutex.
@@ -174,15 +174,15 @@ static LABELED_RECV_BUFFER *draw_last_buffer( void *label_buf, size_t *buf_len )
 	/* Pre checking for preventing header contamination, especially the incoming data buffer */
 		switch ( result->label.packmode ) {
 		case PALERT_PKT_MODE1: case PALERT_PKT_MODE2: default:
-			if ( *buf_len >= PALERT_M1_HEADER_LENGTH && validate_serial_pah1( result->recv_buffer, serial ) > 0 )
+			if ( *buf_len >= PALERT_M1_HEADER_LENGTH && validate_pah1( result->recv_buffer, serial ) > 0 )
 				_lastbuf->buffer_rear = 0;
 			break;
 		case PALERT_PKT_MODE4:
-			if ( *buf_len >= PALERT_M4_HEADER_LENGTH && validate_serial_pah4( result->recv_buffer, serial ) > 0 )
+			if ( *buf_len >= PALERT_M4_HEADER_LENGTH && validate_pah4( result->recv_buffer, serial ) > 0 )
 				_lastbuf->buffer_rear = 0;
 			break;
 		case PALERT_PKT_MODE16:
-			if ( *buf_len >= PALERT_M16_HEADER_LENGTH && validate_serial_pah16( result->recv_buffer, serial ) > 0 )
+			if ( *buf_len >= PALERT_M16_HEADER_LENGTH && validate_pah16( result->recv_buffer, serial ) > 0 )
 				_lastbuf->buffer_rear = 0;
 			break;
 		}
@@ -288,7 +288,7 @@ static int pre_enqueue_check_pah1( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 		*buf_len -= PALERT_M1_HEADER_LENGTH, pah++
 	) {
 	/* Testing for the mode 1 packet header */
-		if ( (ret = validate_serial_pah1( pah, serial )) > 0 ) {
+		if ( (ret = validate_pah1( pah, serial )) > 0 ) {
 			if ( ret == PALERT_M1_PACKET_LENGTH ) {
 			/*
 			 * Once the mode 1 packet header is incoming,
@@ -353,7 +353,7 @@ static int pre_enqueue_check_pah4( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len, 
 
 /* */
 	do {
-		if ( (ret = validate_serial_pah4( pah4, serial )) > 0 ) {
+		if ( (ret = validate_pah4( pah4, serial )) > 0 ) {
 		/* */
 			sync_flag = 1;
 		/* */
@@ -398,7 +398,7 @@ static int pre_enqueue_check_pah16( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len,
 
 /* */
 	do {
-		if ( (ret = validate_serial_pah16( pah16, serial )) > 0 ) {
+		if ( (ret = validate_pah16( pah16, serial )) > 0 ) {
 		/* */
 			sync_flag = 1;
 		/* */
@@ -431,9 +431,9 @@ static int pre_enqueue_check_pah16( LABELED_RECV_BUFFER *lrbuf, size_t *buf_len,
 }
 
 /*
- * validate_serial_pah1() -
+ * validate_pah1() -
  */
-static int validate_serial_pah1( const void *header, const int serial )
+static int validate_pah1( const void *header, const int serial )
 {
 	PALERT_M1_HEADER *pah = (PALERT_M1_HEADER *)header;
 
@@ -445,9 +445,9 @@ static int validate_serial_pah1( const void *header, const int serial )
 }
 
 /*
- * validate_serial_pah4() -
+ * validate_pah4() -
  */
-static int validate_serial_pah4( const void *header, const int serial )
+static int validate_pah4( const void *header, const int serial )
 {
 	PALERT_M4_HEADER *pah4 = (PALERT_M4_HEADER *)header;
 
@@ -461,9 +461,9 @@ static int validate_serial_pah4( const void *header, const int serial )
 }
 
 /*
- * validate_serial_pah16() -
+ * validate_pah16() -
  */
-static int validate_serial_pah16( const void *header, const int serial )
+static int validate_pah16( const void *header, const int serial )
 {
 	PALERT_M16_HEADER *pah16 = (PALERT_M16_HEADER *)header;
 

@@ -56,7 +56,8 @@ static int     update_list_configfile( char * );
 static void    process_packet_pm1( const void *, _STAINFO *, const char [2] );
 static void    process_packet_pm4( const void *, _STAINFO *, const char [2] );
 static void    process_packet_pm16( const void *, _STAINFO *, const char [2] );
-static int     examine_ntp_sync( _STAINFO *, const void *, const int );
+static int     examine_ntp_status( _STAINFO *, const void *, const int );
+static int     check_pkt_crc( const void *, const int );
 static void    handle_signal( void );
 
 /* Ring messages things */
@@ -84,14 +85,16 @@ static unsigned        *ReceiverThreadID    = NULL;       /* Thread id for recei
 
 /* Things to read or derive from configuration file
  **************************************************/
-static char     RingName[2][MAX_RING_STR];  /* name of transport ring for i/o    */
-static char     MyModName[MAX_MOD_STR];     /* speak as this module name/id      */
-static uint8_t  LogSwitch;                  /* 0 if no logfile should be written */
-static uint64_t HeartBeatInterval;          /* seconds between heartbeats        */
-static uint64_t UpdateInterval = 0;         /* seconds between updating check    */
-static uint64_t QueueSize;                  /* max messages in output circular buffer */
-static uint8_t  ServerSwitch;               /* 0 connect to Palert server; 1 as the server of Palert */
+static char     RingName[2][MAX_RING_STR];   /* name of transport ring for i/o    */
+static char     MyModName[MAX_MOD_STR];      /* speak as this module name/id      */
+static uint8_t  LogSwitch;                   /* 0 if no logfile should be written */
+static uint64_t HeartBeatInterval;           /* seconds between heartbeats        */
+static uint64_t UpdateInterval = 0;          /* seconds between updating check    */
+static uint64_t QueueSize;                   /* max messages in output circular buffer */
+static uint8_t  ServerSwitch;                /* 0 connect to Palert server; 1 as the server of Palert */
 static uint8_t  RawOutputSwitch = 0;
+static uint8_t  CheckCRCSwitch = 1;          /* 0 disable the CRC checking; 1 enable the CRC checking */
+static uint8_t  OutputTimeQuestionable = 0;  /* 0 filter out NTP unsychronized stations; 1 allow these stations */
 static char     ServerIP[INET6_ADDRSTRLEN];
 static char     ServerPort[8] = { 0 };
 static uint64_t MaxStationNum;
@@ -125,11 +128,12 @@ static uint8_t TypePalertRaw = 0;
 static volatile _Bool   Finish = 1;
 static volatile uint8_t UpdateFlag = LIST_IS_UPDATED;
 
-/* Macro */
-#define IS_GAP_BETWEEN_LAST_TRACE(TRH2, LAST_END) \
-		((LAST_END) > 0.0 && ((TRH2)->starttime - (LAST_END)) > (2.0 / (TRH2)->samprate))
-/*
+/**
+ * @brief
  *
+ * @param argc
+ * @param argv
+ * @return int
  */
 int main ( int argc, char **argv )
 {
@@ -282,35 +286,38 @@ int main ( int argc, char **argv )
 		/* Process the raw packet */
 			if ( msg_logo.type == PA2EW_MSG_CLIENT_STREAM || msg_logo.type == PA2EW_MSG_SERVER_NORMAL ) {
 				count++;
-				msg_size -= (uint8_t *)(&data_ptr->buffer) - (uint8_t *)data_ptr;
+				msg_size -= data_ptr->buffer - (uint8_t *)data_ptr;
+			/* Check the CRC of the packet if enable this function */
+				if ( CheckCRCSwitch && !check_pkt_crc( data_ptr->buffer, data_ptr->label.packmode ) )
+					continue;
 			/* Put the raw data to the raw ring */
 				if (
 					RawOutputSwitch &&
-					tport_putmsg(&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO], msg_size, (char *)(&data_ptr->buffer)) != PUT_OK
+					tport_putmsg(&Region[RAW_MSG_LOGO], &Putlogo[RAW_MSG_LOGO], msg_size, (char *)data_ptr->buffer) != PUT_OK
 				) {
 					logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[RAW_MSG_LOGO]);
 				}
-			/* Examine the NTP sync. status */
-				if ( examine_ntp_sync( data_ptr->label.staptr, &data_ptr->buffer, 0 ) ) {
+			/* Examine the NTP status */
+				if ( examine_ntp_status( data_ptr->label.staptr, data_ptr->buffer, data_ptr->label.packmode ) || OutputTimeQuestionable ) {
 				/* Parse the raw packet to trace buffer */
 					switch ( data_ptr->label.packmode ) {
 					case PALERT_PKT_MODE1:
 					/* We only deal with the Normal Streaming packet(1) in this program!! */
-						if ( PALERT_M1_PACKETTYPE_GET( (PALERT_M1_HEADER *)&data_ptr->buffer ) == PALERT_M1_PACKETTYPE_NORMAL )
-							process_packet_pm1( &data_ptr->buffer, (_STAINFO *)data_ptr->label.staptr, idatatype );
+						if ( PALERT_M1_PACKETTYPE_GET( (PALERT_M1_HEADER *)data_ptr->buffer ) == PALERT_M1_PACKETTYPE_NORMAL )
+							process_packet_pm1( data_ptr->buffer, (_STAINFO *)data_ptr->label.staptr, idatatype );
 						break;
 					case PALERT_PKT_MODE4:
-						process_packet_pm4( &data_ptr->buffer, (_STAINFO *)data_ptr->label.staptr, idatatype );
+						process_packet_pm4( data_ptr->buffer, (_STAINFO *)data_ptr->label.staptr, idatatype );
 						break;
 					case PALERT_PKT_MODE16:
-						process_packet_pm16( &data_ptr->buffer, (_STAINFO *)data_ptr->label.staptr, fdatatype );
+						process_packet_pm16( data_ptr->buffer, (_STAINFO *)data_ptr->label.staptr, fdatatype );
 						break;
 					default:
 						break;
 					}
 				}
 			}
-		} while ( count < MaxStationNum );  /* end of message-processing-loop */
+		} while ( count < MaxStationNum ); /* end of message-processing-loop */
 	}
 /*-----------------------------end of main loop-------------------------------*/
 exit_procedure:
@@ -340,11 +347,10 @@ static void palert2ew_config( char *configfile )
 	int   nmiss;        /* number of required commands that were missed   */
 	int   nfiles;
 	int   success;
-	int   i;
 
 /* Set to zero one init flag for each required command */
 	ncommand = 14;
-	for ( i = 0; i < ncommand; i++ ) {
+	for ( int i = 0; i < ncommand; i++ ) {
 		if ( i < 9 )
 			init[i] = 0;
 		else
@@ -367,9 +373,7 @@ static void palert2ew_config( char *configfile )
 		/* Get the first token from line */
 			com = k_str();
 		/* Ignore blank lines & comments */
-			if ( !com )
-				continue;
-			if ( com[0] == '#' )
+			if ( !com || com[0] == '#' )
 				continue;
 		/* Open a nested configuration file s*/
 			if ( com[0] == '@' ) {
@@ -438,11 +442,21 @@ static void palert2ew_config( char *configfile )
 						UpdateInterval
 					);
 			}
+			else if ( k_its("CheckCRC16") ) {
+				CheckCRCSwitch = k_int();
+				if ( CheckCRCSwitch )
+					logit("o", "palert2ew: Turn on the CRC-16 checking function.\n");
+			}
+			else if ( k_its("OutputTimeQuestionable") ) {
+				OutputTimeQuestionable = k_int();
+				if ( OutputTimeQuestionable )
+					logit("o", "palert2ew: NOTICE!! Those waveforms with questionable timestamp will be output!\n");
+			}
 		/* 6 */
 			else if ( k_its("ServerSwitch") ) {
 				if ( (ServerSwitch = k_int()) >= 1 ) {
 					ServerSwitch = PA2EW_RECV_SERVER_ON;
-					for ( i = 7; i < 9; i++ )
+					for ( int i = 7; i < 9; i++ )
 						init[i] = 1;
 				}
 				else {
@@ -469,7 +483,7 @@ static void palert2ew_config( char *configfile )
 				if ( str )
 					strcpy(DBInfo.host, str);
 #if defined( _USE_SQL )
-				for ( i = 9; i < 14; i++ )
+				for ( int i = 9; i < 14; i++ )
 					init[i] = 0;
 #endif
 			}
@@ -538,7 +552,7 @@ static void palert2ew_config( char *configfile )
 
 /* After all files are closed, check init flags for missed commands */
 	nmiss = 0;
-	for ( i = 0; i < ncommand; i++ )
+	for ( int i = 0; i < ncommand; i++ )
 		if ( !init[i] )
 			nmiss++;
 /* */
@@ -566,8 +580,9 @@ static void palert2ew_config( char *configfile )
 	return;
 }
 
-/*
- * palert2ew_lookup() - Look up important info from earthworm.h tables
+/**
+ * @brief Look up important info from earthworm.h tables
+ *
  */
 static void palert2ew_lookup( void )
 {
@@ -621,21 +636,25 @@ static void palert2ew_lookup( void )
 	return;
 }
 
-/*
- * palert2ew_status() - builds a heartbeat or error message & puts it into
- *                      shared memory.  Writes errors to log file & screen.
+/**
+ * @brief Builds a heartbeat or error message & puts it into shared memory. Writes errors to log file & screen.
+ *
+ * @param type
+ * @param ierr
+ * @param note
  */
 static void palert2ew_status( unsigned char type, short ierr, char *note )
 {
-	MSG_LOGO    logo;
-	char        msg[512];
-	uint64_t    size;
-	time_t      t;
-
 /* Build the message */
-	logo.instid = InstId;
-	logo.mod    = MyModId;
-	logo.type   = type;
+	MSG_LOGO logo = {
+		.instid = InstId,
+		.mod    = MyModId,
+		.type   = type
+	};
+
+	char   msg[512];
+	size_t size;
+	time_t t;
 
 	time(&t);
 
@@ -647,23 +666,22 @@ static void palert2ew_status( unsigned char type, short ierr, char *note )
 		logit("et", "palert2ew: %s\n", note);
 	}
 
-	size = strlen(msg);   /* don't include the null byte in the message */
+	size = strlen(msg);  /* don't include the null byte in the message */
 
 /* Write the message to shared memory */
-	if ( tport_putmsg(&Region[0], &logo, size, msg) != PUT_OK ) {
-		if ( type == TypeHeartBeat ) {
+	if ( tport_putmsg(&Region[0], &logo, (long)size, msg) != PUT_OK ) {
+		if ( type == TypeHeartBeat )
 			logit("et","palert2ew: Error sending heartbeat.\n");
-		}
-		else if ( type == TypeError ) {
+		else if ( type == TypeError )
 			logit("et","palert2ew: Error sending error:%d.\n", ierr);
-		}
 	}
 
 	return;
 }
 
-/*
- * palert2ew_end() - free all the local memory & close socket
+/**
+ * @brief Free all the allocated memory & close socket
+ *
  */
 static void palert2ew_end( void )
 {
@@ -683,8 +701,10 @@ static void palert2ew_end( void )
 	return;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param wait_msec
  */
 static void check_receiver_client( const int wait_msec )
 {
@@ -715,8 +735,10 @@ static void check_receiver_client( const int wait_msec )
 	return;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param wait_msec
  */
 static void check_receiver_server( const int wait_msec )
 {
@@ -724,7 +746,6 @@ static void check_receiver_server( const int wait_msec )
 	static time_t   time_check = 0;
 	static int      thread_num = 0;
 
-	int    i;
 	time_t time_now;
 
 /* */
@@ -733,7 +754,7 @@ static void check_receiver_server( const int wait_msec )
 		thread_num = ReceiverThreadsNum;
 	/* */
 		number = calloc(thread_num, sizeof(uint8_t));
-		for ( i = 0; i < thread_num; i++ )
+		for ( int i = 0; i < thread_num; i++ )
 			number[i] = i;
 	/*
 	 * 'cause these sockets are local, it should be much more stable.
@@ -748,7 +769,7 @@ static void check_receiver_server( const int wait_msec )
 /* */
 	pa2ew_server_palerts_accept( wait_msec );
 /* */
-	for ( i = 0; i < thread_num; i++ ) {
+	for ( int i = 0; i < thread_num; i++ ) {
 		if ( MessageReceiverStatus[i] != THREAD_ALIVE ) {
 			if (
 				StartThreadWithArg(receiver_server_thread, number + i, (uint32_t)THREAD_STACK, ReceiverThreadID + i) == -1
@@ -769,9 +790,11 @@ static void check_receiver_server( const int wait_msec )
 	return;
 }
 
-/*
- * receiver_client_thread() - Receive the messages from the socket of forward server
- *                            and send it to the MessageStacker.
+/**
+ * @brief Receive the messages from the socket of forward server & send it to the MessageStacker.
+ *
+ * @param dummy
+ * @return thr_ret
  */
 static thr_ret receiver_client_thread( void *dummy )
 {
@@ -803,9 +826,11 @@ static thr_ret receiver_client_thread( void *dummy )
 	return NULL;
 }
 
-/*
- * receiver_server_thread() - Receive the messages from the socket of all the Palerts
- *                            and send it to the MessageStacker.
+/**
+ * @brief Receive the messages from the socket of all the Palerts & send it to the MessageStacker.
+ *
+ * @param arg
+ * @return thr_ret
  */
 static thr_ret receiver_server_thread( void *arg )
 {
@@ -830,8 +855,11 @@ static thr_ret receiver_server_thread( void *arg )
 	return NULL;
 }
 
-/*
- * update_list_thread() -
+/**
+ * @brief
+ *
+ * @param arg
+ * @return thr_ret
  */
 static thr_ret update_list_thread( void *arg )
 {
@@ -874,8 +902,11 @@ static thr_ret update_list_thread( void *arg )
 	return NULL;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param configfile
+ * @return int
  */
 static int update_list_configfile( char *configfile )
 {
@@ -892,14 +923,14 @@ static int update_list_configfile( char *configfile )
 	}
 
 /* Process all command files */
-	while ( nfiles > 0 )   /* While there are command files open */
+	while ( nfiles > 0 )  /* While there are command files open */
 	{
-		while ( k_rd() )        /* Read next line from active file  */
+		while ( k_rd() )  /* Read next line from active file  */
 		{
-			com = k_str();         /* Get the first token from line */
+			com = k_str();  /* Get the first token from line */
 		/* Ignore blank lines & comments */
-			if ( !com )          continue;
-			if ( com[0] == '#' ) continue;
+			if ( !com || com[0] == '#' )
+				continue;
 		/* Open a nested configuration file */
 			if ( com[0] == '@' ) {
 				success = nfiles + 1;
@@ -925,8 +956,8 @@ static int update_list_configfile( char *configfile )
 			}
 		/* See if there were any errors processing the command */
 			if ( k_err() ) {
-			   logit("e", "palert2ew: Bad <%s> command in <%s> when updating!\n", com, configfile);
-			   return -1;
+				logit("e", "palert2ew: Bad <%s> command in <%s> when updating!\n", com, configfile);
+				return -1;
 			}
 		}
 		nfiles = k_close();
@@ -935,8 +966,12 @@ static int update_list_configfile( char *configfile )
 	return 0;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param packet
+ * @param stainfo
+ * @param datatype
  */
 static void process_packet_pm1( const void *packet, _STAINFO *stainfo, const char datatype[2] )
 {
@@ -963,6 +998,8 @@ static void process_packet_pm1( const void *packet, _STAINFO *stainfo, const cha
 		pac_m1_systime_get( packet, stainfo->timeshift ),
 		datatype
 	);
+/* Time sync. tag */
+	tracebuf.trh2.quality[0] |= stainfo->ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT ? TIME_TAG_QUESTIONABLE : 0;
 /* Extract all the channels' data */
 	pac_m1_data_extract( packet, _databuf );
 /* Each channel part */
@@ -985,8 +1022,12 @@ static void process_packet_pm1( const void *packet, _STAINFO *stainfo, const cha
 	return;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param packet
+ * @param stainfo
+ * @param datatype
  */
 static void process_packet_pm4( const void *packet, _STAINFO *stainfo, const char datatype[2] )
 {
@@ -1007,6 +1048,8 @@ static void process_packet_pm4( const void *packet, _STAINFO *stainfo, const cha
 /* Common information part */
 	pa2ew_trh2_init( &tracebuf.trh2 );
 	pa2ew_trh2_scn_enrich( &tracebuf.trh2, stainfo->sta, stainfo->net, stainfo->loc );
+/* Time sync. tag */
+	tracebuf.trh2.quality[0] |= stainfo->ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT ? TIME_TAG_QUESTIONABLE : 0;
 /* */
 	do {
 		smsr = (SMSRECORD *)dataptr;
@@ -1044,8 +1087,12 @@ static void process_packet_pm4( const void *packet, _STAINFO *stainfo, const cha
 	return;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param packet
+ * @param stainfo
+ * @param datatype
  */
 static void process_packet_pm16( const void *packet, _STAINFO *stainfo, const char datatype[2] )
 {
@@ -1071,6 +1118,8 @@ static void process_packet_pm16( const void *packet, _STAINFO *stainfo, const ch
 		pac_m16_sptime_get( (PALERT_M16_HEADER *)packet ),
 		datatype
 	);
+/* Time sync. tag */
+	tracebuf.trh2.quality[0] |= stainfo->ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT ? TIME_TAG_QUESTIONABLE : 0;
 /* Extract all the channels' data */
 	for ( int i = 0; i < stainfo->nchannel; i++ )
 		_databuf[i] = (float *)&databuf + (nsamp * i);
@@ -1092,58 +1141,99 @@ static void process_packet_pm16( const void *packet, _STAINFO *stainfo, const ch
 	return;
 }
 
-/*
- * examine_ntp_sync() -
+/**
+ * @brief
+ *
+ * @param stainfo
+ * @param packet
+ * @param packet_mode
+ * @return int
  */
-static int examine_ntp_sync( _STAINFO *stainfo, const void *header, const int header_mode )
+static int examine_ntp_status( _STAINFO *stainfo, const void *packet, const int packet_mode )
 {
 	static const uint8_t pre_threshold = PA2EW_NTP_SYNC_ERR_LIMIT * 0.8;
 	uint8_t * const      ntp_errors    = &stainfo->ntp_errors;
 
-/* Check NTP SYNC. depends on its header mode */
-	switch ( header_mode ) {
+/* Check NTP status. depends on its packet mode */
+	switch ( packet_mode ) {
 	case PALERT_PKT_MODE1: default:
-		if ( !PALERT_M1_NTP_CHECK( (PALERT_M1_HEADER *)header ) )
+		if ( !PALERT_M1_NTP_CHECK( (PALERT_M1_HEADER *)packet ) )
 			goto not_sync;
 		break;
 	case PALERT_PKT_MODE4:
-		if ( !PALERT_M4_NTP_CHECK( (PALERT_M4_HEADER *)header ) )
+		if ( !PALERT_M4_NTP_CHECK( (PALERT_M4_HEADER *)packet ) )
 			goto not_sync;
 		break;
 	case PALERT_PKT_MODE16:
-		if ( !PALERT_M16_NTP_CHECK( (PALERT_M16_HEADER *)header ) )
+		if ( !PALERT_M16_NTP_CHECK( (PALERT_M16_HEADER *)packet ) )
 			goto not_sync;
 		break;
 	}
 
-sync:
+/* Good NTP status */
 	if ( *ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT )
-		logit("ot", "palert2ew: Station %s NTP re-sync, now back online.\n", stainfo->sta);
+		logit("ot", "palert2ew: Station %s reconnect to NTP server & time re-synchronized!\n", stainfo->sta);
 	*ntp_errors = 0;
-/* If the NTP status is sync, we should accept this packet */
-	return 1;
+/* If the NTP status is good, we should accept this waveform */
+	goto pass;
 
 not_sync:
-	if ( *ntp_errors >= pre_threshold ) {
+	if ( (*ntp_errors)++ >= pre_threshold ) {
 		if ( *ntp_errors < PA2EW_NTP_SYNC_ERR_LIMIT ) {
-			printf("palert2ew: Station %s NTP not sync, please check it!\n", stainfo->sta);
+			printf("palert2ew: Station %s lost connection to NTP server, please check it!\n", stainfo->sta);
+			goto pass;
 		}
-		else {
-			if ( *ntp_errors == PA2EW_NTP_SYNC_ERR_LIMIT ) {
-				logit("et", "palert2ew: Station %s NTP sync error, drop the packet.\n", stainfo->sta);
-				(*ntp_errors)++;
-			}
-		/* NTP status is not sync and it exceed the error limit, we will reject this packet */
-			return 0;
+		else if ( *ntp_errors == PA2EW_NTP_SYNC_ERR_LIMIT ) {
+			logit(
+				"et",
+				OutputTimeQuestionable ?
+				"palert2ew: NOTICE!! Station %s time unsynchronized, the waveforms will be marked.\n" :
+				"palert2ew: NOTICE!! Station %s time unsynchronized, reject the waveforms.\n",
+				stainfo->sta
+			);
 		}
+	/* Keep the error count equal to limit plus 1 */
+		*ntp_errors = PA2EW_NTP_SYNC_ERR_LIMIT + 1;
+	/* NTP status is not good and it exceed the error limit, we will reject this waveform */
+		return 0;
 	}
-	(*ntp_errors)++;
-/* Even NTP status is not sync but it still under the error limit, we also accept this packet */
+
+pass:
+/* Even NTP status is not good but it still under the error limit, we also accept this waveform */
 	return 1;
 }
 
-/*
- * handle_signal() -
+/**
+ * @brief
+ *
+ * @param packet
+ * @param packet_mode
+ * @return int
+ */
+static int check_pkt_crc( const void *packet, const int packet_mode )
+{
+/* Check CRC number. depends on its packet mode */
+	switch ( packet_mode ) {
+	case PALERT_PKT_MODE1: default:
+		if ( pac_m1_crc_check( packet ) )
+			return 1;
+		break;
+	case PALERT_PKT_MODE4:
+		if ( pac_m4_crc_check( packet ) )
+			return 1;
+		break;
+	case PALERT_PKT_MODE16:
+		if ( pac_m16_crc_check( packet ) )
+			return 1;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * @brief
+ *
  */
 static void handle_signal( void )
 {

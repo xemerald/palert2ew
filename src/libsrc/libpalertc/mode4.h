@@ -13,19 +13,20 @@
 #include <stdint.h>
 
 /* */
-#define PALERT_M4_HEADER_LENGTH    64
-
+#define PALERT_M4_HEADER_LENGTH      64
+#define PALERT_M4_PACKET_MAX_LENGTH  65536
+#define PALERT_M4_CRC16_CAL_LENGTH   8
 /*
  * Definition of Palert mode 4 header, total size is 64 bytes
  */
 typedef struct {
-/* packet infomation */
+/* packet infomation, 8 bytes */
 	uint8_t packet_type[2];
 	uint8_t packet_len[2];
 	uint8_t device_type;
 	uint8_t channel_number;
 	uint8_t crc16_byte[2];
-/* hardware infomation */
+/* hardware infomation, 14 bytes */
 	uint8_t firmware[2];
 	uint8_t serial[2];
 	uint8_t connection_flag[2];
@@ -33,7 +34,7 @@ typedef struct {
 	uint8_t op_mode[2];
 	uint8_t dio_status[2];
 	uint8_t filter_trigger_mode[2];
-/* network infomation */
+/* network infomation, 36 bytes */
 	uint8_t ntp_server[4];
 	uint8_t tcp0_server[4];
 	uint8_t tcp1_server[4];
@@ -43,9 +44,9 @@ typedef struct {
 	uint8_t palert_ip[4];
 	uint8_t subnet_mask[4];
 	uint8_t gateway_ip[4];
-/* synchronized character */
+/* synchronized character, 4 bytes */
 	uint8_t sync_char[4];
-/* reserved byte */
+/* reserved byte, 2 bytes*/
 	uint8_t padding[2];
 } PALERT_M4_HEADER;
 
@@ -67,6 +68,27 @@ typedef struct {
 */
 
 /**
+ * @brief Definition of Palert generic mode 16 packet structure, total size is 65536 bytes
+ *
+ */
+typedef union {
+	PALERT_M4_HEADER header;
+	uint8_t          bytes[PALERT_M4_PACKET_MAX_LENGTH];
+} PALERT_M4_PACKET;
+
+/* Alias of the structure above */
+typedef PALERT_M4_PACKET PAM4P;
+
+/**
+ * @brief
+ *
+ */
+#define PALERT_M4_SYNC_CHAR_0  0x03  /* Stand for '03' in decimal */
+#define PALERT_M4_SYNC_CHAR_1  0x05  /* Stand for '05' in decimal */
+#define PALERT_M4_SYNC_CHAR_2  0x15  /* Stand for '15' in decimal */
+#define PALERT_M4_SYNC_CHAR_3  0x01  /* Stand for '01' in decimal */
+
+/**
  * @brief
  *
  */
@@ -78,8 +100,8 @@ typedef struct {
  *
  */
 #define PALERT_M4_SYNC_CHECK(_PAM4H) \
-		((_PAM4H)->sync_char[0] == 0x03 && (_PAM4H)->sync_char[1] == 0x05 && \
-		(_PAM4H)->sync_char[2] == 0x15 && (_PAM4H)->sync_char[3] == 0x01)
+		(((_PAM4H)->sync_char[0] == PALERT_M4_SYNC_CHAR_0) && ((_PAM4H)->sync_char[1] == PALERT_M4_SYNC_CHAR_1) && \
+		((_PAM4H)->sync_char[2] == PALERT_M4_SYNC_CHAR_2) && ((_PAM4H)->sync_char[3] == PALERT_M4_SYNC_CHAR_3))
 
 /**
  * @brief
@@ -129,8 +151,10 @@ typedef struct {
  *
  */
 #define PALERT_PKT_IS_MODE4(_PAPKT) \
-		(!(((uint8_t *)(_PAPKT))[0] ^ 0x04))
+		((((uint8_t *)(_PAPKT))[58] == PALERT_M4_SYNC_CHAR_0) && (((uint8_t *)(_PAPKT))[59] == PALERT_M4_SYNC_CHAR_1) && \
+		(((uint8_t *)(_PAPKT))[60] == PALERT_M4_SYNC_CHAR_2) && (((uint8_t *)(_PAPKT))[61] == PALERT_M4_SYNC_CHAR_3))
 
 /* Export functions's prototypes */
 char *pac_m4_trigmode_get( const PALERT_M4_HEADER * );
 char *pac_m4_ip_get( const PALERT_M4_HEADER *, const int, char * );
+int   pac_m4_crc_check( const PALERT_M4_PACKET * );

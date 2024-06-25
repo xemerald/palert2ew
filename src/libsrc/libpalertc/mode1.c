@@ -195,3 +195,28 @@ void pac_m1_data_extract(
 
 	return;
 }
+
+
+/**
+ * @brief
+ *
+ * @param packet
+ * @return int
+ */
+int pac_m1_crc_check( const PALERT_M1_PACKET *packet )
+{
+/* */
+	PALERT_M1_HEADER *header = (PALERT_M1_HEADER *)&packet->header;
+	const uint8_t     crc16_byte[2] = { header->crc16_byte[0], header->crc16_byte[1] };
+	int               result;
+
+/* */
+	header->crc16_byte[0] = header->crc16_byte[1] = 0x00;
+	result = misc_crc16_cal( packet, PALERT_M1_PACKETLEN_GET( header ) );
+	result = result == (crc16_byte[0] | (crc16_byte[1] << 8)) ? 1 : 0;
+/* */
+	header->crc16_byte[0] = crc16_byte[0];
+	header->crc16_byte[1] = crc16_byte[1];
+
+	return result;
+}

@@ -85,3 +85,14 @@ char *pac_m4_ip_get( const PALERT_M4_HEADER *pam4h, const int iptype, char *dest
 
 	return dest;
 }
+
+/**
+ * @brief
+ *
+ * @param packet
+ * @return int
+ */
+int pac_m4_crc_check( const PALERT_M4_PACKET *packet )
+{
+	return misc_crc16_cal( packet, PALERT_M4_CRC16_CAL_LENGTH ) ? 0 : 1;
+}

@@ -11,16 +11,27 @@ LogFile            1              # 0 to turn off disk log file; 1 to turn it on
                                   # to log to module log but not stderr/stdout
 HeartBeatInterval  15             # seconds between heartbeats
 
+# Station Related setup:
+#
 QueueSize          1000           # max messages in internal circular msg buffer
 MaxStationNum      1024           # max number of stations which will receive data from
-UniSampRate        100            # setting for unified sampling rate (Hz), if set this parameter,
-                                  # all of the P-alerts will be applied by this value; or just
-                                  # comment it out, let the program detect the sampling rate
-                                  # from the packet.
 UpdateInterval     0              # setting for automatical updating interval (seconds). If set this
                                   # parameter larger than 0, the program will update the P-alerts
                                   # list with this interval; or the program will ignore the new
-                                  # incoming P-alerts' packets.
+                                  # incoming P-alerts' packets
+UniSampRate        100            # setting for unified sampling rate (Hz), if set this parameter,
+                                  # all of the P-alerts will be applied by this value; or just
+                                  # comment it out, let the program detect the sampling rate
+                                  # from the packet
+
+# Data Quality setup:
+#
+CheckCRC16                0       # 0 (default) to turn off the checking process of CRC-16;
+                                  # 1 to turn it on. Since the checking process takes some time;
+                                  # Therefore, if you care about the timeliness, 0 is preferable
+OutputTimeQuestionable    0       # 0 (default) to filter out those waveforms from NTP unsynchronized stations;
+                                  # 1 to allow those waveforms
+
 # Palert server setup:
 #
 # There are two independent mode in this module: first, as a client-side program connect to the P-alert

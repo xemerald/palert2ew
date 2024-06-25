@@ -1,8 +1,7 @@
 /**
  * @file mode16.c
  * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
- * @brief Program for Palert mode 16 data packet.
- * @version 0.1
+ * @brief Parsing functions for Palert mode 16 data packet.
  * @date 2024-06-02
  *
  * @copyright Copyright (c) 2024
@@ -14,6 +13,7 @@
 #include <stdint.h>
 /* Local header include */
 #include "libpalertc.h"
+#include "misc.h"
 #include "mode16.h"
 
 /**
@@ -36,7 +36,7 @@ double pac_m16_sptime_get( const PALERT_M16_HEADER *pam16h )
 double pac_m16_scale_get( const PALERT_M16_HEADER *pam16h )
 {
 	PALERT_M16_DATA data = {
-		.data_uint = PALERT_M16_DWORD_GET( pam16h->scale )
+		.data_dword = PALERT_M16_DWORD_GET( pam16h->scale )
 	};
 
 	return data.data_real;
@@ -51,7 +51,7 @@ double pac_m16_scale_get( const PALERT_M16_HEADER *pam16h )
 double pac_m16_ntp_offset_get( const PALERT_M16_HEADER *pam16h )
 {
 	PALERT_M16_DATA data = {
-		.data_uint = PALERT_M16_DWORD_GET( pam16h->ntp_offset )
+		.data_dword = PALERT_M16_DWORD_GET( pam16h->ntp_offset )
 	};
 
 	return data.data_real;
@@ -84,10 +84,21 @@ void pac_m16_data_extract( const PALERT_M16_PACKET *packet, int nbuf, float *buf
 /* Go thru all the packet data */
 	for ( int i = 0; data_ptr < data_end; i++, data_ptr += packet->header.nchannel ) {
 		for ( int j = 0; j < packet->header.nchannel; j++ ) {
-			data_buf.data_uint = PALERT_M16_DWORD_GET( data_ptr[j].data_byte );
-			_buffer[j][i]      = data_buf.data_real;
+			data_buf.data_dword = PALERT_M16_DWORD_GET( data_ptr[j].data_byte );
+			_buffer[j][i]       = data_buf.data_real;
 		}
 	}
 
 	return;
+}
+
+/**
+ * @brief
+ *
+ * @param packet
+ * @return int
+ */
+int pac_m16_crc_check( const PALERT_M16_PACKET *packet )
+{
+	return misc_crc16_cal( packet, PALERT_M16_PACKETLEN_GET( &packet->header ) ) ? 0 : 1;
 }

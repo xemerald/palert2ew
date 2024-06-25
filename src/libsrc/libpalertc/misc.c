@@ -12,8 +12,9 @@
 /* Standard C header include */
 #include <stdint.h>
 #include <stdio.h>
+#include <time.h>
 /* */
-#include <misc.h>
+#include "misc.h"
 
 /* */
 static uint16_t cal_crc16_low( const uint8_t );
@@ -30,17 +31,17 @@ static uint8_t  CRC16_Ready = 0;
  * @param hour
  * @param min
  * @param sec
- * @return unsigned long
+ * @return time_t
  */
-unsigned long misc_mktime( unsigned int year, unsigned int mon, unsigned int day, unsigned int hour, unsigned int min, unsigned int sec )
+time_t misc_mktime( int year, int mon, int day, int hour, int min, int sec )
 {
-	if ( 0 >= (int)(mon -= 2) ) {
+	if ( 0 >= (mon -= 2) ) {
 	/* Puts Feb. last since it has leap day */
 		mon += 12;
 		year--;
 	}
 
-	return ((((unsigned long)(year / 4 - year / 100 + year / 400 + 367 * mon / 12 + day) + year * 365 - 719499) * 24 + hour) * 60 + min) * 60 + sec;
+	return ((((time_t)(year / 4 - year / 100 + year / 400 + 367 * mon / 12 + day) + year * 365 - 719499) * 24 + hour) * 60 + min) * 60 + sec;
 }
 
 /**
@@ -68,20 +69,16 @@ char *misc_ipv4str_gen( char *dest, uint8_t first_num, uint8_t second_num, uint8
 void misc_crc16_init( void )
 {
 /* */
-	for ( int i = 0x00; i <= 0xff; i++ )
-		CRC16_Table[i & 0xff] = cal_crc16_low( i & 0xff );
+	for ( int i = 0x00; i <= 0xFF; i++ )
+		CRC16_Table[i & 0xFF] = cal_crc16_low( i & 0xFF );
 /* */
 	CRC16_Ready = 1;
 
 	return;
 }
 
-/*
- * pa2ew_misc_crc8_cal() - A CRC-8 calculation function
- */
-
 /**
- * @brief
+ * @brief A CRC-16 calculation function
  *
  * @param data
  * @param size
@@ -101,7 +98,7 @@ uint16_t misc_crc16_cal( const void *data, const size_t size )
 	/* */
 		end = ptr + size;
 		while ( ptr < end )
-			result = CRC16_Table[result ^ *ptr++];
+			result = (result >> 8) ^ CRC16_Table[(result ^ (uint16_t)*ptr++) & 0x00FF];
 	}
 
 	return result;
@@ -114,7 +111,7 @@ uint16_t misc_crc16_cal( const void *data, const size_t size )
  */
 static uint16_t cal_crc16_low( const uint8_t data )
 {
-	uint16_t result = PALERTC_MISC_CRC16_INIT;
+	uint16_t result = 0;
 
 /* */
 	result ^= data;
