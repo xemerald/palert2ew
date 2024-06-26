@@ -89,8 +89,9 @@ SQLChannelTable    PalertChannelList
 # Local station list:
 #
 # The local list for P-alerts that will receive. By the way, the priority of local list
-# is higher than the one from remote data. The channel codes are optional, and the value
-# will be filled by the default value. And the layout should be like these example:
+# is higher than the one from remote data. The channel codes are optional. If channel
+# code is absent (Nchannel equal to 0), the value will be filled by the default value.
+# By the way the maximum value of Nchannel is 8. And the layout should be like these example:
 #
 # Palert   Serial   Station   Network   Location   Nchannel   Channel_0   Channel_1   Channel_2
 # Palert    1993      TEST      TW         --         3         HLZ          HLN        HLE      # First example

@@ -2,27 +2,44 @@
  * @file palert2ew_list.c
  * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
  * @brief
- * @date 2024-06-06
- * @copyright Copyright (c) 2024
+ * @date 2020-08-01
+ *
+ * @copyright Copyright (c) 2020
  *
  */
+
 #define _GNU_SOURCE
-/* */
+
+/**
+ * @name Standard C header include
+ *
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <search.h>
 #include <ctype.h>
-/* */
+
+/**
+ * @name Earthworm environment header include
+ *
+ */
 #include <earthworm.h>
-/* */
+
+/**
+ * @name Local header include
+ *
+ */
 #include <libpalertc/libpalertc.h>
 #include <dl_chain_list.h>
 #include <palert2ew_misc.h>
 #include <palert2ew_list.h>
 
-/* */
+/**
+ * @brief
+ *
+ */
 typedef struct {
 	int     count;      /* Number of clients in the list */
 	double  timestamp;  /* Time of the last time updated */
@@ -31,7 +48,10 @@ typedef struct {
 	void   *root_t;     /* Temporary root of binary searching tree */
 } StaList;
 
-/* Internal functions' prototypes */
+/**
+ * @name Internal functions' prototype
+ *
+ */
 static int       fetch_list_sql( const char *, const char *, const DBINFO *, const int );
 static StaList  *init_sta_list( void );
 static void      destroy_sta_list( StaList * );
@@ -51,7 +71,10 @@ static void extract_stainfo_mysql( int *, char *, char *, char *, const MYSQL_RO
 static int  extract_chainfo_mysql( char *[], MYSQL_RES * );
 #endif
 
-/* Global variables */
+/**
+ * @name Internal static variables
+ *
+ */
 static StaList *SList = NULL;
 
 /**

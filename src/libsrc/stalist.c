@@ -1,42 +1,57 @@
-/*
- * stalist.c
+/**
+ * @file stalist.c
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief Tool for fetching station information from remote database.
+ * @date 2020-03-01
  *
- * Tool for fetching station information from remote database.
- *
- * Benjamin Yang
- * Department of Geology
- * National Taiwan University
- *
- * March, 2020
+ * @copyright Copyright (c) 2020
  *
  */
-/* Standard C header include */
+
+/**
+ * @name Standard C header include
+ *
+ */
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
 #include <mysql.h>
-/* Local header include */
+
+/**
+ * @name Local header include
+ *
+ */
 #include <dbinfo.h>
 #include <stalist.h>
 
-/* Internal functions' prototype */
+/**
+ * @name Internal functions' prototype
+ *
+ */
 static MYSQL_RES *query_sql( const DBINFO *, const char *, const size_t );
 static char *gen_select_str( char *, const char *, GET_COLUMN_NAME, int, va_list );
 static char *get_sta_column_name( const STALIST_COL_LIST );
 static char *get_chan_column_name( const STALIST_COL_LIST );
 
-/*
+/**
+ * @name Internal variables
  *
  */
 static MYSQL *SQL = NULL;
 
-/*
- * stalist_sta_query_sql() -
+/**
+ * @brief
+ *
+ * @param dbinfo
+ * @param table
+ * @param num_col
+ * @param ...
+ * @return MYSQL_RES*
  */
 MYSQL_RES *stalist_sta_query_sql( const DBINFO *dbinfo, const char *table, const int num_col, ... )
 {
-	char       query[4096];
-	va_list    ap;
+	char    query[4096];
+	va_list ap;
 
 	va_start(ap, num_col);
 	gen_select_str( query, table, get_sta_column_name, num_col, ap );
@@ -47,15 +62,24 @@ MYSQL_RES *stalist_sta_query_sql( const DBINFO *dbinfo, const char *table, const
 	return query_sql( dbinfo, query, strlen(query) );
 }
 
-/*
- * stalist_chan_query_sql() -
+/**
+ * @brief
+ *
+ * @param dbinfo
+ * @param table
+ * @param sta
+ * @param net
+ * @param loc
+ * @param num_col
+ * @param ...
+ * @return MYSQL_RES*
  */
 MYSQL_RES *stalist_chan_query_sql(
 	const DBINFO *dbinfo, const char *table, const char *sta, const char *net, const char *loc, const int num_col, ...
 ) {
-	char       query[4096];
-	char       tmpquery[512];
-	va_list    ap;
+	char    query[4096];
+	char    tmpquery[512];
+	va_list ap;
 
 /* */
 	va_start(ap, num_col);
@@ -74,40 +98,58 @@ MYSQL_RES *stalist_chan_query_sql(
 	return query_sql( dbinfo, query, strlen(query) );
 }
 
-/*
- * stalist_fetch_row_sql() -
+/**
+ * @brief
+ *
+ * @param res
+ * @return MYSQL_ROW
  */
 MYSQL_ROW stalist_fetch_row_sql( MYSQL_RES *res )
 {
 	return mysql_fetch_row(res);
 }
 
-/*
- * stalist_fetch_lengths_sql() -
+/**
+ * @brief
+ *
+ * @param res
+ * @return unsigned long*
  */
 unsigned long *stalist_fetch_lengths_sql( MYSQL_RES *res )
 {
 	return mysql_fetch_lengths(res);
 }
 
-/*
- * stalist_num_rows_sql() -
+/**
+ * @brief
+ *
+ * @param res
+ * @return int
  */
 int stalist_num_rows_sql( MYSQL_RES *res )
 {
 	return mysql_num_rows(res);
 }
 
-/*
- * stalist_num_fields_sql() -
+/**
+ * @brief
+ *
+ * @param res
+ * @return unsigned int
  */
 unsigned int stalist_num_fields_sql( MYSQL_RES *res )
 {
 	return mysql_num_fields(res);
 }
 
-/*
+/**
+ * @brief
  *
+ * @param dest
+ * @param dest_len
+ * @param src
+ * @param src_len
+ * @return char*
  */
 char *stalist_field_extract_sql( char *dest, const unsigned int dest_len, const void *src, const unsigned int src_len )
 {
@@ -119,8 +161,12 @@ char *stalist_field_extract_sql( char *dest, const unsigned int dest_len, const 
 	return dest;
 }
 
-/*
- * stalist_free_result_sql() -
+/**
+ * @brief
+ *
+ * @param res
+ * @par Returns
+ * 	Nothing.
  */
 void stalist_free_result_sql( MYSQL_RES *res )
 {
@@ -129,8 +175,11 @@ void stalist_free_result_sql( MYSQL_RES *res )
 	return;
 }
 
-/*
- * stalist_free_result_sql() -
+/**
+ * @brief
+ *
+ * @param dbinfo
+ * @return MYSQL*
  */
 MYSQL *stalist_start_persistent_sql( const DBINFO *dbinfo )
 {
@@ -146,8 +195,11 @@ MYSQL *stalist_start_persistent_sql( const DBINFO *dbinfo )
 	return SQL;
 }
 
-/*
- * stalist_close_persistent_sql() -
+/**
+ * @brief
+ *
+ * @par Returns
+ * 	Nothing.
  */
 void stalist_close_persistent_sql( void )
 {
@@ -160,8 +212,11 @@ void stalist_close_persistent_sql( void )
 	return;
 }
 
-/*
- * stalist_end_thread_sql() - Specific function under thread.
+/**
+ * @brief Specific function under thread.
+ *
+ * @par Returns
+ * 	Nothing.
  */
 void stalist_end_thread_sql( void )
 {
@@ -170,8 +225,13 @@ void stalist_end_thread_sql( void )
 	return;
 }
 
-/*
- * query_sql() - Get stations list from MySQL server
+/**
+ * @brief Get stations list from MySQL server
+ *
+ * @param dbinfo
+ * @param query
+ * @param query_len
+ * @return MYSQL_RES*
  */
 static MYSQL_RES *query_sql( const DBINFO *dbinfo, const char *query, const size_t query_len )
 {
@@ -204,8 +264,15 @@ static MYSQL_RES *query_sql( const DBINFO *dbinfo, const char *query, const size
 	return result;
 }
 
-/*
- * gen_select_str() -
+/**
+ * @brief
+ *
+ * @param buffer
+ * @param table
+ * @param get_column_name
+ * @param num_col
+ * @param ap
+ * @return char*
  */
 static char *gen_select_str(
 	char *buffer, const char *table, GET_COLUMN_NAME get_column_name, int num_col, va_list ap
@@ -232,8 +299,11 @@ static char *gen_select_str(
 	return buffer;
 }
 
-/*
- * get_sta_column_name() -
+/**
+ * @brief Get the sta column name object
+ *
+ * @param col
+ * @return char*
  */
 static char *get_sta_column_name( const STALIST_COL_LIST col )
 {
@@ -246,8 +316,11 @@ static char *get_sta_column_name( const STALIST_COL_LIST col )
 	return col_name[col.col_sta];
 }
 
-/*
- * get_chan_column_name() -
+/**
+ * @brief Get the chan column name object
+ *
+ * @param col
+ * @return char*
  */
 static char *get_chan_column_name( const STALIST_COL_LIST col )
 {

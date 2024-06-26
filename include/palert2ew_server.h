@@ -1,23 +1,37 @@
-/*
- * palert2ew_server.h
+/**
+ * @file palert2ew_server.h
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief Header file for setting up server connections waiting for Palerts.
+ * @date 2020-08-01
  *
- * Header file for setting up server connections waiting for Palerts.
- *
- * Benjamin Yang
- * Department of Geology
- * National Taiwan University
- *
- * August, 2020
+ * @copyright Copyright (c) 2020
  *
  */
+
 #pragma once
-/* Network related header include */
+
+/**
+ * @name Network related header include
+ *
+ */
 #include <arpa/inet.h>
-/* */
+
+/**
+ * @name Local header include
+ *
+ */
 #include <palert2ew.h>
+
+/**
+ * @brief
+ *
+ */
 #define LISTENQ  128
 
-/* Connection descriptors struct */
+/**
+ * @brief Connection descriptors struct
+ *
+ */
 typedef struct {
 	int      sock;
 	int      port;
@@ -27,14 +41,20 @@ typedef struct {
 	LABEL    label;
 } CONNDESCRIP;
 
-/* */
+/**
+ * @brief
+ *
+ */
 typedef struct {
 	int                 epoll_fd;
 	uint8_t            *buffer;
 	struct epoll_event *evts;
 } PALERT_THREAD_SET;
 
-/* Macro */
+/**
+ * @brief
+ *
+ */
 #define RESET_CONNDESCRIP(CONN) \
 		__extension__({ \
 			memset((CONN), 0, sizeof(CONNDESCRIP)); \
@@ -43,7 +63,10 @@ typedef struct {
 			(CONN)->label.packmode = 0; \
 		})
 
-/* */
+/**
+ * @name Export functions' prototype
+ *
+ */
 int  pa2ew_server_init( const int, const char * ); /* Initialize the independent Palert server */
 void pa2ew_server_end( void );                                                   /* End process of Palert server */
 void pa2ew_server_pconnect_walk( void (*)(const void *, const int, void *), void * );
@@ -51,7 +74,6 @@ int  pa2ew_server_proc( const int, const int );                                 
 int  pa2ew_server_palerts_accept( const int );                                    /* Return the accept socket number */
 int  pa2ew_server_pconnect_check( void );                                        /* Check connections of all Palerts */
 CONNDESCRIP *pa2ew_server_pconnect_find( const uint16_t );
-/* */
 int          pa2ew_server_common_init( const int, const char *, const int, CONNDESCRIP **, int (*)( void ) );
 CONNDESCRIP  pa2ew_server_common_accept( const int );
 CONNDESCRIP *pa2ew_server_common_pconnect_find( const CONNDESCRIP *, const int, const uint16_t );

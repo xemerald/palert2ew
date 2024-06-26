@@ -2,26 +2,43 @@
  * @file palert2ew_server.c
  * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
  * @brief
- * @date 2024-06-06
- * @copyright Copyright (c) 2024
+ * @date 2020-08-01
+ *
+ * @copyright Copyright (c) 2020
  *
  */
-/* Standard C header include */
+
+/**
+ * @name Standard C header include
+ *
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <search.h>
 #include <unistd.h>
 #include <errno.h>
-/* Network related header include */
+
+/**
+ * @name Network related header include
+ *
+ */
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
-/* Earthworm environment header include */
+
+/**
+ * @name Earthworm environment header include
+ *
+ */
 #include <earthworm.h>
-/* Local header include */
+
+/**
+ * @name Local header include
+ *
+ */
 #include <libpalertc/libpalertc.h>
 #include <palert2ew.h>
 #include <palert2ew_misc.h>
@@ -29,13 +46,19 @@
 #include <palert2ew_server.h>
 #include <palert2ew_msg_queue.h>
 
-/* Internal function prototype */
+/**
+ * @name Internal functions' prototype
+ *
+ */
 static int construct_listen_sock( const char * );
 static int accept_palert_raw( void );
 static int find_which_station( void *, CONNDESCRIP *, int );
 static int find_palert_tzoffset( const PALERT_M1_HEADER * );
 
-/* Define global variables */
+/**
+ * @name Internal static variables
+ *
+ */
 volatile int              AcceptEpoll   = 0;
 static volatile int       AcceptSocket  = -1;
 static volatile int       ThreadsNumber = 0;

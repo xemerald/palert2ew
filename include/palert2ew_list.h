@@ -1,31 +1,45 @@
-/*
- * palert2ew_list.h
+/**
+ * @file palert2ew_list.h
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief Header file for construct the dictionary of station.
+ * @date 2020-08-01
  *
- * Header file for construct the dictionary of station.
- *
- * Benjamin Yang
- * Department of Geology
- * National Taiwan University
- *
- * August, 2020
+ * @copyright Copyright (c) 2020
  *
  */
+
+
 #pragma once
-/* */
+
+/**
+ * @name Local header include
+ *
+ */
 #if defined( _USE_SQL )
 #include <stalist.h>
 #else
 #include <dbinfo.h>
 #endif
-/* */
 #include <palert2ew.h>
-/* */
+
+/**
+ * @brief
+ *
+ */
 #define PA2EW_LIST_INITIALIZING  0
 #define PA2EW_LIST_UPDATING      1
-/* */
+
+/**
+ * @brief
+ *
+ */
 #define PA2EW_PALERT_INFO_OBSOLETE 0
 #define PA2EW_PALERT_INFO_UPDATED  1
-/* */
+
+/**
+ * @name Export functions' prototype
+ *
+ */
 int       pa2ew_list_db_fetch( const char *, const char *, const DBINFO *, const int );
 int       pa2ew_list_station_line_parse( const char *, const int );
 void      pa2ew_list_end( void );

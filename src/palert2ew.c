@@ -2,16 +2,22 @@
  * @file palert2ew.c
  * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
  * @brief
- * @date 2024-06-06
- * @copyright Copyright (c) 2024
+ * @date 2020-08-01
+ *
+ * @copyright Copyright (c) 2020
  *
  */
+
 #ifdef _OS2
 #define INCL_DOSMEMMGR
 #define INCL_DOSSEMAPHORES
 #include <os2.h>
 #endif
-/* Standard C header include */
+
+/**
+ * @name Standard C header include
+ *
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -20,14 +26,22 @@
 #include <signal.h>
 #include <ctype.h>
 #include <time.h>
-/* Earthworm environment header include */
+
+/**
+ * @name Earthworm environment header include
+ *
+ */
 #include <earthworm.h>
 #include <trace_buf.h>
 #include <kom.h>
 #include <transport.h>
 #include <lockfile.h>
 #include <libmseed.h>
-/* Local header include */
+
+/**
+ * @name Local header include
+ *
+ */
 #include <libpalertc/libpalertc.h>
 #include <palert2ew.h>
 #include <palert2ew_misc.h>
@@ -36,7 +50,10 @@
 #include <palert2ew_server.h>
 #include <palert2ew_msg_queue.h>
 
-/* Internal stack related struct */
+/**
+ * @brief Internal stack related struct
+ *
+ */
 typedef struct {
 /* */
 	LABEL   label;
@@ -44,7 +61,10 @@ typedef struct {
 	uint8_t buffer[65536];
 } LABELED_DATA;
 
-/* Functions prototype in this source file */
+/**
+ * @name Internal functions' prototype
+ *
+ */
 static void palert2ew_config( char * );
 static void palert2ew_lookup( void );
 static void palert2ew_status( unsigned char, short, char * );
@@ -62,10 +82,12 @@ static void    process_packet_pm4( const void *, _STAINFO *, const char [2] );
 static void    process_packet_pm16( const void *, _STAINFO *, const char [2] );
 static int     examine_ntp_status( _STAINFO *, const void *, const int );
 static int     check_pkt_crc( const void *, const int );
-static void   *convert_m16data_to_int( void *, const float *, const int );
 static void    handle_signal( void );
 
-/* Ring messages things */
+/**
+ * @name Ring messages things
+ *
+ */
 #define WAVE_MSG_LOGO  0
 #define RAW_MSG_LOGO   1
 
@@ -73,7 +95,10 @@ static SHM_INFO Region[2];      /* shared memory region to use for i/o    */
 static MSG_LOGO Putlogo[2];     /* array for requesting module, type, instid */
 static pid_t    MyPid;          /* for restarts by startstop               */
 
-/* Thread things */
+/**
+ * @name Thread things
+ *
+ */
 #define THREAD_STACK 8388608         /* 8388608 Byte = 8192 Kilobyte = 8 Megabyte */
 #define THREAD_OFF    0              /* Thread has not been started      */
 #define THREAD_ALIVE  1              /* Thread alive and well            */
@@ -88,7 +113,10 @@ static unsigned         UpdateThreadID      = 0;          /* Thread id for updat
 static unsigned        *ReceiverThreadID    = NULL;       /* Thread id for receiving messages from TCP/IP */
 #endif
 
-/* Things to read or derive from configuration file */
+/**
+ * @name Things to read or derive from configuration file
+ *
+ */
 static char     RingName[2][MAX_RING_STR];   /* name of transport ring for i/o    */
 static char     MyModName[MAX_MOD_STR];      /* speak as this module name/id      */
 static uint8_t  LogSwitch;                   /* 0 if no logfile should be written */
@@ -108,7 +136,10 @@ static DBINFO   DBInfo;
 static char     SQLStationTable[MAX_TABLE_LEGTH];
 static char     SQLChannelTable[MAX_TABLE_LEGTH];
 
-/* Things to look up in the earthworm.h tables with getutil.c functions */
+/**
+ * @name Things to look up in the earthworm.h tables with getutil.c functions
+ *
+ */
 static int64_t RingKey[2];      /* key of transport ring for i/o     */
 static uint8_t InstId;          /* local installation id             */
 static uint8_t MyModId;         /* Module Id for this program        */
@@ -117,22 +148,32 @@ static uint8_t TypeError;
 static uint8_t TypeTracebuf2 = 0;
 static uint8_t TypePalertRaw = 0;
 
-/* Error messages used by palert2ew */
+/**
+ * @name Error messages used by palert2ew
+ *
+ */
 #define  ERR_MISSMSG       0   /* message missed in transport ring       */
 #define  ERR_TOOBIG        1   /* retreived msg too large for buffer     */
 #define  ERR_NOTRACK       2   /* msg retreived; tracking limit exceeded */
 #define  ERR_QUEUE         3   /* error queueing message for sending      */
 
-/* Update flag used by palert2ew */
+/**
+ * @name Update flag used by palert2ew
+ *
+ */
 #define  LIST_IS_UPDATED      0
 #define  LIST_NEED_UPDATED    1
 #define  LIST_UNDER_UPDATE    2
 
+/**
+ * @name Internal static variables
+ *
+ */
 static volatile _Bool   Finish = 1;
 static volatile uint8_t UpdateFlag = LIST_IS_UPDATED;
 
 /**
- * @brief
+ * @brief Main function, the entry
  *
  * @param argc
  * @param argv
@@ -337,9 +378,10 @@ exit_procedure:
 	return 0;
 }
 
-/*
- * palert2ew_config() - processes command file(s) using kom.c functions;
- *                      exits if any errors are encountered.
+/**
+ * @brief Processes command file(s) using kom.c functions; exits if any errors are encountered.
+ *
+ * @param configfile
  */
 static void palert2ew_config( char *configfile )
 {
@@ -1008,9 +1050,11 @@ static void process_packet_pm1( const void *packet, _STAINFO *stainfo, const cha
 	);
 /* Time sync. tag */
 	tracebuf.trh2.quality[0] |= stainfo->ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT ? TIME_TAG_QUESTIONABLE : 0;
+
 /* Extract all the channels' data */
 	pac_m1_data_extract( packet, _databuf );
-/* Each channel part */
+
+/* Output for each channel */
 	for ( int i = 0; i < stainfo->nchannel && i < PALERT_M1_CHAN_COUNT; i++, chaptr++ ) {
 	/* First, enrich the channel code */
 		memcpy(tracebuf.trh2.chan, chaptr->chan, TRACE2_CHAN_LEN);
@@ -1113,7 +1157,7 @@ static void process_packet_pm16( const void *packet, _STAINFO *stainfo, const ch
 	size_t         total_size = data_size + sizeof(TRACE2_HEADER);
 	_CHAINFO      *chaptr     = (_CHAINFO *)stainfo->chaptr;
 	int32_t       *tb_data    = (int32_t *)(&tracebuf.trh2 + 1);
-	float         *_databuf[stainfo->nchannel];
+	void          *_databuf[stainfo->nchannel];
 
 /* Common information part */
 	pa2ew_trh2_init( &tracebuf.trh2 );
@@ -1128,15 +1172,24 @@ static void process_packet_pm16( const void *packet, _STAINFO *stainfo, const ch
 	);
 /* Time sync. tag */
 	tracebuf.trh2.quality[0] |= stainfo->ntp_errors >= PA2EW_NTP_SYNC_ERR_LIMIT ? TIME_TAG_QUESTIONABLE : 0;
+
 /* Extract all the channels' data */
 	for ( int i = 0; i < stainfo->nchannel; i++ )
-		_databuf[i] = (float *)databuf + (nsamp * i);
-	pac_m16_data_extract( packet, stainfo->nchannel, _databuf );
-/* If set to forcing output integer data, then convert it */
-	if ( tracebuf.trh2.datatype[0] == 'i' || tracebuf.trh2.datatype[0] == 's' )
 	/* 'cause the size of data is the same between float & int32_t, here we use the same buffer space */
-		convert_m16data_to_int( databuf, (float *)databuf, nsamp * stainfo->nchannel );
-/* Each channel part */
+		_databuf[i] = (int32_t *)databuf + (nsamp * i);
+/* Select the extract method by pre-defined data type flag */
+	switch ( tracebuf.trh2.datatype[0] ) {
+/* Extract the raw type of data */
+	case 'f': case 't': default:
+		pac_m16_data_extract( packet, stainfo->nchannel, (float **)_databuf );
+		break;
+/* If set to forcing output integer data, then extract the integer data */
+	case 'i': case 's':
+		pac_m16_idata_extract( packet, stainfo->nchannel, (int32_t **)_databuf );
+		break;
+	}
+
+/* Output for each channel */
 	for ( int i = 0; i < stainfo->nchannel; i++, chaptr++ ) {
 	/* First, enrich the channel code */
 		memcpy(tracebuf.trh2.chan, chaptr->chan, TRACE2_CHAN_LEN);
@@ -1241,30 +1294,6 @@ static int check_pkt_crc( const void *packet, const int packet_mode )
 	}
 
 	return 0;
-}
-
-/**
- * @brief
- *
- * @param buffer
- * @param data
- * @param nsamp
- * @return void*
- */
-static void *convert_m16data_to_int( void *buffer, const float *data, const int nsamp )
-{
-/* */
-	float   *_fbuffer = buffer;
-	int32_t *_ibuffer = buffer;
-
-/* */
-	for ( int i = 0; i < nsamp; i++, _fbuffer++, _ibuffer++, data++ ) {
-		*_fbuffer  = *data * PALERT_M16_COUNT_OVER_GAL;
-		*_fbuffer += *_fbuffer > 0.0 ? 0.9 : -0.9;
-		*_ibuffer  = (int32_t)*_fbuffer;
-	}
-
-	return buffer;
 }
 
 /**

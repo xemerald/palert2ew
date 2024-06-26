@@ -2,33 +2,55 @@
  * @file palert2ew_msg_queue.c
  * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
  * @brief
- * @date 2024-06-06
+ * @date 2020-08-01
+ *
  * @copyright Copyright (c) 2024
  *
  */
-/* Standard C header include */
+
+/**
+ * @name Standard C header include
+ *
+ */
 #include <stdint.h>
 #include <string.h>
-/* Earthworm environment header include */
+
+/**
+ * @name Earthworm environment header include
+ *
+ */
 #include <earthworm.h>
 #include <mem_circ_queue.h>
-/* Local header include */
+
+/**
+ * @name Local header include
+ *
+ */
 #include <libpalertc/libpalertc.h>
 #include <palert2ew.h>
 #include <palert2ew_list.h>
 
-/* Internal stack related struct */
+/**
+ * @brief Internal stack related struct
+ *
+ */
 struct last_buffer {
 	size_t  buffer_rear;
 	uint8_t buffer[PA2EW_RECV_BUFFER_LENGTH];
 };
 
-/* Define global variables */
+/**
+ * @name Internal static variables
+ *
+ */
 static mutex_t QueueMutex;
 static QUEUE   MsgQueue;         /* from queue.h, queue.c; sets up linked */
 static size_t  LRBufferOffset = 0;
 
-/* */
+/**
+ * @name Internal functions' prototype
+ *
+ */
 static LABELED_RECV_BUFFER *draw_last_buffer( void *, size_t * );
 static void                 save_last_buffer( void *, const size_t );
 static struct last_buffer  *create_last_buffer( _STAINFO * );

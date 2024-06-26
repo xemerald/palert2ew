@@ -1,21 +1,31 @@
-/*
- * stalist.h
+/**
+ * @file stalist.h
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief Header file for parse station list data.
+ * @date 2020-03-01
  *
- * Header file for parse station list data.
- *
- * Benjamin Yang
- * Department of Geology
- * National Taiwan University
- *
- * March, 2020
+ * @copyright Copyright (c) 2020
  *
  */
+
 #pragma once
-/* */
+
+/**
+ * @name
+ *
+ */
 #include <mysql.h>
-/* */
+
+/**
+ * @name
+ *
+ */
 #include <dbinfo.h>
 
+/**
+ * @brief
+ *
+ */
 #define COL_STA_LIST_TABLE \
 		X(COL_STA_SERIAL,   "serial"  ) \
 		X(COL_STA_STATION,  "station" ) \
@@ -29,6 +39,10 @@ typedef enum {
 } COL_STA_LIST;
 #undef X
 
+/**
+ * @brief
+ *
+ */
 #define COL_CHAN_LIST_TABLE \
 		X(COL_CHAN_CHANNEL,  "channel"          ) \
 		X(COL_CHAN_SEQ,      "sequence"         ) \
@@ -44,7 +58,8 @@ typedef enum {
 } COL_CHAN_LIST;
 #undef X
 
-/*
+/**
+ * @brief
  *
  */
 typedef union {
@@ -52,9 +67,16 @@ typedef union {
 	COL_CHAN_LIST col_chan;
 } STALIST_COL_LIST __attribute__((__transparent_union__));
 
+/**
+ * @brief
+ *
+ */
 typedef char *(*GET_COLUMN_NAME)( const STALIST_COL_LIST );
 
-/* Export functions' prototypes */
+/**
+ * @name Export functions' prototypes
+ *
+ */
 MYSQL_RES *stalist_sta_query_sql( const DBINFO *, const char *, const int, ... );
 MYSQL_RES *stalist_chan_query_sql(
 	const DBINFO *, const char *, const char *, const char *, const char *, const int, ...

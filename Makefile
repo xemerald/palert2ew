@@ -4,7 +4,11 @@
 
 # Default compile rule
 #
-default: clean ver_710_sql cap_set
+default: clean ver_710 cap_set
+
+# Compile rule for SQL version
+#
+sql: clean ver_710 cap_set
 
 # Compile rule for Earthworm version under 7.9
 #

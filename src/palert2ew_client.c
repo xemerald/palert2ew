@@ -2,37 +2,60 @@
  * @file palert2ew_client.c
  * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
  * @brief
- * @date 2024-06-06
- * @copyright Copyright (c) 2024
+ * @date 2020-08-01
+ *
+ * @copyright Copyright (c) 2020
  *
  */
-/* Standard C header include */
+
+/**
+ * @name Standard C header include
+ *
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-/* Network related header include */
+
+/**
+ * @name Network related header include
+ *
+ */
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
-/* Earthworm environment header include */
+
+/**
+ * @name Earthworm environment header include
+ *
+ */
 #include <earthworm.h>
-/* Local header include */
+
+/**
+ * @name Local header include
+ *
+ */
 #include <palert2ew.h>
 #include <palert2ew_list.h>
 #include <palert2ew_misc.h>
 #include <palert2ew_msg_queue.h>
 
-/* */
+/**
+ * @brief
+ *
+ */
 #define FW_PCK_HEADER_LENGTH     16
 #define RETRY_TIMES_LIMIT        5
 #define RECONNECT_TIMES_LIMIT    10
 #define RECONNECT_INTERVAL_MSEC  PA2EW_RECONNECT_INTERVAL
 #define SOCKET_RCVBUFFER_LENGTH  1232896  /* It comes from 1024 * 1204 */
 
-/* */
+/**
+ * @brief
+ *
+ */
 typedef struct {
 	uint16_t serial;
 	uint16_t length;
@@ -45,12 +68,18 @@ typedef struct {
 	uint8_t  recv_buffer[PA2EW_RECV_BUFFER_LENGTH];
 } FW_PCK;
 
-/* */
+/**
+ * @name Internal functions' prototype
+ *
+ */
 static void flush_sock_buffer( const int );
 static int  reconstruct_connect_sock( void );
 static int  construct_connect_sock( const char *, const char * );
 
-/* */
+/**
+ * @name Internal static variables
+ *
+ */
 static volatile int  ClientSocket = -1;
 static const char   *_ServerIP    = NULL;
 static const char   *_ServerPort  = NULL;

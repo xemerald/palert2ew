@@ -1,22 +1,35 @@
-/*
- * palert2ew.h
+/**
+ * @file palert2ew.h
+ * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
+ * @brief Header file of main program, that define those general constants & struct.
+ * @date 2020-08-01
  *
- * Header file of main program, that define those general constants & struct.
- *
- * Benjamin Yang
- * Department of Geology
- * National Taiwan University
- *
- * August, 2020
+ * @copyright Copyright (c) 2020
  *
  */
+
 #pragma once
-/* */
+
+/**
+ * @name Standard C header include
+ *
+ */
 #include <stdint.h>
-/* */
+
+/**
+ * @name Earthworm environment header include
+ *
+ */
 #include <libmseed.h>
 #include <trace_buf.h>
 
+/**
+ * @brief Program release information
+ *
+ */
+#define PALERT2EW_VERSION "2.1.0"
+#define PALERT2EW_RELEASE "2024.06.26"
+#define PALERT2EW_AUTHOR  "Benjamin Ming Yang"
 /* */
 #define PA2EW_INFO_FROM_SQL       4
 #define PA2EW_DEF_CHAN_PER_STA    3

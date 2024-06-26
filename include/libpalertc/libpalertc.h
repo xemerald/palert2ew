@@ -15,9 +15,10 @@
 #include "mode1.h"
 #include "mode4.h"
 #include "mode16.h"
-/* */
-#define LIBPALERTC_VERSION "2.0.0"    //!< Library version
-#define LIBPALERTC_RELEASE "2024.06.05"  //!< Library release date
+/* Library version */
+#define LIBPALERTC_VERSION "2.0.0"
+/* Library release date */
+#define LIBPALERTC_RELEASE "2024.06.26"
 /* */
 #define PALERT_PKT_MODE1  0x01
 #define PALERT_PKT_MODE2  0x02

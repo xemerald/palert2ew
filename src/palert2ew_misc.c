@@ -2,23 +2,43 @@
  * @file palert2ew_misc.c
  * @author Benjamin Ming Yang @ Department of Geology, National Taiwan University
  * @brief
- * @date 2024-06-06
- * @copyright Copyright (c) 2024
+ * @date 2022-02-01
+ *
+ * @copyright Copyright (c) 2022
  *
  */
-/* Standard C header include */
+
+/**
+ * @name Standard C header include
+ *
+ */
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
-/* Earthworm environment header include */
+
+/**
+ * @name Earthworm environment header include
+ *
+ */
 #include <trace_buf.h>
-/* */
+
+/**
+ * @name Local header include
+ *
+ */
 #include <palert2ew.h>
 
-/* */
+/**
+ * @name Internal functions' prototype
+ *
+ */
 static uint8_t cal_crc8_high( const uint8_t );
-/* */
+
+/**
+ * @name Internal static variables
+ *
+ */
 static uint8_t CRC8_Table[256] = { 0 };
 static uint8_t CRC8_Ready = 0;
 

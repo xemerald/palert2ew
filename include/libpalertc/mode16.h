@@ -154,4 +154,5 @@ double pac_m16_sptime_get( const PALERT_M16_HEADER * );
 double pac_m16_scale_get( const PALERT_M16_HEADER * );
 double pac_m16_ntp_offset_get( const PALERT_M16_HEADER * );
 void   pac_m16_data_extract( const PALERT_M16_PACKET *, int, float *[] );
+void   pac_m16_idata_extract( const PALERT_M16_PACKET *, int, int32_t *[] );
 int    pac_m16_crc_check( const PALERT_M16_PACKET * );
