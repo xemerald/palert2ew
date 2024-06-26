@@ -24,7 +24,16 @@ UniSampRate        100            # setting for unified sampling rate (Hz), if s
                                   # comment it out, let the program detect the sampling rate
                                   # from the packet
 
-# Data Quality setup:
+# Data quality setup:
+#
+# The new function for those who care about the data quality & integrity. First, since 2022 the
+# P-Alert sensors add the CRC-16 check sum into the packet include mode 1, 4 & 16.
+# By this check sum, this program is able to ensure the integrity of the receiving packets to
+# avoid those waveform glitches & anomalies.
+#
+# Second, sometimes the P-Alert sensors would lose the connection to NTP server which will also cause
+# gaps between waveforms. Therefore, for those who care about data continuity, this program can still
+# output the time questionable waveforms with special mark if you turn on the function.
 #
 CheckCRC16                0       # 0 (default) to turn off the checking process of CRC-16;
                                   # 1 to turn it on. Since the checking process takes some time;
