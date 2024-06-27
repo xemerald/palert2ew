@@ -16,11 +16,11 @@ HeartBeatInterval  15             # seconds between heartbeats
 QueueSize          1000           # max messages in internal circular msg buffer
 MaxStationNum      1024           # max number of stations which will receive data from
 UpdateInterval     0              # setting for automatical updating interval (seconds). If set this
-                                  # parameter larger than 0, the program will update the P-alerts
+                                  # parameter larger than 0, the program will update the P-Alerts
                                   # list with this interval; or the program will ignore the new
-                                  # incoming P-alerts' packets
+                                  # incoming P-Alerts' packets
 UniSampRate        100            # setting for unified sampling rate (Hz), if set this parameter,
-                                  # all of the P-alerts will be applied by this value; or just
+                                  # all of the P-Alerts will be applied by this value; or just
                                   # comment it out, let the program detect the sampling rate
                                   # from the packet
 
@@ -53,13 +53,13 @@ ForceOutputIntData        0       # 0 (default) to keep the raw data type from p
 
 # Palert server setup:
 #
-# There are two independent mode in this module: first, as a client-side program (0) connect to the P-alert
-# Core; second, as server-side program (1) accept those P-alerts connections. While setting to client-side mode (0),
-# the P-alert Core server informations are neccessary.
+# There are two independent mode in this module: first, as a client-side program (0) connect to the P-Alert
+# Core; second, as server-side program (1) accept those P-Alerts connections. While setting to client-side mode (0),
+# the P-Alert Core server informations are neccessary.
 #
 ServerSwitch      0               # 0 connect to Palert server; 1 as the server of Palert
-ServerIP          127.0.0.1       # Server IP address of P-alert Core server
-ServerPort        23000           # Server port of P-alert Core server
+ServerIP          127.0.0.1       # server IP address of P-Alert Core server
+ServerPort        23000           # server port of P-Alert Core server
 
 # MySQL server information:
 #
@@ -67,34 +67,34 @@ ServerPort        23000           # Server port of P-alert Core server
 # list from MySQL server or you can just comment all of them, then it will turn
 # off this function.
 #
-SQLHost         127.0.0.1         # The maximum length is 36 words
-SQLPort         3306              # Port number between 1 to 65536
-SQLDatabase     EEW	              # The maximum length is 36 words
+SQLHost         127.0.0.1         # the maximum length is 36 words
+SQLPort         3306              # port number between 1 to 65536
+SQLDatabase     EEW	              # the maximum length is 36 words
 
 # Login information example
 #
 # SQLUser       test
 # SQLPassword   123456
-#@LoginInfo_sql                    # Please keep the security of the SQL login information
+#@LoginInfo_sql                    # NOTICE!!! please keep the security of the SQL login information
 
 # List the stations list that will grab from MySQL server
 #
 # Even when you using MySQL server to fetch station information, the channel table is
 # optional. Once you comment the option, the channel information will be filled by
-# default value(HLZ, HLN & HLE).
+# default value (HLZ, HLN & HLE).
 #
 SQLStationTable    PalertList
 SQLChannelTable    PalertChannelList
 
 # Local station list:
 #
-# The local list for P-alerts that will receive. By the way, the priority of local list
-# is higher than the one from remote data. The channel codes are optional. If channel
+# The local list for P-Alerts that will receive. And the priority of local list
+# is higher than the one from remote database. The channel codes are optional. If channel
 # code is absent (Nchannel equal to 0), the value will be filled by the default value.
-# By the way the maximum value of Nchannel is 8. And the layout should be like these example:
+# By the way, the maximum value of Nchannel is 8. And the layout should be like these example:
 #
 # Palert   Serial   Station   Network   Location   Nchannel   Channel_0   Channel_1   Channel_2
-# Palert    1993      TEST      TW         --         3         HLZ          HLN        HLE      # First example
-# Palert    1993      TEST      TW         --         0                                          # Optional example
+# Palert    1993      TEST      TW         --         3         HLZ          HLN        HLE      # first example, also stand for default value
+# Palert    1993      TEST      TW         --         0                                          # optional example
 #
 #@palertlist_p2ew
