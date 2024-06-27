@@ -154,19 +154,14 @@ char *pac_m1_ip_get( const PALERT_M1_HEADER *pam1h, const int iptype, char *dest
  * @brief
  *
  * @param packet
- * @param buffer_0
- * @param buffer_1
- * @param buffer_2
- * @param buffer_3
- * @param buffer_4
+ * @param buffer
  */
-void pac_m1_data_extract(
-	const PALERT_M1_PACKET *packet, int32_t *buffer[PALERT_M1_CHAN_COUNT]
-) {
+void pac_m1_data_extract( const PALERT_M1_PACKET *packet, int32_t *buffer[PALERT_M1_CHAN_COUNT] )
+{
 /* Shortcut for the packet data */
 	const PALERT_M1_DATA *_data = packet->data;
 /* */
-	int32_t  dumping[PALERT_M1_SAMPLE_NUMBER] = { 0 };
+	int32_t  dumping[PALERT_M1_SAMPLE_NUMBER];  /* Zero init. is unnecessary */
 	uint16_t word;
 
 /* */

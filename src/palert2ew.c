@@ -1031,11 +1031,11 @@ static void process_packet_pm1( const void *packet, _STAINFO *stainfo, const cha
 	_CHAINFO   *chaptr     = (_CHAINFO *)stainfo->chaptr;
 	int32_t    *tb_data    = (int32_t *)(&tracebuf.trh2 + 1);
 	int32_t    *_databuf[PALERT_M1_CHAN_COUNT] = {
-		tb_data + PALERT_M1_SAMPLE_NUMBER * 0,
-		tb_data + PALERT_M1_SAMPLE_NUMBER * 1,
-		tb_data + PALERT_M1_SAMPLE_NUMBER * 2,
-		tb_data + PALERT_M1_SAMPLE_NUMBER * 3,
-		tb_data + PALERT_M1_SAMPLE_NUMBER * 4
+		tb_data + (PALERT_M1_SAMPLE_NUMBER * 0),
+		tb_data + (PALERT_M1_SAMPLE_NUMBER * 1),
+		tb_data + (PALERT_M1_SAMPLE_NUMBER * 2),
+		tb_data + (PALERT_M1_SAMPLE_NUMBER * 3),
+		tb_data + (PALERT_M1_SAMPLE_NUMBER * 4)
 	};
 
 /* Common information part */

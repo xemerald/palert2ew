@@ -72,7 +72,7 @@ void pac_m16_data_extract( const PALERT_M16_PACKET *packet, int nbuf, float *buf
 	PALERT_M16_DATA               data_buf;
 /* */
 	float *_buffer[packet->header.nchannel];
-	float  dumping[PALERT_MAX_SAMPRATE] = { 0 };
+	float  dumping[PALERT_MAX_SAMPRATE];  /* Zero init. is unnecessary */
 
 /* */
 	for ( int i = 0; i < packet->header.nchannel; i++ )
@@ -107,7 +107,7 @@ void pac_m16_idata_extract( const PALERT_M16_PACKET *packet, int nbuf, int32_t *
 	PALERT_M16_DATA               data_buf;
 /* */
 	int32_t *_buffer[packet->header.nchannel];
-	int32_t  dumping[PALERT_MAX_SAMPRATE] = { 0 };
+	int32_t  dumping[PALERT_MAX_SAMPRATE];  /* Zero init. is unnecessary */
 
 /* */
 	for ( int i = 0; i < packet->header.nchannel; i++ )
