@@ -20,9 +20,9 @@ UpdateInterval     0              # setting for automatical updating interval (s
                                   # list with this interval; or the program will ignore the new
                                   # incoming P-Alerts' packets
 UniSampRate        100            # setting for unified sampling rate (Hz), if set this parameter,
-                                  # all of the P-Alerts will be applied by this value; or just
-                                  # comment it out, let the program detect the sampling rate
-                                  # from the packet
+                                  # all of the P-Alerts with mode 1 packet will be applied by this
+                                  # value; or just comment it out, let the program detect the sampling
+                                  # rate from the packet (this function will be obsoleted later!!)
 
 # Data quality setup:
 #
@@ -69,7 +69,7 @@ ServerPort        23000           # server port of P-Alert Core server
 #
 SQLHost         127.0.0.1         # the maximum length is 36 words
 SQLPort         3306              # port number between 1 to 65536
-SQLDatabase     EEW	              # the maximum length is 36 words
+SQLDatabase     EEW               # the maximum length is 36 words
 
 # Login information example
 #

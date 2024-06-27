@@ -22,7 +22,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <search.h>
 #include <signal.h>
 #include <ctype.h>
 #include <time.h>
@@ -91,25 +90,25 @@ static void    handle_signal( void );
 #define WAVE_MSG_LOGO  0
 #define RAW_MSG_LOGO   1
 
-static SHM_INFO Region[2];      /* shared memory region to use for i/o    */
+static SHM_INFO Region[2];      /* shared memory region to use for i/o       */
 static MSG_LOGO Putlogo[2];     /* array for requesting module, type, instid */
-static pid_t    MyPid;          /* for restarts by startstop               */
+static pid_t    MyPid;          /* for restarts by startstop                 */
 
 /**
  * @name Thread things
  *
  */
-#define THREAD_STACK 8388608         /* 8388608 Byte = 8192 Kilobyte = 8 Megabyte */
-#define THREAD_OFF    0              /* Thread has not been started      */
-#define THREAD_ALIVE  1              /* Thread alive and well            */
-#define THREAD_ERR   -1              /* Thread encountered error quit    */
+#define THREAD_STACK 8388608    /* 8388608 Byte = 8192 Kilobyte = 8 Megabyte */
+#define THREAD_OFF    0         /* Thread has not been started               */
+#define THREAD_ALIVE  1         /* Thread alive and well                     */
+#define THREAD_ERR   -1         /* Thread encountered error quit             */
 static volatile int     ReceiverThreadsNum = 0;
 static volatile int8_t *MessageReceiverStatus = NULL;
 #if defined( _V710 )
-static ew_thread_t      UpdateThreadID      = 0;          /* Thread id for updating the Palert list */
+static ew_thread_t      UpdateThreadID      = 0;          /* Thread id for updating the Palert list       */
 static ew_thread_t     *ReceiverThreadID    = NULL;       /* Thread id for receiving messages from TCP/IP */
 #else
-static unsigned         UpdateThreadID      = 0;          /* Thread id for updating the Palert list */
+static unsigned         UpdateThreadID      = 0;          /* Thread id for updating the Palert list       */
 static unsigned        *ReceiverThreadID    = NULL;       /* Thread id for receiving messages from TCP/IP */
 #endif
 
@@ -341,7 +340,7 @@ int main ( int argc, char **argv )
 				) {
 					logit("e", "palert2ew: Error putting message in region %ld\n", RingKey[RAW_MSG_LOGO]);
 				}
-			/* Examine the NTP status */
+			/* Examine the NTP status; No matter what, here should check the NTP status first */
 				if ( examine_ntp_status( data_ptr->label.staptr, data_ptr->buffer, data_ptr->label.packmode ) || OutputTimeQuestionable ) {
 				/* Parse the raw packet to trace buffer */
 					switch ( data_ptr->label.packmode ) {
@@ -382,6 +381,8 @@ exit_procedure:
  * @brief Processes command file(s) using kom.c functions; exits if any errors are encountered.
  *
  * @param configfile
+ * @par Returns
+ * 	Nothing.
  */
 static void palert2ew_config( char *configfile )
 {
@@ -410,8 +411,7 @@ static void palert2ew_config( char *configfile )
 		exit(-1);
 	}
 
-/* Process all command files */
-/* While there are command files open */
+/* Process all command files, while there are command files open */
 	while ( nfiles > 0 ) {
 	/* Read next line from active file  */
 		while ( k_rd() ) {
@@ -633,6 +633,8 @@ static void palert2ew_config( char *configfile )
 /**
  * @brief Look up important info from earthworm.h tables
  *
+ * @par Returns
+ * 	Nothing.
  */
 static void palert2ew_lookup( void )
 {
@@ -692,6 +694,8 @@ static void palert2ew_lookup( void )
  * @param type
  * @param ierr
  * @param note
+ * @par Returns
+ * 	Nothing.
  */
 static void palert2ew_status( unsigned char type, short ierr, char *note )
 {
@@ -732,6 +736,8 @@ static void palert2ew_status( unsigned char type, short ierr, char *note )
 /**
  * @brief Free all the allocated memory & close socket
  *
+ * @par Returns
+ * 	Nothing.
  */
 static void palert2ew_end( void )
 {
@@ -755,6 +761,8 @@ static void palert2ew_end( void )
  * @brief
  *
  * @param wait_msec
+ * @par Returns
+ * 	Nothing.
  */
 static void check_receiver_client( const int wait_msec )
 {
@@ -789,6 +797,8 @@ static void check_receiver_client( const int wait_msec )
  * @brief
  *
  * @param wait_msec
+ * @par Returns
+ * 	Nothing.
  */
 static void check_receiver_server( const int wait_msec )
 {
@@ -972,12 +982,12 @@ static int update_list_configfile( char *configfile )
 		return -1;
 	}
 
-/* Process all command files */
-	while ( nfiles > 0 )  /* While there are command files open */
-	{
-		while ( k_rd() )  /* Read next line from active file  */
-		{
-			com = k_str();  /* Get the first token from line */
+/* Process all command files, while there are command files open */
+	while ( nfiles > 0 ) {
+	/* Read next line from active file  */
+		while ( k_rd() ) {
+		/* Get the first token from line */
+			com = k_str();
 		/* Ignore blank lines & comments */
 			if ( !com || com[0] == '#' )
 				continue;
@@ -1022,10 +1032,12 @@ static int update_list_configfile( char *configfile )
  * @param packet
  * @param stainfo
  * @param datatype
+ * @par Returns
+ * 	Nothing.
  */
 static void process_packet_pm1( const void *packet, _STAINFO *stainfo, const char datatype[2] )
 {
-	TracePacket tracebuf;  /* Trace message which is sent to share ring    */
+	TracePacket tracebuf;  /* Trace message which is sent to share ring */
 	size_t      data_size  = PALERT_M1_SAMPLE_NUMBER << 2;
 	size_t      total_size = data_size + sizeof(TRACE2_HEADER);
 	_CHAINFO   *chaptr     = (_CHAINFO *)stainfo->chaptr;
@@ -1080,11 +1092,13 @@ static void process_packet_pm1( const void *packet, _STAINFO *stainfo, const cha
  * @param packet
  * @param stainfo
  * @param datatype
+ * @par Returns
+ * 	Nothing.
  */
 static void process_packet_pm4( const void *packet, _STAINFO *stainfo, const char datatype[2] )
 {
-	int               msg_size;
-	TracePacket       tracebuf;  /* message which is sent to share ring    */
+	TracePacket       tracebuf;  /* message which is sent to share ring */
+	size_t            msg_size;
 	_CHAINFO         *chaptr   = (_CHAINFO *)stainfo->chaptr;
 	_CHAINFO         *cha_last = (_CHAINFO *)stainfo->chaptr + stainfo->nchannel;
 	PALERT_M4_HEADER *pah4     = (PALERT_M4_HEADER *)packet;
@@ -1145,13 +1159,15 @@ static void process_packet_pm4( const void *packet, _STAINFO *stainfo, const cha
  * @param packet
  * @param stainfo
  * @param datatype
+ * @par Returns
+ * 	Nothing.
  */
 static void process_packet_pm16( const void *packet, _STAINFO *stainfo, const char datatype[2] )
 {
 /* */
 	static uint8_t databuf[sizeof(PALERT_M16_PACKET)];
 /* */
-	TracePacket    tracebuf;  /* Trace message which is sent to share ring    */
+	TracePacket    tracebuf;  /* Trace message which is sent to share ring */
 	uint16_t       nsamp      = PALERT_M16_SAMPNUM_GET( (PALERT_M16_HEADER *)packet );
 	size_t         data_size  = nsamp << 2;
 	size_t         total_size = data_size + sizeof(TRACE2_HEADER);
@@ -1246,6 +1262,7 @@ not_sync:
 	if ( (*ntp_errors)++ >= pre_threshold ) {
 		if ( *ntp_errors < PA2EW_NTP_SYNC_ERR_LIMIT ) {
 			printf("palert2ew: Station %s lost connection to NTP server, please check it!\n", stainfo->sta);
+		/* Even NTP status is not good but it still under the error limit, we also accept this waveform */
 			goto pass;
 		}
 		else if ( *ntp_errors == PA2EW_NTP_SYNC_ERR_LIMIT ) {
@@ -1259,12 +1276,11 @@ not_sync:
 		}
 	/* Keep the error count equal to limit plus 1 */
 		*ntp_errors = PA2EW_NTP_SYNC_ERR_LIMIT + 1;
-	/* NTP status is not good and it exceed the error limit, we will reject this waveform */
+	/* NTP status is not good and it exceed the error limit, we will take this waveform as time unsychronized */
 		return 0;
 	}
 
 pass:
-/* Even NTP status is not good but it still under the error limit, we also accept this waveform */
 	return 1;
 }
 
@@ -1299,10 +1315,12 @@ static int check_pkt_crc( const void *packet, const int packet_mode )
 /**
  * @brief
  *
+ * @par Returns
+ * 	Nothing.
  */
 static void handle_signal( void )
 {
-	struct sigaction   act;
+	struct sigaction act;
 
 /* Signal handling */
 	sigemptyset(&act.sa_mask);
